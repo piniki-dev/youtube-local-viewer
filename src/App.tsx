@@ -14,9 +14,89 @@ type VideoItem = {
   channel: string;
   thumbnail?: string;
   sourceUrl: string;
+  publishedAt?: string;
+  contentType?: "video" | "live" | "shorts";
+  durationSec?: number;
+  liveStatus?: string;
+  isLive?: boolean;
+  wasLive?: boolean;
+  viewCount?: number;
+  likeCount?: number;
+  commentCount?: number;
+  tags?: string[];
+  categories?: string[];
+  description?: string;
+  channelId?: string;
+  uploaderId?: string;
+  channelUrl?: string;
+  uploaderUrl?: string;
+  availability?: string;
+  language?: string;
+  audioLanguage?: string;
+  ageLimit?: number;
   downloadStatus: DownloadStatus;
   commentsStatus: CommentStatus;
   addedAt: string;
+};
+
+type ChannelFeedItem = {
+  id: string;
+  title: string;
+  channel?: string | null;
+  thumbnail?: string | null;
+  url: string;
+  webpageUrl?: string | null;
+  durationSec?: number | null;
+  uploadDate?: string | null;
+  releaseTimestamp?: number | null;
+  timestamp?: number | null;
+  liveStatus?: string | null;
+  isLive?: boolean | null;
+  wasLive?: boolean | null;
+  viewCount?: number | null;
+  likeCount?: number | null;
+  commentCount?: number | null;
+  tags?: string[] | null;
+  categories?: string[] | null;
+  description?: string | null;
+  channelId?: string | null;
+  uploaderId?: string | null;
+  channelUrl?: string | null;
+  uploaderUrl?: string | null;
+  availability?: string | null;
+  language?: string | null;
+  audioLanguage?: string | null;
+  ageLimit?: number | null;
+};
+
+type VideoMetadata = {
+  id?: string | null;
+  title?: string | null;
+  channel?: string | null;
+  thumbnail?: string | null;
+  url?: string | null;
+  webpageUrl?: string | null;
+  durationSec?: number | null;
+  uploadDate?: string | null;
+  releaseTimestamp?: number | null;
+  timestamp?: number | null;
+  liveStatus?: string | null;
+  isLive?: boolean | null;
+  wasLive?: boolean | null;
+  viewCount?: number | null;
+  likeCount?: number | null;
+  commentCount?: number | null;
+  tags?: string[] | null;
+  categories?: string[] | null;
+  description?: string | null;
+  channelId?: string | null;
+  uploaderId?: string | null;
+  channelUrl?: string | null;
+  uploaderUrl?: string | null;
+  availability?: string | null;
+  language?: string | null;
+  audioLanguage?: string | null;
+  ageLimit?: number | null;
 };
 
 type DownloadFinished = {
@@ -72,10 +152,15 @@ function App() {
   const [videos, setVideos] = useState<VideoItem[]>([]);
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [addMode, setAddMode] = useState<"video" | "channel">("video");
   const [videoUrl, setVideoUrl] = useState("");
+  const [channelUrl, setChannelUrl] = useState("");
   const [downloadOnAdd, setDownloadOnAdd] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [isAdding, setIsAdding] = useState(false);
+  const [isChannelFetchOpen, setIsChannelFetchOpen] = useState(false);
+  const [channelFetchMessage, setChannelFetchMessage] = useState("");
+  const [channelFetchProgress, setChannelFetchProgress] = useState(0);
   const [downloadDir, setDownloadDir] = useState<string>("");
   const [downloadingIds, setDownloadingIds] = useState<string[]>([]);
   const [videoErrors, setVideoErrors] = useState<Record<string, string>>({});
@@ -468,6 +553,129 @@ function App() {
     }
   };
 
+  const parseUploadDate = (value?: string | null) => {
+    if (!value) return undefined;
+    const trimmed = value.trim();
+    if (!trimmed) return undefined;
+    if (/^\d{8}$/.test(trimmed)) {
+      const y = trimmed.slice(0, 4);
+      const m = trimmed.slice(4, 6);
+      const d = trimmed.slice(6, 8);
+      const iso = new Date(`${y}-${m}-${d}T00:00:00Z`);
+      if (!Number.isNaN(iso.getTime())) return iso.toISOString();
+    }
+    return undefined;
+  };
+
+  const parseTimestamp = (value?: number | null) => {
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return new Date(value * 1000).toISOString();
+    }
+    return undefined;
+  };
+
+  const deriveContentType = (input: {
+    webpageUrl?: string | null;
+    durationSec?: number | null;
+    liveStatus?: string | null;
+    isLive?: boolean | null;
+  }) => {
+    const liveStatus = input.liveStatus?.toLowerCase();
+    if (input.isLive || liveStatus === "is_live" || liveStatus === "upcoming") {
+      return "live" as const;
+    }
+    if (liveStatus === "post_live" || liveStatus === "was_live") {
+      return "live" as const;
+    }
+    if (input.webpageUrl?.includes("/shorts/")) {
+      return "shorts" as const;
+    }
+    if (typeof input.durationSec === "number" && input.durationSec <= 60) {
+      return "shorts" as const;
+    }
+    return "video" as const;
+  };
+
+  const buildMetadataFields = (input: {
+    webpageUrl?: string | null;
+    durationSec?: number | null;
+    uploadDate?: string | null;
+    releaseTimestamp?: number | null;
+    timestamp?: number | null;
+    liveStatus?: string | null;
+    isLive?: boolean | null;
+    wasLive?: boolean | null;
+    viewCount?: number | null;
+    likeCount?: number | null;
+    commentCount?: number | null;
+    tags?: string[] | null;
+    categories?: string[] | null;
+    description?: string | null;
+    channelId?: string | null;
+    uploaderId?: string | null;
+    channelUrl?: string | null;
+    uploaderUrl?: string | null;
+    availability?: string | null;
+    language?: string | null;
+    audioLanguage?: string | null;
+    ageLimit?: number | null;
+  }) => {
+    const publishedAt =
+      parseTimestamp(input.releaseTimestamp) ??
+      parseTimestamp(input.timestamp) ??
+      parseUploadDate(input.uploadDate);
+    return {
+      publishedAt,
+      contentType: deriveContentType(input),
+      durationSec:
+        typeof input.durationSec === "number" ? input.durationSec : undefined,
+      liveStatus: input.liveStatus ?? undefined,
+      isLive: input.isLive ?? undefined,
+      wasLive: input.wasLive ?? undefined,
+      viewCount:
+        typeof input.viewCount === "number" ? input.viewCount : undefined,
+      likeCount:
+        typeof input.likeCount === "number" ? input.likeCount : undefined,
+      commentCount:
+        typeof input.commentCount === "number" ? input.commentCount : undefined,
+      tags: Array.isArray(input.tags) ? input.tags : undefined,
+      categories: Array.isArray(input.categories) ? input.categories : undefined,
+      description: input.description ?? undefined,
+      channelId: input.channelId ?? undefined,
+      uploaderId: input.uploaderId ?? undefined,
+      channelUrl: input.channelUrl ?? undefined,
+      uploaderUrl: input.uploaderUrl ?? undefined,
+      availability: input.availability ?? undefined,
+      language: input.language ?? undefined,
+      audioLanguage: input.audioLanguage ?? undefined,
+      ageLimit:
+        typeof input.ageLimit === "number" ? input.ageLimit : undefined,
+    } satisfies Pick<
+      VideoItem,
+      | "publishedAt"
+      | "contentType"
+      | "durationSec"
+      | "liveStatus"
+      | "isLive"
+      | "wasLive"
+      | "viewCount"
+      | "likeCount"
+      | "commentCount"
+      | "tags"
+      | "categories"
+      | "description"
+      | "channelId"
+      | "uploaderId"
+      | "channelUrl"
+      | "uploaderUrl"
+      | "availability"
+      | "language"
+      | "audioLanguage"
+      | "ageLimit"
+    >;
+  };
+
+
   const addVideo = async () => {
     setErrorMessage("");
     const trimmed = videoUrl.trim();
@@ -485,14 +693,50 @@ function App() {
     setIsAdding(true);
     try {
       const oembedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${id}&format=json`;
-      const res = await fetch(oembedUrl);
-      const data = res.ok ? await res.json() : null;
+      const [oembedRes, metadata] = await Promise.all([
+        fetch(oembedUrl),
+        invoke<VideoMetadata>("get_video_metadata", {
+          url: trimmed,
+          cookiesFile: cookiesFile || null,
+          remoteComponents: remoteComponents === "none" ? null : remoteComponents,
+          ytDlpPath: ytDlpPath || null,
+        }).catch(() => null),
+      ]);
+      const data = oembedRes.ok ? await oembedRes.json() : null;
+      const metaFields = buildMetadataFields({
+        webpageUrl: metadata?.webpageUrl ?? null,
+        durationSec: metadata?.durationSec ?? null,
+        uploadDate: metadata?.uploadDate ?? null,
+        releaseTimestamp: metadata?.releaseTimestamp ?? null,
+        timestamp: metadata?.timestamp ?? null,
+        liveStatus: metadata?.liveStatus ?? null,
+        isLive: metadata?.isLive ?? null,
+        wasLive: metadata?.wasLive ?? null,
+        viewCount: metadata?.viewCount ?? null,
+        likeCount: metadata?.likeCount ?? null,
+        commentCount: metadata?.commentCount ?? null,
+        tags: metadata?.tags ?? null,
+        categories: metadata?.categories ?? null,
+        description: metadata?.description ?? null,
+        channelId: metadata?.channelId ?? null,
+        uploaderId: metadata?.uploaderId ?? null,
+        channelUrl: metadata?.channelUrl ?? null,
+        uploaderUrl: metadata?.uploaderUrl ?? null,
+        availability: metadata?.availability ?? null,
+        language: metadata?.language ?? null,
+        audioLanguage: metadata?.audioLanguage ?? null,
+        ageLimit: metadata?.ageLimit ?? null,
+      });
       const newVideo: VideoItem = {
         id,
-        title: data?.title ?? "Untitled",
-        channel: data?.author_name ?? "YouTube",
-        thumbnail: data?.thumbnail_url ?? `https://i.ytimg.com/vi/${id}/hqdefault.jpg`,
+        title: data?.title ?? metadata?.title ?? "Untitled",
+        channel: data?.author_name ?? metadata?.channel ?? "YouTube",
+        thumbnail:
+          data?.thumbnail_url ??
+          metadata?.thumbnail ??
+          `https://i.ytimg.com/vi/${id}/hqdefault.jpg`,
         sourceUrl: trimmed,
+        ...metaFields,
         downloadStatus: "pending",
         commentsStatus: "pending",
         addedAt: new Date().toISOString(),
@@ -507,6 +751,120 @@ function App() {
       setErrorMessage("動画情報の取得に失敗しました。");
     } finally {
       setIsAdding(false);
+    }
+  };
+
+  const addChannelVideos = async () => {
+    setErrorMessage("");
+    const trimmed = channelUrl.trim();
+    if (!trimmed) {
+      setErrorMessage("チャンネルURLを入力してください。");
+      return;
+    }
+
+    setIsAdding(true);
+    setIsChannelFetchOpen(true);
+    setChannelFetchProgress(0);
+    setChannelFetchMessage("チャンネル情報を取得中...");
+    try {
+      setChannelFetchProgress(35);
+      setChannelFetchMessage("動画一覧を取得中...");
+      const result = await invoke<ChannelFeedItem[]>("list_channel_videos", {
+        url: trimmed,
+        cookiesFile: cookiesFile || null,
+        remoteComponents: remoteComponents === "none" ? null : remoteComponents,
+        ytDlpPath: ytDlpPath || null,
+        limit: null,
+      });
+      setChannelFetchProgress(70);
+      setChannelFetchMessage("動画リストを整理中...");
+
+      const existingIds = new Set(videos.map((v) => v.id));
+      const baseTime = Date.now();
+      const total = result?.length ?? 0;
+      const newItems = (result ?? [])
+        .filter((item) => item?.id && !existingIds.has(item.id))
+        .map((item, index) => {
+          const addedAt = new Date(baseTime + (total - index)).toISOString();
+          const metaFields = buildMetadataFields({
+            webpageUrl: item.webpageUrl ?? item.url ?? null,
+            durationSec: item.durationSec ?? null,
+            uploadDate: item.uploadDate ?? null,
+            releaseTimestamp: item.releaseTimestamp ?? null,
+            timestamp: item.timestamp ?? null,
+            liveStatus: item.liveStatus ?? null,
+            isLive: item.isLive ?? null,
+            wasLive: item.wasLive ?? null,
+            viewCount: item.viewCount ?? null,
+            likeCount: item.likeCount ?? null,
+            commentCount: item.commentCount ?? null,
+            tags: item.tags ?? null,
+            categories: item.categories ?? null,
+            description: item.description ?? null,
+            channelId: item.channelId ?? null,
+            uploaderId: item.uploaderId ?? null,
+            channelUrl: item.channelUrl ?? null,
+            uploaderUrl: item.uploaderUrl ?? null,
+            availability: item.availability ?? null,
+            language: item.language ?? null,
+            audioLanguage: item.audioLanguage ?? null,
+            ageLimit: item.ageLimit ?? null,
+          });
+          return {
+            id: item.id,
+            title: item.title || "Untitled",
+            channel: item.channel?.trim() || "YouTube",
+            thumbnail:
+              item.thumbnail || `https://i.ytimg.com/vi/${item.id}/hqdefault.jpg`,
+            sourceUrl: item.url || `https://www.youtube.com/watch?v=${item.id}`,
+            ...metaFields,
+            downloadStatus: "pending" as const,
+            commentsStatus: "pending" as const,
+            addedAt,
+          } satisfies VideoItem;
+        });
+
+      if (newItems.length === 0) {
+        setErrorMessage("追加できる新しい動画が見つかりませんでした。");
+        return;
+      }
+
+      setChannelFetchProgress(90);
+      setChannelFetchMessage(`追加確認中... (${newItems.length}件)`);
+
+      const confirmed = window.confirm(
+        `${newItems.length}件の動画を追加してもいいですか？`
+      );
+      if (!confirmed) {
+        setChannelFetchMessage("キャンセルしました");
+        return;
+      }
+
+      setChannelFetchMessage(`追加中... (${newItems.length}件)`);
+      setVideos((prev) => [...newItems, ...prev]);
+      setChannelUrl("");
+      setIsAddOpen(false);
+      setChannelFetchProgress(100);
+      setChannelFetchMessage("完了しました");
+    } catch (err) {
+      const detail =
+        err instanceof Error
+          ? err.message
+          : typeof err === "string"
+            ? err
+            : "";
+      setErrorMessage(
+        detail
+          ? `チャンネルの動画取得に失敗しました。${detail}`
+          : "チャンネルの動画取得に失敗しました。"
+      );
+    } finally {
+      setIsAdding(false);
+      setTimeout(() => {
+        setIsChannelFetchOpen(false);
+        setChannelFetchProgress(0);
+        setChannelFetchMessage("");
+      }, 400);
     }
   };
 
@@ -1135,23 +1493,61 @@ function App() {
               </button>
             </div>
             <div className="modal-body">
-              <label>
-                動画URL
-                <input
-                  type="url"
-                  placeholder="https://www.youtube.com/watch?v=..."
-                  value={videoUrl}
-                  onChange={(e) => setVideoUrl(e.target.value)}
-                />
-              </label>
-              <label className="checkbox">
-                <input
-                  type="checkbox"
-                  checked={downloadOnAdd}
-                  onChange={(e) => setDownloadOnAdd(e.target.checked)}
-                />
-                追加と同時にダウンロードする
-              </label>
+              <div className="segmented">
+                <button
+                  className={addMode === "video" ? "active" : ""}
+                  onClick={() => {
+                    setAddMode("video");
+                    setErrorMessage("");
+                  }}
+                  type="button"
+                >
+                  動画
+                </button>
+                <button
+                  className={addMode === "channel" ? "active" : ""}
+                  onClick={() => {
+                    setAddMode("channel");
+                    setErrorMessage("");
+                  }}
+                  type="button"
+                >
+                  チャンネル
+                </button>
+              </div>
+              {addMode === "video" ? (
+                <label>
+                  動画URL
+                  <input
+                    type="url"
+                    placeholder="https://www.youtube.com/watch?v=..."
+                    value={videoUrl}
+                    onChange={(e) => setVideoUrl(e.target.value)}
+                  />
+                </label>
+              ) : (
+                <>
+                  <label>
+                    チャンネルURL
+                    <input
+                      type="url"
+                      placeholder="https://www.youtube.com/@channel"
+                      value={channelUrl}
+                      onChange={(e) => setChannelUrl(e.target.value)}
+                    />
+                  </label>
+                </>
+              )}
+              {addMode === "video" && (
+                <label className="checkbox">
+                  <input
+                    type="checkbox"
+                    checked={downloadOnAdd}
+                    onChange={(e) => setDownloadOnAdd(e.target.checked)}
+                  />
+                  追加と同時にダウンロードする
+                </label>
+              )}
               {errorMessage && <p className="error">{errorMessage}</p>}
             </div>
             <div className="modal-footer">
@@ -1160,10 +1556,13 @@ function App() {
               </button>
               <button
                 className="primary"
-                onClick={addVideo}
-                disabled={isAdding || !videoUrl.trim()}
+                onClick={addMode === "video" ? addVideo : addChannelVideos}
+                disabled={
+                  isAdding ||
+                  (addMode === "video" ? !videoUrl.trim() : !channelUrl.trim())
+                }
               >
-                追加
+                {addMode === "video" ? "追加" : "まとめて追加"}
               </button>
             </div>
           </div>
@@ -1297,6 +1696,32 @@ function App() {
                 </div>
               </div>
               {errorMessage && <p className="error">{errorMessage}</p>}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isChannelFetchOpen && (
+        <div className="modal-backdrop" onClick={() => setIsChannelFetchOpen(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>チャンネル動画を取得中</h2>
+              <button className="icon" onClick={() => setIsChannelFetchOpen(false)}>
+                ×
+              </button>
+            </div>
+            <div className="modal-body">
+              <div className="loading-row">
+                <div className="spinner" aria-hidden="true" />
+                <p className="loading-text">{channelFetchMessage || "取得中..."}</p>
+              </div>
+              <div className="progress">
+                <div
+                  className="progress-bar"
+                  style={{ width: `${Math.min(channelFetchProgress, 100)}%` }}
+                />
+              </div>
+              <p className="progress-caption">{channelFetchProgress}%</p>
             </div>
           </div>
         </div>

@@ -13,6 +13,12 @@ dist-ssr
 *.local
 Downloads/
 
+# Local tool binaries
+ffmpeg.exe
+ffplay.exe
+ffprobe.exe
+yt-dlp.exe
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

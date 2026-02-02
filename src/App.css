@@ -258,11 +258,82 @@ body {
   color: #4b5160;
 }
 
-.modal-body input[type="url"] {
+.modal-body input[type="url"],
+.modal-body input[type="number"] {
   border: 1px solid #d7dbe6;
   border-radius: 8px;
   padding: 10px 12px;
   font-size: 14px;
+}
+
+.segmented {
+  display: inline-flex;
+  border: 1px solid #d7dbe6;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #f7f8fb;
+  align-self: flex-start;
+}
+
+.segmented button {
+  border: none;
+  background: transparent;
+  padding: 8px 14px;
+  font-size: 13px;
+  cursor: pointer;
+  color: #4b5160;
+}
+
+.segmented button.active {
+  background: #111;
+  color: #fff;
+}
+
+.loading-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.loading-text {
+  margin: 0;
+  font-size: 14px;
+  color: #4b5160;
+}
+
+.spinner {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 3px solid #e0e4ed;
+  border-top-color: #111;
+  animation: spin 0.9s linear infinite;
+}
+
+.progress {
+  width: 100%;
+  height: 8px;
+  background: #eef1f6;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #111, #3b82f6);
+  transition: width 0.2s ease;
+}
+
+.progress-caption {
+  margin: 0;
+  font-size: 12px;
+  color: #6a7383;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .checkbox {

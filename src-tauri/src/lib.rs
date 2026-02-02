@@ -45,6 +45,70 @@ struct MediaInfo {
     container: Option<String>,
 }
 
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ChannelVideoItem {
+    id: String,
+    title: String,
+    channel: Option<String>,
+    url: String,
+    thumbnail: Option<String>,
+    webpage_url: Option<String>,
+    duration_sec: Option<u64>,
+    upload_date: Option<String>,
+    release_timestamp: Option<i64>,
+    timestamp: Option<i64>,
+    live_status: Option<String>,
+    is_live: Option<bool>,
+    was_live: Option<bool>,
+    view_count: Option<u64>,
+    like_count: Option<u64>,
+    comment_count: Option<u64>,
+    tags: Option<Vec<String>>,
+    categories: Option<Vec<String>>,
+    description: Option<String>,
+    channel_id: Option<String>,
+    uploader_id: Option<String>,
+    channel_url: Option<String>,
+    uploader_url: Option<String>,
+    availability: Option<String>,
+    language: Option<String>,
+    audio_language: Option<String>,
+    age_limit: Option<u64>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct VideoMetadata {
+    id: Option<String>,
+    title: Option<String>,
+    channel: Option<String>,
+    thumbnail: Option<String>,
+    url: Option<String>,
+    webpage_url: Option<String>,
+    duration_sec: Option<u64>,
+    upload_date: Option<String>,
+    release_timestamp: Option<i64>,
+    timestamp: Option<i64>,
+    live_status: Option<String>,
+    is_live: Option<bool>,
+    was_live: Option<bool>,
+    view_count: Option<u64>,
+    like_count: Option<u64>,
+    comment_count: Option<u64>,
+    tags: Option<Vec<String>>,
+    categories: Option<Vec<String>>,
+    description: Option<String>,
+    channel_id: Option<String>,
+    uploader_id: Option<String>,
+    channel_url: Option<String>,
+    uploader_url: Option<String>,
+    availability: Option<String>,
+    language: Option<String>,
+    audio_language: Option<String>,
+    age_limit: Option<u64>,
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 struct PersistedState {
     videos: Vec<serde_json::Value>,
@@ -322,6 +386,425 @@ fn start_comments_download(
     });
 
     Ok(())
+}
+
+#[tauri::command]
+fn get_video_metadata(
+    url: String,
+    cookies_file: Option<String>,
+    remote_components: Option<String>,
+    yt_dlp_path: Option<String>,
+) -> Result<VideoMetadata, String> {
+    let yt_dlp = resolve_override(yt_dlp_path).unwrap_or_else(resolve_yt_dlp);
+    let mut command = Command::new(yt_dlp);
+    command
+        .arg("--dump-single-json")
+        .arg("--skip-download")
+        .arg("--no-playlist")
+        .arg("--no-warnings");
+    if let Some(path) = cookies_file {
+        if !path.trim().is_empty() {
+            command.arg("--cookies").arg(path);
+        }
+    }
+    if let Some(remote) = remote_components {
+        if !remote.trim().is_empty() {
+            command.arg("--remote-components").arg(remote);
+        }
+    }
+    command.arg(&url);
+
+    let output = command
+        .output()
+        .map_err(|e| format!("yt-dlpの起動に失敗しました: {}", e))?;
+
+    if !output.status.success() && output.stdout.is_empty() {
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        return Err(if stderr.trim().is_empty() {
+            "yt-dlpの実行に失敗しました。".to_string()
+        } else {
+            stderr
+        });
+    }
+
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout)
+        .map_err(|e| format!("yt-dlpの出力解析に失敗しました: {}", e))?;
+
+    Ok(VideoMetadata {
+        id: value.get("id").and_then(|v| v.as_str()).map(|s| s.to_string()),
+        title: value.get("title").and_then(|v| v.as_str()).map(|s| s.to_string()),
+        channel: value
+            .get("channel")
+            .and_then(|v| v.as_str())
+            .or_else(|| value.get("uploader").and_then(|v| v.as_str()))
+            .or_else(|| value.get("channel_title").and_then(|v| v.as_str()))
+            .map(|s| s.to_string()),
+        thumbnail: value
+            .get("thumbnail")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+        url: value
+            .get("url")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+        webpage_url: value
+            .get("webpage_url")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+        duration_sec: value.get("duration").and_then(|v| v.as_u64()),
+        upload_date: value
+            .get("upload_date")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+        release_timestamp: value
+            .get("release_timestamp")
+            .and_then(|v| v.as_i64()),
+        timestamp: value.get("timestamp").and_then(|v| v.as_i64()),
+        live_status: value
+            .get("live_status")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+        is_live: value.get("is_live").and_then(|v| v.as_bool()),
+        was_live: value.get("was_live").and_then(|v| v.as_bool()),
+        view_count: value.get("view_count").and_then(|v| v.as_u64()),
+        like_count: value.get("like_count").and_then(|v| v.as_u64()),
+        comment_count: value.get("comment_count").and_then(|v| v.as_u64()),
+        tags: value
+            .get("tags")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|item| item.as_str().map(|s| s.to_string()))
+                    .collect::<Vec<String>>()
+            }),
+        categories: value
+            .get("categories")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|item| item.as_str().map(|s| s.to_string()))
+                    .collect::<Vec<String>>()
+            }),
+        description: value
+            .get("description")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+        channel_id: value
+            .get("channel_id")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+        uploader_id: value
+            .get("uploader_id")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+        channel_url: value
+            .get("channel_url")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+        uploader_url: value
+            .get("uploader_url")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+        availability: value
+            .get("availability")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+        language: value
+            .get("language")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+        audio_language: value
+            .get("audio_language")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+        age_limit: value.get("age_limit").and_then(|v| v.as_u64()),
+    })
+}
+
+
+#[tauri::command]
+fn list_channel_videos(
+    url: String,
+    cookies_file: Option<String>,
+    remote_components: Option<String>,
+    yt_dlp_path: Option<String>,
+    limit: Option<u32>,
+) -> Result<Vec<ChannelVideoItem>, String> {
+    let yt_dlp = resolve_override(yt_dlp_path).unwrap_or_else(resolve_yt_dlp);
+    let base_url = normalize_channel_base_url(&url);
+    let section_urls = build_channel_section_urls(&base_url);
+
+    let mut merged: Vec<ChannelVideoItem> = Vec::new();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    for section_url in section_urls {
+        let mut items = match fetch_channel_section(
+            &yt_dlp,
+            &section_url,
+            cookies_file.as_ref(),
+            remote_components.as_ref(),
+            limit,
+        ) {
+            Ok(items) => items,
+            Err(_) => Vec::new(),
+        };
+        for item in items.drain(..) {
+            if seen.insert(item.id.clone()) {
+                merged.push(item);
+            }
+        }
+    }
+
+    Ok(merged)
+}
+
+fn fetch_channel_section(
+    yt_dlp: &str,
+    url: &str,
+    cookies_file: Option<&String>,
+    remote_components: Option<&String>,
+    limit: Option<u32>,
+) -> Result<Vec<ChannelVideoItem>, String> {
+    let mut command = Command::new(yt_dlp);
+    command
+        .arg("--flat-playlist")
+        .arg("--yes-playlist")
+        .arg("--ignore-errors")
+        .arg("--no-warnings")
+        .arg("--skip-download")
+        .arg("--dump-single-json");
+    if let Some(limit) = limit {
+        if limit > 0 {
+            command.arg("--playlist-end").arg(limit.to_string());
+        }
+    }
+    if let Some(path) = cookies_file {
+        if !path.trim().is_empty() {
+            command.arg("--cookies").arg(path);
+        }
+    }
+    if let Some(remote) = remote_components {
+        if !remote.trim().is_empty() {
+            command.arg("--remote-components").arg(remote);
+        }
+    }
+    command.arg(url);
+
+    let output = command
+        .output()
+        .map_err(|e| format!("yt-dlpの起動に失敗しました: {}", e))?;
+
+    let stdout = output.stdout;
+    if !output.status.success() && stdout.is_empty() {
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        return Err(if stderr.trim().is_empty() {
+            "yt-dlpの実行に失敗しました。".to_string()
+        } else {
+            stderr
+        });
+    }
+
+    if stdout.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let value: serde_json::Value = serde_json::from_slice(&stdout)
+        .map_err(|e| format!("yt-dlpの出力解析に失敗しました: {}", e))?;
+    let entries = value
+        .get("entries")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| "動画一覧が取得できませんでした。".to_string())?;
+
+    let channel_id = value
+        .get("channel_id")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .or_else(|| {
+            value
+                .get("uploader_id")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+        });
+
+    let mut items = Vec::new();
+    for entry in entries {
+        let id = entry
+            .get("id")
+            .and_then(|v| v.as_str())
+            .or_else(|| entry.get("url").and_then(|v| v.as_str()))
+            .map(|s| s.to_string());
+        let Some(id) = id else {
+            continue;
+        };
+
+        if channel_id.as_deref().is_some_and(|cid| cid == id) {
+            continue;
+        }
+
+        let title = entry
+            .get("title")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Untitled")
+            .to_string();
+
+        if title.ends_with(" - Videos") || title.ends_with(" - Live") || title.ends_with(" - Shorts") {
+            continue;
+        }
+
+        let channel = entry
+            .get("channel")
+            .and_then(|v| v.as_str())
+            .or_else(|| entry.get("uploader").and_then(|v| v.as_str()))
+            .or_else(|| entry.get("channel_title").and_then(|v| v.as_str()))
+            .map(|s| s.to_string());
+        let url_value = entry
+            .get("url")
+            .and_then(|v| v.as_str())
+            .unwrap_or(&id);
+        let full_url = if url_value.starts_with("http") {
+            url_value.to_string()
+        } else {
+            format!("https://www.youtube.com/watch?v={}", url_value)
+        };
+        let thumbnail = entry
+            .get("thumbnail")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let webpage_url = entry
+            .get("webpage_url")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let duration_sec = entry.get("duration").and_then(|v| v.as_u64());
+        let upload_date = entry
+            .get("upload_date")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let release_timestamp = entry.get("release_timestamp").and_then(|v| v.as_i64());
+        let timestamp = entry.get("timestamp").and_then(|v| v.as_i64());
+        let live_status = entry
+            .get("live_status")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let is_live = entry.get("is_live").and_then(|v| v.as_bool());
+        let was_live = entry.get("was_live").and_then(|v| v.as_bool());
+        let view_count = entry.get("view_count").and_then(|v| v.as_u64());
+        let like_count = entry.get("like_count").and_then(|v| v.as_u64());
+        let comment_count = entry.get("comment_count").and_then(|v| v.as_u64());
+        let tags = entry
+            .get("tags")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|item| item.as_str().map(|s| s.to_string()))
+                    .collect::<Vec<String>>()
+            });
+        let categories = entry
+            .get("categories")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|item| item.as_str().map(|s| s.to_string()))
+                    .collect::<Vec<String>>()
+            });
+        let description = entry
+            .get("description")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let channel_id = entry
+            .get("channel_id")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let uploader_id = entry
+            .get("uploader_id")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let channel_url = entry
+            .get("channel_url")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let uploader_url = entry
+            .get("uploader_url")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let availability = entry
+            .get("availability")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let language = entry
+            .get("language")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let audio_language = entry
+            .get("audio_language")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let age_limit = entry.get("age_limit").and_then(|v| v.as_u64());
+
+        items.push(ChannelVideoItem {
+            id,
+            title,
+            channel,
+            url: full_url,
+            thumbnail,
+            webpage_url,
+            duration_sec,
+            upload_date,
+            release_timestamp,
+            timestamp,
+            live_status,
+            is_live,
+            was_live,
+            view_count,
+            like_count,
+            comment_count,
+            tags,
+            categories,
+            description,
+            channel_id,
+            uploader_id,
+            channel_url,
+            uploader_url,
+            availability,
+            language,
+            audio_language,
+            age_limit,
+        });
+    }
+
+    Ok(items)
+}
+
+fn normalize_channel_base_url(url: &str) -> String {
+    let lowered = url.to_lowercase();
+    let replaced = if lowered.contains("/live") {
+        url.replace("/live", "")
+    } else if lowered.contains("/shorts") {
+        url.replace("/shorts", "")
+    } else if lowered.contains("/featured") {
+        url.replace("/featured", "")
+    } else if lowered.contains("/streams") {
+        url.replace("/streams", "")
+    } else if lowered.contains("/playlists") {
+        url.replace("/playlists", "")
+    } else if lowered.contains("/videos") {
+        url.replace("/videos", "")
+    } else {
+        url.to_string()
+    };
+    if replaced.ends_with('/') {
+        replaced.trim_end_matches('/').to_string()
+    } else {
+        replaced
+    }
+}
+
+fn build_channel_section_urls(base_url: &str) -> Vec<String> {
+    vec![
+        format!("{}/videos", base_url.trim_end_matches('/')),
+        format!("{}/streams", base_url.trim_end_matches('/')),
+        format!("{}/live", base_url.trim_end_matches('/')),
+        format!("{}/shorts", base_url.trim_end_matches('/')),
+    ]
 }
 
 #[tauri::command]
@@ -1132,6 +1615,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             start_download,
             start_comments_download,
+            list_channel_videos,
+            get_video_metadata,
             get_comments,
             resolve_video_file,
             video_file_exists,
