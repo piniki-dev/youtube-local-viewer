@@ -25,11 +25,13 @@ struct CommentsFinished {
 }
 
 #[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct CommentItem {
     author: String,
     text: String,
     like_count: Option<u64>,
     published_at: Option<String>,
+    offset_ms: Option<u64>,
 }
 
 #[derive(Clone, Serialize)]
@@ -49,6 +51,9 @@ struct PersistedState {
     download_dir: Option<String>,
     cookies_file: Option<String>,
     remote_components: Option<String>,
+    yt_dlp_path: Option<String>,
+    ffmpeg_path: Option<String>,
+    ffprobe_path: Option<String>,
 }
 
 #[tauri::command]
@@ -59,9 +64,12 @@ fn start_download(
     output_dir: String,
     cookies_file: Option<String>,
     remote_components: Option<String>,
+    yt_dlp_path: Option<String>,
+    ffmpeg_path: Option<String>,
 ) -> Result<(), String> {
     let output_path = format!("{}/%(title)s [%(id)s].%(ext)s", output_dir);
-    let yt_dlp = resolve_yt_dlp();
+    let yt_dlp = resolve_override(yt_dlp_path).unwrap_or_else(resolve_yt_dlp);
+    let ffmpeg_location = resolve_override(ffmpeg_path);
 
     std::thread::spawn(move || {
         let mut command = Command::new(yt_dlp);
@@ -75,6 +83,9 @@ fn start_download(
             .arg("mp4")
             .arg("-o")
             .arg(output_path);
+        if let Some(location) = ffmpeg_location {
+            command.arg("--ffmpeg-location").arg(location);
+        }
         if let Some(path) = cookies_file {
             if !path.trim().is_empty() {
                 command.arg("--cookies").arg(path);
@@ -185,9 +196,12 @@ fn start_comments_download(
     output_dir: String,
     cookies_file: Option<String>,
     remote_components: Option<String>,
+    yt_dlp_path: Option<String>,
+    ffmpeg_path: Option<String>,
 ) -> Result<(), String> {
     let output_path = format!("{}/%(title)s [%(id)s].%(ext)s", output_dir);
-    let yt_dlp = resolve_yt_dlp();
+    let yt_dlp = resolve_override(yt_dlp_path).unwrap_or_else(resolve_yt_dlp);
+    let ffmpeg_location = resolve_override(ffmpeg_path);
 
     std::thread::spawn(move || {
         let mut command = Command::new(yt_dlp);
@@ -205,6 +219,9 @@ fn start_comments_download(
             .arg("--write-info-json")
             .arg("-o")
             .arg(output_path);
+        if let Some(location) = ffmpeg_location {
+            command.arg("--ffmpeg-location").arg(location);
+        }
         if let Some(path) = cookies_file {
             if !path.trim().is_empty() {
                 command.arg("--cookies").arg(path);
@@ -460,8 +477,8 @@ fn comments_file_exists(id: String, output_dir: String) -> Result<bool, String> 
 }
 
 #[tauri::command]
-fn probe_media(file_path: String) -> Result<MediaInfo, String> {
-    let ffprobe = resolve_ffprobe();
+fn probe_media(file_path: String, ffprobe_path: Option<String>) -> Result<MediaInfo, String> {
+    let ffprobe = resolve_override(ffprobe_path).unwrap_or_else(resolve_ffprobe);
     let output = Command::new(ffprobe)
         .arg("-v")
         .arg("error")
@@ -577,6 +594,9 @@ fn load_state(app: AppHandle) -> Result<PersistedState, String> {
             download_dir: None,
             cookies_file: None,
             remote_components: None,
+            yt_dlp_path: None,
+            ffmpeg_path: None,
+            ffprobe_path: None,
         });
     }
     let content = fs::read_to_string(&file_path)
@@ -606,6 +626,9 @@ fn find_comments_file(dir: &Path, id: &str) -> Option<PathBuf> {
     let entries = fs::read_dir(dir).ok()?;
     let mut candidates: Vec<PathBuf> = Vec::new();
     let mut info_match: Option<PathBuf> = None;
+    let mut name_live_match: Option<PathBuf> = None;
+    let mut name_comments_match: Option<PathBuf> = None;
+    let mut name_info_match: Option<PathBuf> = None;
     for entry in entries.flatten() {
         let path = entry.path();
         if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
@@ -615,7 +638,13 @@ fn find_comments_file(dir: &Path, id: &str) -> Option<PathBuf> {
                     || name_lower.ends_with(".comments.json")
                     || name_lower.ends_with(".live_chat.json"))
             {
-                return Some(path);
+                if name_lower.ends_with(".live_chat.json") {
+                    name_live_match = Some(path.clone());
+                } else if name_lower.ends_with(".comments.json") {
+                    name_comments_match = Some(path.clone());
+                } else if name_lower.ends_with(".info.json") {
+                    name_info_match = Some(path.clone());
+                }
             }
             if name_lower.ends_with(".info.json")
                 || name_lower.ends_with(".comments.json")
@@ -624,6 +653,10 @@ fn find_comments_file(dir: &Path, id: &str) -> Option<PathBuf> {
                 candidates.push(path);
             }
         }
+    }
+
+    if name_live_match.is_some() || name_comments_match.is_some() || name_info_match.is_some() {
+        return name_live_match.or(name_comments_match).or(name_info_match);
     }
 
     for path in &candidates {
@@ -839,12 +872,46 @@ fn parse_live_chat_item(value: &serde_json::Value) -> Option<CommentItem> {
         .and_then(|s| s.parse::<i64>().ok())
         .map(|us| (us / 1000).to_string())
         .or_else(|| renderer.get("timestampText").and_then(extract_text));
+    let offset_ms = find_video_offset_ms(value);
     Some(CommentItem {
         author,
         text,
         like_count: None,
         published_at,
+        offset_ms,
     })
+}
+
+fn find_video_offset_ms(value: &serde_json::Value) -> Option<u64> {
+    match value {
+        serde_json::Value::Object(map) => {
+            if let Some(raw) = map.get("videoOffsetTimeMsec") {
+                if let Some(parsed) = raw.as_u64() {
+                    return Some(parsed);
+                }
+                if let Some(text) = raw.as_str() {
+                    if let Ok(parsed) = text.parse::<u64>() {
+                        return Some(parsed);
+                    }
+                }
+            }
+            for child in map.values() {
+                if let Some(found) = find_video_offset_ms(child) {
+                    return Some(found);
+                }
+            }
+            None
+        }
+        serde_json::Value::Array(items) => {
+            for item in items {
+                if let Some(found) = find_video_offset_ms(item) {
+                    return Some(found);
+                }
+            }
+            None
+        }
+        _ => None,
+    }
 }
 
 fn find_live_chat_renderer<'a>(value: &'a serde_json::Value) -> Option<&'a serde_json::Value> {
@@ -933,10 +1000,111 @@ fn parse_comment_item(value: &serde_json::Value) -> Option<CommentItem> {
         text,
         like_count,
         published_at,
+        offset_ms: None,
+    })
+}
+
+fn resolve_override(value: Option<String>) -> Option<String> {
+    value.and_then(|path| {
+        let trimmed = path.trim().to_string();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed)
+        }
     })
 }
 
 fn resolve_yt_dlp() -> String {
+    if let Ok(explicit) = env::var("YTDLP_PATH") {
+        if Path::new(&explicit).exists() {
+            return explicit;
+        }
+    }
+
+    if cfg!(windows) {
+        if let Ok(manifest_dir) = env::var("CARGO_MANIFEST_DIR") {
+            let manifest_path = PathBuf::from(&manifest_dir);
+            let candidates = [
+                manifest_path.join("yt-dlp.exe"),
+                manifest_path
+                    .parent()
+                    .map(|p| p.join("yt-dlp.exe"))
+                    .unwrap_or_else(|| manifest_path.join("yt-dlp.exe")),
+            ];
+            for candidate in candidates {
+                if candidate.exists() {
+                    return candidate.to_string_lossy().to_string();
+                }
+            }
+        }
+
+        if let Ok(exe_path) = env::current_exe() {
+            if let Some(parent) = exe_path.parent() {
+                let candidate = parent.join("yt-dlp.exe");
+                if candidate.exists() {
+                    return candidate.to_string_lossy().to_string();
+                }
+            }
+        }
+
+        if let Ok(local_app_data) = env::var("LOCALAPPDATA") {
+            let candidates = [
+                PathBuf::from(&local_app_data)
+                    .join("Programs")
+                    .join("yt-dlp")
+                    .join("yt-dlp.exe"),
+                PathBuf::from(&local_app_data)
+                    .join("yt-dlp")
+                    .join("yt-dlp.exe"),
+            ];
+            for candidate in candidates {
+                if candidate.exists() {
+                    return candidate.to_string_lossy().to_string();
+                }
+            }
+        }
+
+        if let Ok(profile) = env::var("USERPROFILE") {
+            let candidates = [
+                PathBuf::from(&profile)
+                    .join("AppData")
+                    .join("Local")
+                    .join("Programs")
+                    .join("yt-dlp")
+                    .join("yt-dlp.exe"),
+                PathBuf::from(&profile).join("bin").join("yt-dlp.exe"),
+                PathBuf::from(&profile)
+                    .join(".local")
+                    .join("bin")
+                    .join("yt-dlp.exe"),
+            ];
+            for candidate in candidates {
+                if candidate.exists() {
+                    return candidate.to_string_lossy().to_string();
+                }
+            }
+        }
+
+        return "yt-dlp.exe".to_string();
+    }
+
+    if let Ok(manifest_dir) = env::var("CARGO_MANIFEST_DIR") {
+        let manifest_path = PathBuf::from(&manifest_dir);
+        let candidates = [
+            manifest_path.join("yt-dlp"),
+            manifest_path
+                .parent()
+                .map(|p| p.join("yt-dlp"))
+                .unwrap_or_else(|| manifest_path.join("yt-dlp")),
+        ];
+        for candidate in candidates {
+            if candidate.exists() {
+                return candidate.to_string_lossy().to_string();
+            }
+        }
+    }
+
     if let Ok(home) = env::var("HOME") {
         let candidate = format!("{}/.local/bin/yt-dlp", home);
         if Path::new(&candidate).exists() {

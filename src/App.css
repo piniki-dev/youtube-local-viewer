@@ -222,7 +222,7 @@ body {
 }
 
 .modal.modal-wide {
-  width: min(880px, 95vw);
+  width: min(1040px, 96vw);
 }
 
 .modal-header {
@@ -342,6 +342,73 @@ body {
   max-height: 60vh;
   border-radius: 12px;
   background: #0f1115;
+}
+
+.player-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 2.2fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.player-media {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.player-chat {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: 1px solid #e0e4ed;
+  border-radius: 12px;
+  padding: 10px;
+  background: #fafbfc;
+  max-height: 70vh;
+}
+
+.player-chat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.player-chat-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.player-chat-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.player-chat-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 11px;
+  color: #6a7383;
+}
+
+.player-chat-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: auto;
+  min-height: 120px;
+  max-height: 50vh;
+  padding-right: 4px;
+}
+
+.player-chat-item {
+  border: 1px solid #e0e4ed;
+  border-radius: 10px;
+  padding: 8px;
+  background: #fff;
 }
 
 .comment-item {
@@ -486,6 +553,20 @@ body {
 
   .comment-text {
     color: #e6e9ef;
+  }
+
+  .player-chat {
+    background: #1f242c;
+    border-color: #394151;
+  }
+
+  .player-chat-meta {
+    color: #c6ccd6;
+  }
+
+  .player-chat-item {
+    background: #1f242c;
+    border-color: #394151;
   }
 
   .error-details {

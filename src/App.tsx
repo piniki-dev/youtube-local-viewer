@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
@@ -38,6 +38,7 @@ type CommentItem = {
   text: string;
   likeCount?: number;
   publishedAt?: string;
+  offsetMs?: number;
 };
 
 type MediaInfo = {
@@ -53,12 +54,18 @@ const VIDEO_STORAGE_KEY = "ytlv_videos";
 const DOWNLOAD_DIR_KEY = "ytlv_download_dir";
 const COOKIES_FILE_KEY = "ytlv_cookies_file";
 const REMOTE_COMPONENTS_KEY = "ytlv_remote_components";
+const YTDLP_PATH_KEY = "ytlv_yt_dlp_path";
+const FFMPEG_PATH_KEY = "ytlv_ffmpeg_path";
+const FFPROBE_PATH_KEY = "ytlv_ffprobe_path";
 
 type PersistedState = {
   videos: VideoItem[];
   downloadDir?: string | null;
   cookiesFile?: string | null;
   remoteComponents?: string | null;
+  ytDlpPath?: string | null;
+  ffmpegPath?: string | null;
+  ffprobePath?: string | null;
 };
 
 function App() {
@@ -75,6 +82,9 @@ function App() {
   const [isErrorOpen, setIsErrorOpen] = useState(false);
   const [errorTargetId, setErrorTargetId] = useState<string | null>(null);
   const [cookiesFile, setCookiesFile] = useState<string>("");
+  const [ytDlpPath, setYtDlpPath] = useState<string>("");
+  const [ffmpegPath, setFfmpegPath] = useState<string>("");
+  const [ffprobePath, setFfprobePath] = useState<string>("");
   const [progressLines, setProgressLines] = useState<Record<string, string>>({});
   const [commentsDownloadingIds, setCommentsDownloadingIds] = useState<string[]>([]);
   const [commentErrors, setCommentErrors] = useState<Record<string, string>>({});
@@ -93,6 +103,11 @@ function App() {
   const [playerVideoId, setPlayerVideoId] = useState<string | null>(null);
   const [playerDebug, setPlayerDebug] = useState<string>("");
   const [playerFilePath, setPlayerFilePath] = useState<string | null>(null);
+  const [playerComments, setPlayerComments] = useState<CommentItem[]>([]);
+  const [playerCommentsLoading, setPlayerCommentsLoading] = useState(false);
+  const [playerCommentsError, setPlayerCommentsError] = useState("");
+  const [playerTimeMs, setPlayerTimeMs] = useState(0);
+  const [isChatAutoScroll, setIsChatAutoScroll] = useState(true);
   const [mediaInfoById, setMediaInfoById] = useState<Record<string, MediaInfo | null>>({});
   const [mediaInfoErrors, setMediaInfoErrors] = useState<Record<string, string>>({});
   const [mediaInfoLoadingIds, setMediaInfoLoadingIds] = useState<string[]>([]);
@@ -100,6 +115,8 @@ function App() {
   const [remoteComponents, setRemoteComponents] = useState<
     "none" | "ejs:github" | "ejs:npm"
   >("none");
+  const playerVideoRef = useRef<HTMLVideoElement | null>(null);
+  const playerChatEndRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const load = async () => {
@@ -107,6 +124,9 @@ function App() {
       let loadedDownloadDir: string | null = null;
       let loadedCookiesFile: string | null = null;
       let loadedRemote: string | null = null;
+      let loadedYtDlpPath: string | null = null;
+      let loadedFfmpegPath: string | null = null;
+      let loadedFfprobePath: string | null = null;
       try {
         const state = await invoke<PersistedState>("load_state");
         if (Array.isArray(state?.videos) && state.videos.length > 0) {
@@ -115,6 +135,9 @@ function App() {
         loadedDownloadDir = state?.downloadDir ?? null;
         loadedCookiesFile = state?.cookiesFile ?? null;
         loadedRemote = state?.remoteComponents ?? null;
+        loadedYtDlpPath = state?.ytDlpPath ?? null;
+        loadedFfmpegPath = state?.ffmpegPath ?? null;
+        loadedFfprobePath = state?.ffprobePath ?? null;
       } catch {
         loadedVideos = [];
       }
@@ -151,12 +174,27 @@ function App() {
         const legacyRemote = localStorage.getItem(REMOTE_COMPONENTS_KEY);
         if (legacyRemote) loadedRemote = legacyRemote;
       }
+      if (!loadedYtDlpPath) {
+        const legacyYtDlp = localStorage.getItem(YTDLP_PATH_KEY);
+        if (legacyYtDlp) loadedYtDlpPath = legacyYtDlp;
+      }
+      if (!loadedFfmpegPath) {
+        const legacyFfmpeg = localStorage.getItem(FFMPEG_PATH_KEY);
+        if (legacyFfmpeg) loadedFfmpegPath = legacyFfmpeg;
+      }
+      if (!loadedFfprobePath) {
+        const legacyFfprobe = localStorage.getItem(FFPROBE_PATH_KEY);
+        if (legacyFfprobe) loadedFfprobePath = legacyFfprobe;
+      }
 
       if (loadedDownloadDir) setDownloadDir(loadedDownloadDir);
       if (loadedCookiesFile) setCookiesFile(loadedCookiesFile);
       if (loadedRemote === "ejs:github" || loadedRemote === "ejs:npm") {
         setRemoteComponents(loadedRemote);
       }
+      if (loadedYtDlpPath) setYtDlpPath(loadedYtDlpPath);
+      if (loadedFfmpegPath) setFfmpegPath(loadedFfmpegPath);
+      if (loadedFfprobePath) setFfprobePath(loadedFfprobePath);
 
       try {
         await invoke("save_state", {
@@ -165,6 +203,9 @@ function App() {
             downloadDir: loadedDownloadDir,
             cookiesFile: loadedCookiesFile,
             remoteComponents: loadedRemote,
+            ytDlpPath: loadedYtDlpPath,
+            ffmpegPath: loadedFfmpegPath,
+            ffprobePath: loadedFfprobePath,
           } satisfies PersistedState,
         });
       } catch {
@@ -308,6 +349,9 @@ function App() {
             downloadDir: downloadDir || null,
             cookiesFile: cookiesFile || null,
             remoteComponents: remoteComponents || null,
+            ytDlpPath: ytDlpPath || null,
+            ffmpegPath: ffmpegPath || null,
+            ffprobePath: ffprobePath || null,
           } satisfies PersistedState,
         });
       } catch {
@@ -315,7 +359,7 @@ function App() {
       }
     };
     void persist();
-  }, [videos, downloadDir, cookiesFile, remoteComponents, isStateReady]);
+  }, [videos, downloadDir, cookiesFile, remoteComponents, ytDlpPath, ffmpegPath, ffprobePath, isStateReady]);
 
   useEffect(() => {
     if (!isStateReady) return;
@@ -485,6 +529,8 @@ function App() {
         outputDir: downloadDir,
         cookiesFile: cookiesFile || null,
         remoteComponents: remoteComponents === "none" ? null : remoteComponents,
+        ytDlpPath: ytDlpPath || null,
+        ffmpegPath: ffmpegPath || null,
       });
     } catch {
       setVideos((prev) =>
@@ -526,6 +572,8 @@ function App() {
         outputDir: downloadDir,
         cookiesFile: cookiesFile || null,
         remoteComponents: remoteComponents === "none" ? null : remoteComponents,
+        ytDlpPath: ytDlpPath || null,
+        ffmpegPath: ffmpegPath || null,
       });
     } catch {
       setVideos((prev) =>
@@ -569,6 +617,28 @@ function App() {
     }
   };
 
+  const loadPlayerComments = async (video: VideoItem) => {
+    setPlayerCommentsLoading(true);
+    setPlayerCommentsError("");
+    setPlayerComments([]);
+    if (video.commentsStatus !== "downloaded") {
+      setPlayerCommentsLoading(false);
+      setPlayerCommentsError("ライブチャット未取得のため同期表示できません。");
+      return;
+    }
+    try {
+      const result = await invoke<CommentItem[]>("get_comments", {
+        id: video.id,
+        outputDir: downloadDir,
+      });
+      setPlayerComments(result ?? []);
+    } catch {
+      setPlayerCommentsError("ライブチャットの読み込みに失敗しました。");
+    } finally {
+      setPlayerCommentsLoading(false);
+    }
+  };
+
   const openPlayer = async (video: VideoItem) => {
     if (!downloadDir) {
       setErrorMessage("保存先フォルダが未設定です。設定から選択してください。");
@@ -583,7 +653,10 @@ function App() {
     setPlayerVideoId(video.id);
     setPlayerDebug("");
     setPlayerFilePath(null);
+    setPlayerTimeMs(0);
+    setIsChatAutoScroll(true);
     setIsPlayerOpen(true);
+    void loadPlayerComments(video);
 
     try {
       const filePath = await invoke<string | null>("resolve_video_file", {
@@ -604,7 +677,7 @@ function App() {
           height?: number | null;
           duration?: number | null;
           container?: string | null;
-        }>("probe_media", { filePath });
+        }>("probe_media", { filePath, ffprobePath: ffprobePath || null });
         setMediaInfoById((prev) => ({ ...prev, [video.id]: info }));
       } catch {
         // ignore probe errors here; user can run manual check
@@ -626,6 +699,11 @@ function App() {
     setPlayerVideoId(null);
     setPlayerDebug("");
     setPlayerFilePath(null);
+    setPlayerComments([]);
+    setPlayerCommentsError("");
+    setPlayerCommentsLoading(false);
+    setPlayerTimeMs(0);
+    setIsChatAutoScroll(true);
   };
 
   const openExternalPlayer = async () => {
@@ -657,6 +735,50 @@ function App() {
     }
     return `${minutes}:${String(seconds).padStart(2, "0")}`;
   };
+
+  const formatClock = (ms?: number | null) => {
+    if (ms === undefined || ms === null || Number.isNaN(ms)) return "";
+    const total = Math.max(0, Math.floor(ms / 1000));
+    const minutes = Math.floor(total / 60);
+    const seconds = total % 60;
+    return `${minutes}:${String(seconds).padStart(2, "0")}`;
+  };
+
+  const sortedPlayerComments = useMemo(() => {
+    return [...playerComments]
+      .filter((item) => typeof item.offsetMs === "number")
+      .sort((a, b) => (a.offsetMs ?? 0) - (b.offsetMs ?? 0));
+  }, [playerComments]);
+
+  const findLastCommentIndex = (list: CommentItem[], timeMs: number) => {
+    let lo = 0;
+    let hi = list.length - 1;
+    let ans = -1;
+    while (lo <= hi) {
+      const mid = Math.floor((lo + hi) / 2);
+      const value = list[mid].offsetMs ?? 0;
+      if (value <= timeMs) {
+        ans = mid;
+        lo = mid + 1;
+      } else {
+        hi = mid - 1;
+      }
+    }
+    return ans;
+  };
+
+  const playerVisibleComments = useMemo(() => {
+    if (sortedPlayerComments.length === 0) return [];
+    const idx = findLastCommentIndex(sortedPlayerComments, playerTimeMs);
+    if (idx < 0) return [];
+    const start = Math.max(0, idx - 49);
+    return sortedPlayerComments.slice(start, idx + 1);
+  }, [sortedPlayerComments, playerTimeMs]);
+
+  useEffect(() => {
+    if (!isChatAutoScroll) return;
+    playerChatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [playerVisibleComments, isChatAutoScroll]);
 
   const checkMediaInfo = async (video: VideoItem) => {
     if (!downloadDir) {
@@ -694,7 +816,7 @@ function App() {
         height?: number | null;
         duration?: number | null;
         container?: string | null;
-      }>("probe_media", { filePath });
+      }>("probe_media", { filePath, ffprobePath: ffprobePath || null });
 
       setMediaInfoById((prev) => ({ ...prev, [video.id]: info }));
     } catch {
@@ -738,6 +860,57 @@ function App() {
       }
     } catch {
       setErrorMessage("Cookieファイルの設定に失敗しました。");
+    }
+  };
+
+  const pickYtDlpPath = async () => {
+    setErrorMessage("");
+    try {
+      const selected = await openDialog({
+        directory: false,
+        multiple: false,
+        title: "yt-dlpの実行ファイルを選択",
+      });
+      if (typeof selected === "string" && selected) {
+        setYtDlpPath(selected);
+        localStorage.setItem(YTDLP_PATH_KEY, selected);
+      }
+    } catch {
+      setErrorMessage("yt-dlpの設定に失敗しました。");
+    }
+  };
+
+  const pickFfmpegPath = async () => {
+    setErrorMessage("");
+    try {
+      const selected = await openDialog({
+        directory: false,
+        multiple: false,
+        title: "ffmpegの実行ファイルを選択",
+      });
+      if (typeof selected === "string" && selected) {
+        setFfmpegPath(selected);
+        localStorage.setItem(FFMPEG_PATH_KEY, selected);
+      }
+    } catch {
+      setErrorMessage("ffmpegの設定に失敗しました。");
+    }
+  };
+
+  const pickFfprobePath = async () => {
+    setErrorMessage("");
+    try {
+      const selected = await openDialog({
+        directory: false,
+        multiple: false,
+        title: "ffprobeの実行ファイルを選択",
+      });
+      if (typeof selected === "string" && selected) {
+        setFfprobePath(selected);
+        localStorage.setItem(FFPROBE_PATH_KEY, selected);
+      }
+    } catch {
+      setErrorMessage("ffprobeの設定に失敗しました。");
     }
   };
 
@@ -1031,6 +1204,78 @@ function App() {
               </div>
               <div className="setting-row">
                 <div>
+                  <p className="setting-label">yt-dlp</p>
+                  <p className="setting-value">
+                    {ytDlpPath ? ytDlpPath : "未設定（同梱/パス指定なら空でもOK）"}
+                  </p>
+                </div>
+                <div className="action-row">
+                  <button className="ghost" onClick={pickYtDlpPath}>
+                    ファイルを選択
+                  </button>
+                  {ytDlpPath && (
+                    <button
+                      className="ghost"
+                      onClick={() => {
+                        setYtDlpPath("");
+                        localStorage.removeItem(YTDLP_PATH_KEY);
+                      }}
+                    >
+                      クリア
+                    </button>
+                  )}
+                </div>
+              </div>
+              <div className="setting-row">
+                <div>
+                  <p className="setting-label">ffmpeg</p>
+                  <p className="setting-value">
+                    {ffmpegPath ? ffmpegPath : "未設定（同梱/パス指定なら空でもOK）"}
+                  </p>
+                </div>
+                <div className="action-row">
+                  <button className="ghost" onClick={pickFfmpegPath}>
+                    ファイルを選択
+                  </button>
+                  {ffmpegPath && (
+                    <button
+                      className="ghost"
+                      onClick={() => {
+                        setFfmpegPath("");
+                        localStorage.removeItem(FFMPEG_PATH_KEY);
+                      }}
+                    >
+                      クリア
+                    </button>
+                  )}
+                </div>
+              </div>
+              <div className="setting-row">
+                <div>
+                  <p className="setting-label">ffprobe</p>
+                  <p className="setting-value">
+                    {ffprobePath ? ffprobePath : "未設定（同梱/パス指定なら空でもOK）"}
+                  </p>
+                </div>
+                <div className="action-row">
+                  <button className="ghost" onClick={pickFfprobePath}>
+                    ファイルを選択
+                  </button>
+                  {ffprobePath && (
+                    <button
+                      className="ghost"
+                      onClick={() => {
+                        setFfprobePath("");
+                        localStorage.removeItem(FFPROBE_PATH_KEY);
+                      }}
+                    >
+                      クリア
+                    </button>
+                  )}
+                </div>
+              </div>
+              <div className="setting-row">
+                <div>
                   <p className="setting-label">Remote components (EJS)</p>
                   <p className="setting-value">
                     {remoteComponents === "none" ? "無効" : remoteComponents}
@@ -1135,50 +1380,121 @@ function App() {
               <div className="comment-title">{playerTitle}</div>
               {playerLoading && <p className="progress-line">読み込み中...</p>}
               {playerError && <p className="error">{playerError}</p>}
-              {playerSrc && !playerError && (
-                <video
-                  className="player-video"
-                  controls
-                  preload="metadata"
-                  src={playerSrc}
-                  onCanPlay={() => setPlayerError("")}
-                  onError={(event) => {
-                    const media = event.currentTarget;
-                    const err = media.error;
-                    const debug = `code=${err?.code ?? "none"} network=${media.networkState} ready=${media.readyState} src=${media.currentSrc}`;
-                    setPlayerDebug(debug);
-                    const info = playerVideoId ? mediaInfoById[playerVideoId] : null;
-                    const v = info?.videoCodec?.toLowerCase();
-                    const a = info?.audioCodec?.toLowerCase();
-                    if (v && a && v.includes("h264") && a.includes("aac")) {
-                      setPlayerError(
-                        "この動画は再生できません。Linux側のコーデック(GStreamer)が未導入の可能性があります。"
-                      );
-                    } else if (v || a) {
-                      setPlayerError(
-                        "この動画は再生できません。H.264/AACで再ダウンロードしてください。"
-                      );
-                    } else {
-                      setPlayerError(
-                        "この動画は再生できません。コーデック未確認のため、先に『コーデック確認』を実行してください。"
-                      );
-                    }
-                  }}
-                />
-              )}
-              {playerDebug && (
-                <p className="progress-line codec-line">{playerDebug}</p>
-              )}
-              {playerError && playerFilePath && (
-                <div className="action-row">
-                  <button className="ghost small" onClick={openExternalPlayer}>
-                    外部プレイヤーで開く
-                  </button>
-                  <button className="ghost small" onClick={revealInFolder}>
-                    フォルダを開く
-                  </button>
+              <div className="player-layout">
+                <div className="player-media">
+                  {playerSrc && !playerError && (
+                    <video
+                      ref={playerVideoRef}
+                      className="player-video"
+                      controls
+                      preload="metadata"
+                      src={playerSrc}
+                      onCanPlay={() => setPlayerError("")}
+                      onTimeUpdate={(event) => {
+                        setPlayerTimeMs(Math.floor(event.currentTarget.currentTime * 1000));
+                      }}
+                      onError={(event) => {
+                        const media = event.currentTarget;
+                        const err = media.error;
+                        const debug = `code=${err?.code ?? "none"} network=${media.networkState} ready=${media.readyState} src=${media.currentSrc}`;
+                        setPlayerDebug(debug);
+                        const info = playerVideoId ? mediaInfoById[playerVideoId] : null;
+                        const v = info?.videoCodec?.toLowerCase();
+                        const a = info?.audioCodec?.toLowerCase();
+                        if (v && !a) {
+                          setPlayerError(
+                            "音声トラックが含まれていません。ffmpegを用意して再ダウンロードしてください。"
+                          );
+                        } else if (a && !v) {
+                          setPlayerError(
+                            "映像トラックが含まれていません。再ダウンロードしてください。"
+                          );
+                        } else if (v && a && v.includes("h264") && a.includes("aac")) {
+                          setPlayerError(
+                            "この動画は再生できません。Linux側のコーデック(GStreamer)が未導入の可能性があります。"
+                          );
+                        } else if (v || a) {
+                          setPlayerError(
+                            "この動画は再生できません。H.264/AACで再ダウンロードしてください。"
+                          );
+                        } else {
+                          setPlayerError(
+                            "この動画は再生できません。コーデック未確認のため、先に『コーデック確認』を実行してください。"
+                          );
+                        }
+                      }}
+                    />
+                  )}
+                  {playerDebug && (
+                    <p className="progress-line codec-line">{playerDebug}</p>
+                  )}
+                  {playerError && playerFilePath && (
+                    <div className="action-row">
+                      <button className="ghost small" onClick={openExternalPlayer}>
+                        外部プレイヤーで開く
+                      </button>
+                      <button className="ghost small" onClick={revealInFolder}>
+                        フォルダを開く
+                      </button>
+                    </div>
+                  )}
                 </div>
-              )}
+                <aside className="player-chat">
+                  <div className="player-chat-header">
+                    <div className="player-chat-title">
+                      <span className="comment-title">チャット</span>
+                      <span
+                        className={`badge ${
+                          sortedPlayerComments.length > 0
+                            ? "badge-success"
+                            : "badge-muted"
+                        }`}
+                      >
+                        {sortedPlayerComments.length > 0 ? "同期" : "同期不可"}
+                      </span>
+                    </div>
+                    <div className="player-chat-actions">
+                      <button
+                        className="ghost tiny"
+                        onClick={() => setIsChatAutoScroll((prev) => !prev)}
+                      >
+                        {isChatAutoScroll ? "自動スクロール: ON" : "自動スクロール: OFF"}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="player-chat-meta">
+                    <span>再生位置 {formatClock(playerTimeMs)}</span>
+                    {playerCommentsLoading && <span>読み込み中...</span>}
+                  </div>
+                  {playerCommentsError && (
+                    <p className="error small">{playerCommentsError}</p>
+                  )}
+                  {!playerCommentsLoading &&
+                    !playerCommentsError &&
+                    sortedPlayerComments.length === 0 && (
+                      <p className="progress-line">
+                        同期可能なチャットがありません。ライブチャットリプレイのみ対応しています。
+                      </p>
+                    )}
+                  <div className="player-chat-list">
+                    {playerVisibleComments.map((comment, index) => (
+                      <div
+                        key={`${comment.author}-${comment.offsetMs ?? index}-${index}`}
+                        className="player-chat-item"
+                      >
+                        <div className="comment-meta">
+                          <span>{comment.author}</span>
+                          {comment.offsetMs !== undefined && (
+                            <span>{formatClock(comment.offsetMs)}</span>
+                          )}
+                        </div>
+                        <div className="comment-text">{comment.text}</div>
+                      </div>
+                    ))}
+                    <div ref={playerChatEndRef} />
+                  </div>
+                </aside>
+              </div>
             </div>
             <div className="modal-footer">
               <button className="primary" onClick={closePlayer}>

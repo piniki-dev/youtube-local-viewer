@@ -22,10 +22,7 @@
       "assetProtocol": {
         "enable": true,
         "scope": [
-          "$HOME/**",
-          "$HOME/youtube-local-viewer/Downloads/**",
-          "$HOME/Downloads/**",
-          "/home/piniki/youtube-local-viewer/Downloads/**"
+          "**"
         ]
       }
     }
