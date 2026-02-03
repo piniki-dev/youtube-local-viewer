@@ -206,6 +206,9 @@ function App() {
   const [typeFilter, setTypeFilter] = useState<
     "all" | "video" | "live" | "shorts"
   >("all");
+  const [publishedSort, setPublishedSort] = useState<
+    "published-desc" | "published-asc"
+  >("published-desc");
   const playerVideoRef = useRef<HTMLVideoElement | null>(null);
   const playerChatEndRef = useRef<HTMLDivElement | null>(null);
 
@@ -1287,10 +1290,43 @@ function App() {
     }
   };
 
-  const sortedVideos = useMemo(
-    () => [...videos].sort((a, b) => b.addedAt.localeCompare(a.addedAt)),
-    [videos]
-  );
+  const parseDateValue = (value?: string) => {
+    if (!value) return null;
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    if (/^\d{10,13}$/.test(trimmed)) {
+      const num = Number(trimmed);
+      if (!Number.isNaN(num)) {
+        return trimmed.length === 13 ? num : num * 1000;
+      }
+    }
+    const parsed = new Date(trimmed);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed.getTime();
+    }
+    return null;
+  };
+
+  const getVideoSortTime = (video: VideoItem) => {
+    const published = parseDateValue(video.publishedAt);
+    if (published !== null) return published;
+    const added = parseDateValue(video.addedAt);
+    return added ?? 0;
+  };
+
+  const sortedVideos = useMemo(() => {
+    const sorted = [...videos].sort((a, b) => {
+      const timeA = getVideoSortTime(a);
+      const timeB = getVideoSortTime(b);
+      if (timeA === timeB) {
+        return b.addedAt.localeCompare(a.addedAt);
+      }
+      return publishedSort === "published-desc"
+        ? timeB - timeA
+        : timeA - timeB;
+    });
+    return sorted;
+  }, [videos, publishedSort]);
 
   const filteredVideos = useMemo(() => {
     return sortedVideos.filter((video) => {
@@ -1307,21 +1343,11 @@ function App() {
   }, [sortedVideos, downloadFilter, typeFilter]);
 
   const formatPublishedAt = (value?: string) => {
-    if (!value) return "";
-    const trimmed = value.trim();
-    if (!trimmed) return "";
-    if (/^\d{10,13}$/.test(trimmed)) {
-      const num = Number(trimmed);
-      if (!Number.isNaN(num)) {
-        const ms = trimmed.length === 13 ? num : num * 1000;
-        return new Date(ms).toLocaleString("ja-JP");
-      }
+    const parsedMs = parseDateValue(value);
+    if (parsedMs !== null) {
+      return new Date(parsedMs).toLocaleString("ja-JP");
     }
-    const parsed = new Date(trimmed);
-    if (!Number.isNaN(parsed.getTime())) {
-      return parsed.toLocaleString("ja-JP");
-    }
-    return trimmed;
+    return value?.trim() ?? "";
   };
 
   return (
@@ -1407,6 +1433,29 @@ function App() {
                 </button>
               </div>
             </div>
+            <div className="filter-group">
+              <span className="filter-label">配信日</span>
+              <div className="segmented">
+                <button
+                  className={
+                    publishedSort === "published-desc" ? "active" : ""
+                  }
+                  onClick={() => setPublishedSort("published-desc")}
+                  type="button"
+                >
+                  新しい順
+                </button>
+                <button
+                  className={
+                    publishedSort === "published-asc" ? "active" : ""
+                  }
+                  onClick={() => setPublishedSort("published-asc")}
+                  type="button"
+                >
+                  古い順
+                </button>
+              </div>
+            </div>
             <div className="filter-summary">
               表示: {filteredVideos.length} / {sortedVideos.length}
             </div>
@@ -1438,6 +1487,9 @@ function App() {
                         <>
                     <h3>{video.title}</h3>
                     <p>{video.channel}</p>
+                    {video.publishedAt && (
+                      <p>配信日: {formatPublishedAt(video.publishedAt)}</p>
+                    )}
                     <span
                       className={`badge ${
                         displayStatus === "downloaded"
