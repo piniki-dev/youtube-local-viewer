@@ -200,6 +200,12 @@ function App() {
   const [remoteComponents, setRemoteComponents] = useState<
     "none" | "ejs:github" | "ejs:npm"
   >("none");
+  const [downloadFilter, setDownloadFilter] = useState<
+    "all" | "downloaded" | "undownloaded"
+  >("all");
+  const [typeFilter, setTypeFilter] = useState<
+    "all" | "video" | "live" | "shorts"
+  >("all");
   const playerVideoRef = useRef<HTMLVideoElement | null>(null);
   const playerChatEndRef = useRef<HTMLDivElement | null>(null);
 
@@ -1286,6 +1292,20 @@ function App() {
     [videos]
   );
 
+  const filteredVideos = useMemo(() => {
+    return sortedVideos.filter((video) => {
+      const matchesDownload =
+        downloadFilter === "all"
+          ? true
+          : downloadFilter === "downloaded"
+            ? video.downloadStatus === "downloaded"
+            : video.downloadStatus !== "downloaded";
+      const type = video.contentType ?? "video";
+      const matchesType = typeFilter === "all" ? true : type === typeFilter;
+      return matchesDownload && matchesType;
+    });
+  }, [sortedVideos, downloadFilter, typeFilter]);
+
   const formatPublishedAt = (value?: string) => {
     if (!value) return "";
     const trimmed = value.trim();
@@ -1326,161 +1346,242 @@ function App() {
           まだ動画がありません。右上の「＋ 動画を追加」から登録してください。
         </section>
       ) : (
-        <section className="grid">
-          {sortedVideos.map((video) => (
-            <article key={video.id} className="video-card">
-              <div className="thumbnail">
-                {video.thumbnail && (
-                  <img src={video.thumbnail} alt={video.title} />
-                )}
-              </div>
-              <div className="video-info">
-                {(() => {
-                  const isDownloading = downloadingIds.includes(video.id);
-                  const isCommentsDownloading = commentsDownloadingIds.includes(video.id);
-                  const displayStatus = isDownloading
-                    ? "downloading"
-                    : video.downloadStatus;
-                  return (
-                    <>
-                <h3>{video.title}</h3>
-                <p>{video.channel}</p>
-                <span
-                  className={`badge ${
-                    displayStatus === "downloaded"
-                      ? "badge-success"
-                      : displayStatus === "downloading"
-                        ? "badge-pending"
-                      : displayStatus === "pending"
-                        ? "badge-pending"
-                        : "badge-muted"
-                  }`}
+        <>
+          <section className="filter-bar">
+            <div className="filter-group">
+              <span className="filter-label">ダウンロード</span>
+              <div className="segmented">
+                <button
+                  className={downloadFilter === "all" ? "active" : ""}
+                  onClick={() => setDownloadFilter("all")}
+                  type="button"
                 >
-                  {displayStatus === "downloaded"
-                    ? "ダウンロード済"
-                    : displayStatus === "downloading"
-                      ? "ダウンロード中"
-                    : displayStatus === "pending"
-                      ? "未ダウンロード"
-                      : "失敗"}
-                </span>
-                {video.downloadStatus === "failed" && videoErrors[video.id] && (
-                  <div className="error-row">
-                    <p className="error small">
-                      {videoErrors[video.id].slice(0, 140)}
-                    </p>
-                    <button
-                      className="ghost tiny"
-                      onClick={() => {
-                        setErrorTargetId(video.id);
-                        setIsErrorOpen(true);
-                      }}
-                    >
-                      詳細
-                    </button>
+                  すべて
+                </button>
+                <button
+                  className={downloadFilter === "downloaded" ? "active" : ""}
+                  onClick={() => setDownloadFilter("downloaded")}
+                  type="button"
+                >
+                  ダウンロード済み
+                </button>
+                <button
+                  className={downloadFilter === "undownloaded" ? "active" : ""}
+                  onClick={() => setDownloadFilter("undownloaded")}
+                  type="button"
+                >
+                  未ダウンロード
+                </button>
+              </div>
+            </div>
+            <div className="filter-group">
+              <span className="filter-label">種別</span>
+              <div className="segmented">
+                <button
+                  className={typeFilter === "all" ? "active" : ""}
+                  onClick={() => setTypeFilter("all")}
+                  type="button"
+                >
+                  すべて
+                </button>
+                <button
+                  className={typeFilter === "video" ? "active" : ""}
+                  onClick={() => setTypeFilter("video")}
+                  type="button"
+                >
+                  動画
+                </button>
+                <button
+                  className={typeFilter === "live" ? "active" : ""}
+                  onClick={() => setTypeFilter("live")}
+                  type="button"
+                >
+                  配信
+                </button>
+                <button
+                  className={typeFilter === "shorts" ? "active" : ""}
+                  onClick={() => setTypeFilter("shorts")}
+                  type="button"
+                >
+                  ショート
+                </button>
+              </div>
+            </div>
+            <div className="filter-summary">
+              表示: {filteredVideos.length} / {sortedVideos.length}
+            </div>
+          </section>
+
+          {filteredVideos.length === 0 ? (
+            <section className="empty">
+              条件に一致する動画がありません。
+            </section>
+          ) : (
+            <section className="grid">
+              {filteredVideos.map((video) => (
+                <article key={video.id} className="video-card">
+                  <div className="thumbnail">
+                    {video.thumbnail && (
+                      <img src={video.thumbnail} alt={video.title} />
+                    )}
                   </div>
-                )}
-                {progressLines[video.id] && (
-                  <p className="progress-line">{progressLines[video.id]}</p>
-                )}
-                {displayStatus !== "downloaded" && (
-                  <button
-                    className="ghost small"
-                    onClick={() => startDownload(video)}
-                    disabled={isDownloading}
-                  >
-                    {isDownloading ? "ダウンロード中..." : "ダウンロード"}
-                  </button>
-                )}
-                {displayStatus === "downloaded" && (
-                  <div className="action-row">
-                    <button
-                      className="primary small"
-                      onClick={() => openPlayer(video)}
-                    >
-                      再生
-                    </button>
-                    <button
-                      className="ghost small"
-                      onClick={() => checkMediaInfo(video)}
-                      disabled={mediaInfoLoadingIds.includes(video.id)}
-                    >
-                      {mediaInfoLoadingIds.includes(video.id)
-                        ? "確認中..."
-                        : "コーデック確認"}
-                    </button>
-                  </div>
-                )}
-                {mediaInfoErrors[video.id] && (
-                  <p className="error small">{mediaInfoErrors[video.id]}</p>
-                )}
-                {mediaInfoById[video.id] && (
-                  <p className="progress-line codec-line">
-                    動画: {mediaInfoById[video.id]?.videoCodec ?? "不明"}
-                    {mediaInfoById[video.id]?.width && mediaInfoById[video.id]?.height
-                      ? ` ${mediaInfoById[video.id]?.width}x${mediaInfoById[video.id]?.height}`
-                      : ""}
-                    {mediaInfoById[video.id]?.duration
-                      ? ` / ${formatDuration(mediaInfoById[video.id]?.duration)}`
-                      : ""}
-                    {mediaInfoById[video.id]?.container
-                      ? ` / 容器: ${mediaInfoById[video.id]?.container}`
-                      : ""}
-                    {mediaInfoById[video.id]?.audioCodec
-                      ? ` / 音声: ${mediaInfoById[video.id]?.audioCodec}`
-                      : ""}
-                  </p>
-                )}
-                <div className="comment-row">
-                  <span
-                    className={`badge ${
-                      isCommentsDownloading
-                        ? "badge-pending"
-                        : video.commentsStatus === "downloaded"
+                  <div className="video-info">
+                    {(() => {
+                      const isDownloading = downloadingIds.includes(video.id);
+                      const isCommentsDownloading = commentsDownloadingIds.includes(
+                        video.id
+                      );
+                      const displayStatus = isDownloading
+                        ? "downloading"
+                        : video.downloadStatus;
+                      return (
+                        <>
+                    <h3>{video.title}</h3>
+                    <p>{video.channel}</p>
+                    <span
+                      className={`badge ${
+                        displayStatus === "downloaded"
                           ? "badge-success"
-                          : video.commentsStatus === "pending"
+                          : displayStatus === "downloading"
+                            ? "badge-pending"
+                          : displayStatus === "pending"
                             ? "badge-pending"
                             : "badge-muted"
-                    }`}
-                  >
-                    {isCommentsDownloading
-                      ? "ライブチャット取得中"
-                      : video.commentsStatus === "downloaded"
-                        ? "ライブチャット取得済"
-                        : video.commentsStatus === "pending"
-                          ? "ライブチャット未取得"
-                          : "ライブチャット失敗"}
-                  </span>
-                  <button
-                    className="ghost small"
-                    onClick={() => startCommentsDownload(video)}
-                    disabled={isCommentsDownloading}
-                  >
-                    {isCommentsDownloading ? "取得中..." : "ライブチャット取得"}
-                  </button>
-                  <button
-                    className="ghost small"
-                    onClick={() => openComments(video)}
-                    disabled={video.commentsStatus !== "downloaded"}
-                  >
-                    チャットを見る
-                  </button>
-                </div>
-                {video.commentsStatus === "failed" && commentErrors[video.id] && (
-                  <p className="error small">
-                    {commentErrors[video.id].slice(0, 140)}
-                  </p>
-                )}
-                {commentProgressLines[video.id] && (
-                  <p className="progress-line">{commentProgressLines[video.id]}</p>
-                )}
-                    </>
-                  );
-                })()}
-              </div>
-            </article>
-          ))}
-        </section>
+                      }`}
+                    >
+                      {displayStatus === "downloaded"
+                        ? "ダウンロード済"
+                        : displayStatus === "downloading"
+                          ? "ダウンロード中"
+                          : displayStatus === "pending"
+                            ? "未ダウンロード"
+                            : "失敗"}
+                    </span>
+                    {video.downloadStatus === "failed" && videoErrors[video.id] && (
+                      <div className="error-row">
+                        <p className="error small">
+                          {videoErrors[video.id].slice(0, 140)}
+                        </p>
+                        <button
+                          className="ghost tiny"
+                          onClick={() => {
+                            setErrorTargetId(video.id);
+                            setIsErrorOpen(true);
+                          }}
+                        >
+                          詳細
+                        </button>
+                      </div>
+                    )}
+                    {progressLines[video.id] && (
+                      <p className="progress-line">{progressLines[video.id]}</p>
+                    )}
+                    {displayStatus !== "downloaded" && (
+                      <button
+                        className="ghost small"
+                        onClick={() => startDownload(video)}
+                        disabled={isDownloading}
+                      >
+                        {isDownloading ? "ダウンロード中..." : "ダウンロード"}
+                      </button>
+                    )}
+                    {displayStatus === "downloaded" && (
+                      <div className="action-row">
+                        <button
+                          className="primary small"
+                          onClick={() => openPlayer(video)}
+                        >
+                          再生
+                        </button>
+                        <button
+                          className="ghost small"
+                          onClick={() => checkMediaInfo(video)}
+                          disabled={mediaInfoLoadingIds.includes(video.id)}
+                        >
+                          {mediaInfoLoadingIds.includes(video.id)
+                            ? "確認中..."
+                            : "コーデック確認"}
+                        </button>
+                      </div>
+                    )}
+                    {mediaInfoErrors[video.id] && (
+                      <p className="error small">{mediaInfoErrors[video.id]}</p>
+                    )}
+                    {mediaInfoById[video.id] && (
+                      <p className="progress-line codec-line">
+                        動画: {mediaInfoById[video.id]?.videoCodec ?? "不明"}
+                        {mediaInfoById[video.id]?.width &&
+                        mediaInfoById[video.id]?.height
+                          ? ` ${mediaInfoById[video.id]?.width}x${
+                              mediaInfoById[video.id]?.height
+                            }`
+                          : ""}
+                        {mediaInfoById[video.id]?.duration
+                          ? ` / ${formatDuration(mediaInfoById[video.id]?.duration)}`
+                          : ""}
+                        {mediaInfoById[video.id]?.container
+                          ? ` / 容器: ${mediaInfoById[video.id]?.container}`
+                          : ""}
+                        {mediaInfoById[video.id]?.audioCodec
+                          ? ` / 音声: ${mediaInfoById[video.id]?.audioCodec}`
+                          : ""}
+                      </p>
+                    )}
+                    <div className="comment-row">
+                      <span
+                        className={`badge ${
+                          isCommentsDownloading
+                            ? "badge-pending"
+                            : video.commentsStatus === "downloaded"
+                              ? "badge-success"
+                              : video.commentsStatus === "pending"
+                                ? "badge-pending"
+                                : "badge-muted"
+                        }`}
+                      >
+                        {isCommentsDownloading
+                          ? "ライブチャット取得中"
+                          : video.commentsStatus === "downloaded"
+                            ? "ライブチャット取得済"
+                            : video.commentsStatus === "pending"
+                              ? "ライブチャット未取得"
+                              : "ライブチャット失敗"}
+                      </span>
+                      <button
+                        className="ghost small"
+                        onClick={() => startCommentsDownload(video)}
+                        disabled={isCommentsDownloading}
+                      >
+                        {isCommentsDownloading ? "取得中..." : "ライブチャット取得"}
+                      </button>
+                      <button
+                        className="ghost small"
+                        onClick={() => openComments(video)}
+                        disabled={video.commentsStatus !== "downloaded"}
+                      >
+                        チャットを見る
+                      </button>
+                    </div>
+                    {video.commentsStatus === "failed" &&
+                      commentErrors[video.id] && (
+                        <p className="error small">
+                          {commentErrors[video.id].slice(0, 140)}
+                        </p>
+                      )}
+                    {commentProgressLines[video.id] && (
+                      <p className="progress-line">
+                        {commentProgressLines[video.id]}
+                      </p>
+                    )}
+                        </>
+                      );
+                    })()}
+                  </div>
+                </article>
+              ))}
+            </section>
+          )}
+        </>
       )}
 
       {isAddOpen && (

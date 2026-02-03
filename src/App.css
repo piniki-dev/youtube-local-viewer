@@ -504,6 +504,35 @@ body {
   white-space: pre-wrap;
 }
 
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+  align-items: center;
+  background: #fff;
+  border-radius: 12px;
+  padding: 12px 14px;
+  box-shadow: 0 6px 18px rgba(15, 20, 30, 0.08);
+}
+
+.filter-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.filter-label {
+  font-size: 12px;
+  color: #6a7383;
+}
+
+.filter-summary {
+  margin-left: auto;
+  font-size: 12px;
+  color: #5b6170;
+}
+
 .error-details {
   margin: 0;
   white-space: pre-wrap;
@@ -594,6 +623,16 @@ body {
 
   .setting-value {
     color: #e6e9ef;
+  }
+
+  .filter-bar {
+    background: #272b33;
+    box-shadow: none;
+  }
+
+  .filter-label,
+  .filter-summary {
+    color: #c6ccd6;
   }
 
   .select-wrap select {
