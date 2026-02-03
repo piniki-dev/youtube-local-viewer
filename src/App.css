@@ -533,6 +533,34 @@ body {
   color: #5b6170;
 }
 
+.filter-search {
+  flex: 1 1 100%;
+  align-items: stretch;
+}
+
+.search-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.search-input {
+  flex: 1;
+  min-width: 180px;
+  border: 1px solid #d7dbe6;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+  background: #fff;
+}
+
+.search-input:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+}
+
 .error-details {
   margin: 0;
   white-space: pre-wrap;
@@ -633,6 +661,12 @@ body {
   .filter-label,
   .filter-summary {
     color: #c6ccd6;
+  }
+
+  .search-input {
+    background: #1c2027;
+    color: #f5f6f8;
+    border-color: #3b4250;
   }
 
   .select-wrap select {

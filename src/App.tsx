@@ -209,6 +209,7 @@ function App() {
   const [publishedSort, setPublishedSort] = useState<
     "published-desc" | "published-asc"
   >("published-desc");
+  const [searchQuery, setSearchQuery] = useState("");
   const playerVideoRef = useRef<HTMLVideoElement | null>(null);
   const playerChatEndRef = useRef<HTMLDivElement | null>(null);
 
@@ -1329,6 +1330,8 @@ function App() {
   }, [videos, publishedSort]);
 
   const filteredVideos = useMemo(() => {
+    const normalizedQuery = searchQuery.trim().toLowerCase();
+    const tokens = normalizedQuery ? normalizedQuery.split(/\s+/) : [];
     return sortedVideos.filter((video) => {
       const matchesDownload =
         downloadFilter === "all"
@@ -1338,9 +1341,24 @@ function App() {
             : video.downloadStatus !== "downloaded";
       const type = video.contentType ?? "video";
       const matchesType = typeFilter === "all" ? true : type === typeFilter;
-      return matchesDownload && matchesType;
+      const haystack = [
+        video.title,
+        video.channel,
+        video.description,
+        video.id,
+        video.tags?.join(" "),
+        video.categories?.join(" "),
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      const matchesQuery =
+        tokens.length === 0
+          ? true
+          : tokens.every((token) => haystack.includes(token));
+      return matchesDownload && matchesType && matchesQuery;
     });
-  }, [sortedVideos, downloadFilter, typeFilter]);
+  }, [sortedVideos, downloadFilter, typeFilter, searchQuery]);
 
   const formatPublishedAt = (value?: string) => {
     const parsedMs = parseDateValue(value);
@@ -1374,6 +1392,27 @@ function App() {
       ) : (
         <>
           <section className="filter-bar">
+            <div className="filter-group filter-search">
+              <span className="filter-label">検索</span>
+              <div className="search-field">
+                <input
+                  className="search-input"
+                  type="search"
+                  placeholder="タイトル・チャンネル・タグで検索"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
+                {searchQuery && (
+                  <button
+                    className="ghost tiny"
+                    type="button"
+                    onClick={() => setSearchQuery("")}
+                  >
+                    クリア
+                  </button>
+                )}
+              </div>
+            </div>
             <div className="filter-group">
               <span className="filter-label">ダウンロード</span>
               <div className="segmented">
