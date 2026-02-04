@@ -831,6 +831,81 @@ function App() {
     >;
   };
 
+  const guessThumbnailExtension = (
+    url: string,
+    contentType: string | null
+  ) => {
+    const normalized = contentType?.toLowerCase() || "";
+    if (normalized.includes("image/jpeg") || normalized.includes("image/jpg")) return "jpg";
+    if (normalized.includes("image/png")) return "png";
+    if (normalized.includes("image/webp")) return "webp";
+    if (normalized.includes("image/gif")) return "gif";
+
+    const match = url.toLowerCase().match(/\.([a-z0-9]+)(?:\?|#|$)/);
+    if (match?.[1]) {
+      const ext = match[1];
+      if (["jpg", "jpeg", "png", "webp", "gif"].includes(ext)) {
+        return ext === "jpeg" ? "jpg" : ext;
+      }
+    }
+    return "jpg";
+  };
+
+  const resolveThumbnailPath = async (
+    videoId: string,
+    thumbnailUrls: Array<string | null | undefined>
+  ) => {
+    const candidates = thumbnailUrls
+      .map((item) => (typeof item === "string" ? item.trim() : ""))
+      .filter((item) => item.length > 0);
+    if (candidates.length === 0) return undefined;
+    try {
+      for (const url of candidates) {
+        try {
+          const response = await fetch(url);
+          if (!response.ok) {
+            continue;
+          }
+          const contentType = response.headers.get("content-type");
+          const extension = guessThumbnailExtension(url, contentType);
+          const buffer = await response.arrayBuffer();
+          const data = Array.from(new Uint8Array(buffer));
+          const savedPath = await invoke<string>("save_thumbnail", {
+            videoId,
+            data,
+            extension,
+          });
+          return savedPath || url;
+        } catch {
+          // try next candidate
+        }
+      }
+      return candidates[0];
+    } catch {
+      return candidates[0];
+    }
+  };
+
+  const buildThumbnailCandidates = (id: string, primary?: string | null) => [
+    `https://i.ytimg.com/vi/${id}/maxresdefault.jpg`,
+    `https://i.ytimg.com/vi/${id}/sddefault.jpg`,
+    primary,
+    `https://i.ytimg.com/vi/${id}/hqdefault.jpg`,
+  ];
+
+  const toThumbnailSrc = (thumbnail?: string) => {
+    if (!thumbnail) return undefined;
+    if (
+      thumbnail.startsWith("http://") ||
+      thumbnail.startsWith("https://") ||
+      thumbnail.startsWith("asset://") ||
+      thumbnail.startsWith("data:")
+    ) {
+      return thumbnail;
+    }
+    return convertFileSrc(thumbnail);
+  };
+
 
   const addVideo = async () => {
     setErrorMessage("");
@@ -883,13 +958,18 @@ function App() {
         audioLanguage: metadata?.audioLanguage ?? null,
         ageLimit: metadata?.ageLimit ?? null,
       });
+      const primaryThumbnail = data?.thumbnail_url ?? metadata?.thumbnail ?? null;
+      const resolvedThumbnail = await resolveThumbnailPath(
+        id,
+        buildThumbnailCandidates(id, primaryThumbnail)
+      );
       const newVideo: VideoItem = {
         id,
         title: data?.title ?? metadata?.title ?? "Untitled",
         channel: data?.author_name ?? metadata?.channel ?? "YouTube",
         thumbnail:
-          data?.thumbnail_url ??
-          metadata?.thumbnail ??
+          resolvedThumbnail ??
+          primaryThumbnail ??
           `https://i.ytimg.com/vi/${id}/hqdefault.jpg`,
         sourceUrl: trimmed,
         ...metaFields,
@@ -938,47 +1018,54 @@ function App() {
       const existingIds = new Set(videos.map((v) => v.id));
       const baseTime = Date.now();
       const total = result?.length ?? 0;
-      const newItems = (result ?? [])
-        .filter((item) => item?.id && !existingIds.has(item.id))
-        .map((item, index) => {
-          const addedAt = new Date(baseTime + (total - index)).toISOString();
-          const metaFields = buildMetadataFields({
-            webpageUrl: item.webpageUrl ?? item.url ?? null,
-            durationSec: item.durationSec ?? null,
-            uploadDate: item.uploadDate ?? null,
-            releaseTimestamp: item.releaseTimestamp ?? null,
-            timestamp: item.timestamp ?? null,
-            liveStatus: item.liveStatus ?? null,
-            isLive: item.isLive ?? null,
-            wasLive: item.wasLive ?? null,
-            viewCount: item.viewCount ?? null,
-            likeCount: item.likeCount ?? null,
-            commentCount: item.commentCount ?? null,
-            tags: item.tags ?? null,
-            categories: item.categories ?? null,
-            description: item.description ?? null,
-            channelId: item.channelId ?? null,
-            uploaderId: item.uploaderId ?? null,
-            channelUrl: item.channelUrl ?? null,
-            uploaderUrl: item.uploaderUrl ?? null,
-            availability: item.availability ?? null,
-            language: item.language ?? null,
-            audioLanguage: item.audioLanguage ?? null,
-            ageLimit: item.ageLimit ?? null,
-          });
-          return {
-            id: item.id,
-            title: item.title || "Untitled",
-            channel: item.channel?.trim() || "YouTube",
-            thumbnail:
-              item.thumbnail || `https://i.ytimg.com/vi/${item.id}/hqdefault.jpg`,
-            sourceUrl: item.url || `https://www.youtube.com/watch?v=${item.id}`,
-            ...metaFields,
-            downloadStatus: "pending" as const,
-            commentsStatus: "pending" as const,
-            addedAt,
-          } satisfies VideoItem;
-        });
+      const newItems = await Promise.all(
+        (result ?? [])
+          .filter((item) => item?.id && !existingIds.has(item.id))
+          .map(async (item, index) => {
+            const addedAt = new Date(baseTime + (total - index)).toISOString();
+            const metaFields = buildMetadataFields({
+              webpageUrl: item.webpageUrl ?? item.url ?? null,
+              durationSec: item.durationSec ?? null,
+              uploadDate: item.uploadDate ?? null,
+              releaseTimestamp: item.releaseTimestamp ?? null,
+              timestamp: item.timestamp ?? null,
+              liveStatus: item.liveStatus ?? null,
+              isLive: item.isLive ?? null,
+              wasLive: item.wasLive ?? null,
+              viewCount: item.viewCount ?? null,
+              likeCount: item.likeCount ?? null,
+              commentCount: item.commentCount ?? null,
+              tags: item.tags ?? null,
+              categories: item.categories ?? null,
+              description: item.description ?? null,
+              channelId: item.channelId ?? null,
+              uploaderId: item.uploaderId ?? null,
+              channelUrl: item.channelUrl ?? null,
+              uploaderUrl: item.uploaderUrl ?? null,
+              availability: item.availability ?? null,
+              language: item.language ?? null,
+              audioLanguage: item.audioLanguage ?? null,
+              ageLimit: item.ageLimit ?? null,
+            });
+            const primaryThumbnail = item.thumbnail || null;
+            const fallbackThumbnail = `https://i.ytimg.com/vi/${item.id}/hqdefault.jpg`;
+            const resolvedThumbnail = await resolveThumbnailPath(
+              item.id,
+              buildThumbnailCandidates(item.id, primaryThumbnail)
+            );
+            return {
+              id: item.id,
+              title: item.title || "Untitled",
+              channel: item.channel?.trim() || "YouTube",
+              thumbnail: resolvedThumbnail ?? primaryThumbnail ?? fallbackThumbnail,
+              sourceUrl: item.url || `https://www.youtube.com/watch?v=${item.id}`,
+              ...metaFields,
+              downloadStatus: "pending" as const,
+              commentsStatus: "pending" as const,
+              addedAt,
+            } satisfies VideoItem;
+          })
+      );
 
       if (newItems.length === 0) {
         setErrorMessage("追加できる新しい動画が見つかりませんでした。");
@@ -2136,40 +2223,42 @@ function App() {
             </section>
           ) : (
             <section className="grid">
-              {filteredVideos.map((video) => (
-                <article key={video.id} className="video-card">
-                  <div className="thumbnail">
-                    {video.thumbnail && (
-                      <img src={video.thumbnail} alt={video.title} />
-                    )}
-                  </div>
-                  <div className="video-info">
-                    {(() => {
-                      const isDownloading = downloadingIds.includes(video.id);
-                      const isCommentsDownloading = commentsDownloadingIds.includes(
-                        video.id
-                      );
-                      const displayStatus = isDownloading
-                        ? "downloading"
-                        : video.downloadStatus;
-                      return (
-                        <>
-                    <h3>{video.title}</h3>
-                    <p>{video.channel}</p>
-                    {video.publishedAt && (
-                      <p>配信日: {formatPublishedAt(video.publishedAt)}</p>
-                    )}
-                    <span
-                      className={`badge ${
-                        displayStatus === "downloaded"
-                          ? "badge-success"
-                          : displayStatus === "downloading"
-                            ? "badge-pending"
-                          : displayStatus === "pending"
-                            ? "badge-pending"
-                            : "badge-muted"
-                      }`}
-                    >
+              {filteredVideos.map((video) => {
+                const thumbnailSrc = toThumbnailSrc(video.thumbnail);
+                return (
+                  <article key={video.id} className="video-card">
+                    <div className="thumbnail">
+                      {thumbnailSrc && (
+                        <img src={thumbnailSrc} alt={video.title} />
+                      )}
+                    </div>
+                    <div className="video-info">
+                      {(() => {
+                        const isDownloading = downloadingIds.includes(video.id);
+                        const isCommentsDownloading = commentsDownloadingIds.includes(
+                          video.id
+                        );
+                        const displayStatus = isDownloading
+                          ? "downloading"
+                          : video.downloadStatus;
+                        return (
+                          <>
+                      <h3>{video.title}</h3>
+                      <p>{video.channel}</p>
+                      {video.publishedAt && (
+                        <p>配信日: {formatPublishedAt(video.publishedAt)}</p>
+                      )}
+                      <span
+                        className={`badge ${
+                          displayStatus === "downloaded"
+                            ? "badge-success"
+                            : displayStatus === "downloading"
+                              ? "badge-pending"
+                            : displayStatus === "pending"
+                              ? "badge-pending"
+                              : "badge-muted"
+                        }`}
+                      >
                       {displayStatus === "downloaded"
                         ? "ダウンロード済"
                         : displayStatus === "downloading"
@@ -2291,7 +2380,8 @@ function App() {
                     })()}
                   </div>
                 </article>
-              ))}
+                );
+              })}
             </section>
           )}
         </>

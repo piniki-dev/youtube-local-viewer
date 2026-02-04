@@ -1226,6 +1226,64 @@ fn save_state(app: AppHandle, state: PersistedState) -> Result<(), String> {
     Ok(())
 }
 
+fn normalize_thumbnail_extension(value: Option<String>) -> String {
+    if let Some(raw) = value {
+        let lowered = raw.trim().to_lowercase();
+        let trimmed = lowered.trim_start_matches('.');
+        if matches!(trimmed, "jpg" | "jpeg" | "png" | "webp" | "gif") {
+            return if trimmed == "jpeg" {
+                "jpg".to_string()
+            } else {
+                trimmed.to_string()
+            };
+        }
+    }
+    "jpg".to_string()
+}
+
+fn find_existing_thumbnail(dir: &Path, video_id: &str) -> Option<PathBuf> {
+    let extensions = ["jpg", "jpeg", "png", "webp", "gif"];
+    for ext in extensions {
+        let candidate = dir.join(format!("{}.{}", video_id, ext));
+        if candidate.exists() {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+#[tauri::command]
+fn save_thumbnail(
+    app: AppHandle,
+    video_id: String,
+    data: Vec<u8>,
+    extension: Option<String>,
+) -> Result<String, String> {
+    let trimmed_id = video_id.trim();
+    if trimmed_id.is_empty() || data.is_empty() {
+        return Err("サムネイルの保存に必要な情報が不足しています。".to_string());
+    }
+
+    let base = app
+        .path()
+        .app_config_dir()
+        .map_err(|e| format!("保存先ディレクトリの取得に失敗しました: {}", e))?;
+    let dir = base.join("thumbnails");
+    fs::create_dir_all(&dir)
+        .map_err(|e| format!("サムネイル保存先フォルダの作成に失敗しました: {}", e))?;
+
+    if let Some(existing) = find_existing_thumbnail(&dir, trimmed_id) {
+        return Ok(existing.to_string_lossy().to_string());
+    }
+
+    let extension = normalize_thumbnail_extension(extension);
+    let file_path = dir.join(format!("{}.{}", trimmed_id, extension));
+    fs::write(&file_path, &data)
+        .map_err(|e| format!("サムネイルの保存に失敗しました: {}", e))?;
+
+    Ok(file_path.to_string_lossy().to_string())
+}
+
 fn find_comments_file(dir: &Path, id: &str) -> Option<PathBuf> {
     let entries = fs::read_dir(dir).ok()?;
     let mut candidates: Vec<PathBuf> = Vec::new();
@@ -1746,7 +1804,8 @@ pub fn run() {
             comments_file_exists,
             probe_media,
             load_state,
-            save_state
+            save_state,
+            save_thumbnail
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
