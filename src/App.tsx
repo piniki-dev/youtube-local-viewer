@@ -2225,13 +2225,35 @@ function App() {
             <section className="grid">
               {filteredVideos.map((video) => {
                 const thumbnailSrc = toThumbnailSrc(video.thumbnail);
+                const isPlayable = video.downloadStatus === "downloaded";
                 return (
                   <article key={video.id} className="video-card">
-                    <div className="thumbnail">
-                      {thumbnailSrc && (
-                        <img src={thumbnailSrc} alt={video.title} />
-                      )}
-                    </div>
+                    <button
+                      className={`thumbnail-button ${
+                        isPlayable ? "is-playable" : "is-disabled"
+                      }`}
+                      type="button"
+                      onClick={() => {
+                        if (isPlayable) {
+                          void openPlayer(video);
+                        }
+                      }}
+                      disabled={!isPlayable}
+                      aria-label={
+                        isPlayable
+                          ? `再生: ${video.title}`
+                          : `未ダウンロードのため再生不可: ${video.title}`
+                      }
+                    >
+                      <div className="thumbnail">
+                        {thumbnailSrc && (
+                          <img src={thumbnailSrc} alt={video.title} />
+                        )}
+                        <span className="play-overlay" aria-hidden="true">
+                          ▶
+                        </span>
+                      </div>
+                    </button>
                     <div className="video-info">
                       {(() => {
                         const isDownloading = downloadingIds.includes(video.id);
@@ -2294,12 +2316,6 @@ function App() {
                     )}
                     {displayStatus === "downloaded" && (
                       <div className="action-row">
-                        <button
-                          className="primary small"
-                          onClick={() => openPlayer(video)}
-                        >
-                          再生
-                        </button>
                         <button
                           className="ghost small"
                           onClick={() => checkMediaInfo(video)}
