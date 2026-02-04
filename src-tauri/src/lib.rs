@@ -5,7 +5,7 @@ use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager, State};
 use std::{fs, path::PathBuf};
 
@@ -128,6 +128,60 @@ struct PersistedState {
     ffprobe_path: Option<String>,
 }
 
+fn sanitize_filename_component(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return "unknown".to_string();
+    }
+    let mut out = String::with_capacity(trimmed.len());
+    for ch in trimmed.chars() {
+        if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' {
+            out.push(ch);
+        } else {
+            out.push('_');
+        }
+    }
+    let normalized = out.trim_matches('_').to_string();
+    if normalized.is_empty() {
+        "unknown".to_string()
+    } else if normalized.len() > 60 {
+        normalized.chars().take(60).collect()
+    } else {
+        normalized
+    }
+}
+
+fn write_error_log(
+    app: &AppHandle,
+    kind: &str,
+    id: &str,
+    stdout: &str,
+    stderr: &str,
+) -> Result<(), String> {
+    let base = app
+        .path()
+        .app_config_dir()
+        .map_err(|e| format!("保存先ディレクトリの取得に失敗しました: {}", e))?;
+    let dir = base.join("errorlogs");
+    fs::create_dir_all(&dir)
+        .map_err(|e| format!("ログフォルダの作成に失敗しました: {}", e))?;
+    let ts = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let safe_kind = sanitize_filename_component(kind);
+    let safe_id = sanitize_filename_component(id);
+    let file_name = format!("{}_{}_{}.log", ts, safe_kind, safe_id);
+    let file_path = dir.join(file_name);
+    let content = format!(
+        "kind: {}\nvideo_id: {}\ntimestamp_ms: {}\n\n[stdout]\n{}\n\n[stderr]\n{}\n",
+        kind, id, ts, stdout, stderr
+    );
+    fs::write(&file_path, content)
+        .map_err(|e| format!("ログの保存に失敗しました: {}", e))?;
+    Ok(())
+}
+
 #[tauri::command]
 fn start_download(
     app: AppHandle,
@@ -179,10 +233,17 @@ fn start_download(
         let child = match command.spawn() {
             Ok(child) => child,
             Err(err) => {
+                let _ = write_error_log(
+                    &app,
+                    "video_download",
+                    &id,
+                    "",
+                    &format!("yt-dlpの起動に失敗しました: {}", err),
+                );
                 let _ = app.emit(
                     "download-finished",
                     DownloadFinished {
-                        id,
+                        id: id.clone(),
                         success: false,
                         stdout: "".to_string(),
                         stderr: format!("yt-dlpの起動に失敗しました: {}", err),
@@ -208,12 +269,19 @@ fn start_download(
                     let _ = app.emit(
                         "download-finished",
                         DownloadFinished {
-                            id,
+                            id: id.clone(),
                             success: false,
                             stdout: "".to_string(),
                             stderr: format!("yt-dlpの制御に失敗しました: {}", err),
                             cancelled: false,
                         },
+                    );
+                    let _ = write_error_log(
+                        &app,
+                        "video_download",
+                        &id,
+                        "",
+                        &format!("yt-dlpの制御に失敗しました: {}", err),
                     );
                     return;
                 }
@@ -247,12 +315,19 @@ fn start_download(
                     let _ = app.emit(
                         "download-finished",
                         DownloadFinished {
-                            id,
+                            id: id.clone(),
                             success: false,
                             stdout: "".to_string(),
                             stderr: format!("yt-dlpの制御に失敗しました: {}", err),
                             cancelled: false,
                         },
+                    );
+                    let _ = write_error_log(
+                        &app,
+                        "video_download",
+                        &id,
+                        "",
+                        &format!("yt-dlpの制御に失敗しました: {}", err),
                     );
                     return;
                 }
@@ -287,12 +362,19 @@ fn start_download(
                         let _ = app.emit(
                             "download-finished",
                             DownloadFinished {
-                                id,
+                                id: id.clone(),
                                 success: false,
                                 stdout: "".to_string(),
                                 stderr: format!("yt-dlpの制御に失敗しました: {}", err),
                                 cancelled: false,
                             },
+                        );
+                        let _ = write_error_log(
+                            &app,
+                            "video_download",
+                            &id,
+                            "",
+                            &format!("yt-dlpの制御に失敗しました: {}", err),
                         );
                         return;
                     }
@@ -309,12 +391,19 @@ fn start_download(
                 let _ = app.emit(
                     "download-finished",
                     DownloadFinished {
-                        id,
+                        id: id.clone(),
                         success: false,
                         stdout: "".to_string(),
                         stderr: format!("yt-dlpの実行に失敗しました: {}", err),
                         cancelled: false,
                     },
+                );
+                let _ = write_error_log(
+                    &app,
+                    "video_download",
+                    &id,
+                    "",
+                    &format!("yt-dlpの実行に失敗しました: {}", err),
                 );
                     return;
                 }
@@ -330,6 +419,10 @@ fn start_download(
             Ok(mut set) => set.remove(&id),
             Err(_) => false,
         };
+
+        if !output.success() && !cancelled {
+            let _ = write_error_log(&app, "video_download", &id, &stdout, &stderr);
+        }
 
         let _ = app.emit(
             "download-finished",
@@ -422,6 +515,13 @@ fn start_comments_download(
         let mut child = match command.spawn() {
             Ok(child) => child,
             Err(err) => {
+                let _ = write_error_log(
+                    &app,
+                    "comments_download",
+                    &id,
+                    "",
+                    &format!("yt-dlpの起動に失敗しました: {}", err),
+                );
                 let _ = app.emit(
                     "comments-finished",
                     CommentsFinished {
@@ -479,6 +579,13 @@ fn start_comments_download(
         let output = match child.wait() {
             Ok(status) => status,
             Err(err) => {
+                let _ = write_error_log(
+                    &app,
+                    "comments_download",
+                    &id,
+                    "",
+                    &format!("yt-dlpの実行に失敗しました: {}", err),
+                );
                 let _ = app.emit(
                     "comments-finished",
                     CommentsFinished {
@@ -494,6 +601,10 @@ fn start_comments_download(
 
         let stdout = stdout_acc.lock().map(|s| s.clone()).unwrap_or_default();
         let stderr = stderr_acc.lock().map(|s| s.clone()).unwrap_or_default();
+
+        if !output.success() {
+            let _ = write_error_log(&app, "comments_download", &id, &stdout, &stderr);
+        }
 
         let _ = app.emit(
             "comments-finished",
