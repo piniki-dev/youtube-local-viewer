@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { emitTo, listen } from "@tauri-apps/api/event";
+import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
 import "./App.css";
@@ -205,6 +207,15 @@ function App() {
   const [playerCommentsError, setPlayerCommentsError] = useState("");
   const [playerTimeMs, setPlayerTimeMs] = useState(0);
   const [isChatAutoScroll, setIsChatAutoScroll] = useState(true);
+  const [playerWindowActiveId, setPlayerWindowActiveId] = useState<string | null>(
+    null
+  );
+  const [playerWindowActiveTitle, setPlayerWindowActiveTitle] = useState("");
+  const [isSwitchConfirmOpen, setIsSwitchConfirmOpen] = useState(false);
+  const [switchConfirmMessage, setSwitchConfirmMessage] = useState("");
+  const [pendingSwitchVideo, setPendingSwitchVideo] = useState<VideoItem | null>(
+    null
+  );
   const [mediaInfoById, setMediaInfoById] = useState<Record<string, MediaInfo | null>>({});
   const [mediaInfoErrors, setMediaInfoErrors] = useState<Record<string, string>>({});
   const [mediaInfoLoadingIds, setMediaInfoLoadingIds] = useState<string[]>([]);
@@ -212,6 +223,7 @@ function App() {
   const [remoteComponents, setRemoteComponents] = useState<
     "none" | "ejs:github" | "ejs:npm"
   >("none");
+  const [pendingPlayerId, setPendingPlayerId] = useState<string | null>(null);
   const [bulkDownload, setBulkDownload] = useState<BulkDownloadState>({
     active: false,
     total: 0,
@@ -240,6 +252,10 @@ function App() {
   const videosRef = useRef<VideoItem[]>([]);
   const bulkDownloadRef = useRef<BulkDownloadState>(bulkDownload);
   const downloadDirRef = useRef<string>("");
+  const isPlayerWindow = useMemo(() => {
+    if (typeof window === "undefined") return false;
+    return new URLSearchParams(window.location.search).get("player") === "1";
+  }, []);
 
   useEffect(() => {
     const load = async () => {
@@ -352,6 +368,45 @@ function App() {
   useEffect(() => {
     downloadDirRef.current = downloadDir;
   }, [downloadDir]);
+
+  useEffect(() => {
+    if (!isPlayerWindow) return;
+    let unlisten: (() => void) | null = null;
+    const setup = async () => {
+      unlisten = await listen<{ id: string }>("player-open", (event) => {
+        setPendingPlayerId(event.payload.id);
+      });
+    };
+    void setup();
+    return () => {
+      if (unlisten) unlisten();
+    };
+  }, [isPlayerWindow]);
+
+  useEffect(() => {
+    if (isPlayerWindow) return;
+    let unlisten: (() => void) | null = null;
+    const setup = async () => {
+      unlisten = await listen<{ id: string; title: string }>(
+        "player-active",
+        (event) => {
+          setPlayerWindowActiveId(event.payload.id);
+          setPlayerWindowActiveTitle(event.payload.title);
+        }
+      );
+    };
+    void setup();
+    return () => {
+      if (unlisten) unlisten();
+    };
+  }, [isPlayerWindow]);
+
+  useEffect(() => {
+    if (!isPlayerWindow) return;
+    const params = new URLSearchParams(window.location.search);
+    const initialId = params.get("videoId");
+    if (initialId) setPendingPlayerId(initialId);
+  }, [isPlayerWindow]);
 
   useEffect(() => {
     let unlisten: (() => void) | null = null;
@@ -1242,16 +1297,124 @@ function App() {
     }
   };
 
+  const openPlayerWindow = async (
+    video: VideoItem,
+    options?: { skipConfirm?: boolean }
+  ) => {
+    const label = "player";
+    const existing = await WebviewWindow.getByLabel(label);
+    if (existing) {
+      try {
+        const isDifferentVideo =
+          playerWindowActiveId !== null
+            ? playerWindowActiveId !== video.id
+            : true;
+        if (isDifferentVideo && !options?.skipConfirm) {
+          const currentTitle = playerWindowActiveTitle || "再生中の動画";
+          setSwitchConfirmMessage(
+            `${currentTitle}を再生中ですが切り替えますか？`
+          );
+          setPendingSwitchVideo(video);
+          setIsSwitchConfirmOpen(true);
+          return;
+        }
+        await emitTo(label, "player-open", { id: video.id });
+        try {
+          await existing.setTitle(video.title);
+        } catch {
+          // ignore title errors
+        }
+        await existing.setFocus();
+        existing.once("tauri://destroyed", () => {
+          setPlayerWindowActiveId(null);
+          setPlayerWindowActiveTitle("");
+        });
+        setPlayerWindowActiveId(video.id);
+        setPlayerWindowActiveTitle(video.title);
+      } catch {
+        setErrorMessage("プレイヤーウィンドウの起動に失敗しました。");
+      }
+      return;
+    }
+
+    const url = `index.html?player=1&videoId=${encodeURIComponent(video.id)}`;
+    const playerWindow = new WebviewWindow(label, {
+      title: video.title,
+      url,
+      width: 1200,
+      height: 800,
+      resizable: true,
+    });
+    playerWindow.once("tauri://created", () => {
+      void emitTo(label, "player-open", { id: video.id });
+    });
+    playerWindow.once("tauri://error", () => {
+      setErrorMessage("プレイヤーウィンドウの作成に失敗しました。");
+    });
+    playerWindow.once("tauri://destroyed", () => {
+      setPlayerWindowActiveId(null);
+      setPlayerWindowActiveTitle("");
+    });
+    setPlayerWindowActiveId(video.id);
+    setPlayerWindowActiveTitle(video.title);
+  };
+
+  const closeSwitchConfirm = () => {
+    setIsSwitchConfirmOpen(false);
+    setSwitchConfirmMessage("");
+    setPendingSwitchVideo(null);
+  };
+
+  const confirmSwitch = async () => {
+    const target = pendingSwitchVideo;
+    closeSwitchConfirm();
+    if (!target) return;
+    await openPlayerWindow(target, { skipConfirm: true });
+  };
+
+  const closePlayerWindow = async () => {
+    try {
+      await getCurrentWindow().close();
+    } catch {
+      // ignore close errors
+    }
+  };
+
   const openPlayer = async (video: VideoItem) => {
+    if (!isPlayerWindow) {
+      if (!downloadDir) {
+        setErrorMessage("保存先フォルダが未設定です。設定から選択してください。");
+        setIsSettingsOpen(true);
+        return;
+      }
+      await openPlayerWindow(video);
+      return;
+    }
+
     if (!downloadDir) {
-      setErrorMessage("保存先フォルダが未設定です。設定から選択してください。");
-      setIsSettingsOpen(true);
+      setPlayerError("保存先フォルダが未設定のため再生できません。");
+      setIsPlayerOpen(true);
       return;
     }
 
     setPlayerLoading(true);
     setPlayerError("");
     setPlayerTitle(video.title);
+    try {
+      await getCurrentWindow().setTitle(video.title);
+    } catch {
+      // ignore title errors
+    }
+    if (isPlayerWindow) {
+      try {
+        await emitTo("main", "player-active", {
+          id: video.id,
+          title: video.title,
+        });
+      } catch {
+        // ignore event errors
+      }
+    }
     setPlayerSrc(null);
     setPlayerVideoId(video.id);
     setPlayerDebug("");
@@ -1293,6 +1456,18 @@ function App() {
       setPlayerLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (!isPlayerWindow || !isStateReady || !pendingPlayerId) return;
+    const target = videosRef.current.find((item) => item.id === pendingPlayerId);
+    if (!target) {
+      setPlayerTitle("動画が見つかりませんでした。");
+      setPlayerError("ライブラリに該当する動画が見つかりませんでした。");
+      setIsPlayerOpen(true);
+      return;
+    }
+    void openPlayer(target);
+  }, [isPlayerWindow, isStateReady, pendingPlayerId]);
 
   const closePlayer = () => {
     setIsPlayerOpen(false);
@@ -1641,6 +1816,142 @@ function App() {
     }
     return value?.trim() ?? "";
   };
+
+  const playerContent = (
+    <>
+      <div className="comment-title">{playerTitle}</div>
+      {playerLoading && <p className="progress-line">読み込み中...</p>}
+      {playerError && <p className="error">{playerError}</p>}
+      <div className="player-layout">
+        <div className="player-media">
+          {playerSrc && !playerError && (
+            <video
+              ref={playerVideoRef}
+              className="player-video"
+              controls
+              preload="metadata"
+              src={playerSrc}
+              onCanPlay={() => setPlayerError("")}
+              onTimeUpdate={(event) => {
+                setPlayerTimeMs(Math.floor(event.currentTarget.currentTime * 1000));
+              }}
+              onError={(event) => {
+                const media = event.currentTarget;
+                const err = media.error;
+                const debug = `code=${err?.code ?? "none"} network=${media.networkState} ready=${media.readyState} src=${media.currentSrc}`;
+                setPlayerDebug(debug);
+                const info = playerVideoId ? mediaInfoById[playerVideoId] : null;
+                const v = info?.videoCodec?.toLowerCase();
+                const a = info?.audioCodec?.toLowerCase();
+                if (v && !a) {
+                  setPlayerError(
+                    "音声トラックが含まれていません。ffmpegを用意して再ダウンロードしてください。"
+                  );
+                } else if (a && !v) {
+                  setPlayerError(
+                    "映像トラックが含まれていません。再ダウンロードしてください。"
+                  );
+                } else if (v && a && v.includes("h264") && a.includes("aac")) {
+                  setPlayerError(
+                    "この動画は再生できません。Linux側のコーデック(GStreamer)が未導入の可能性があります。"
+                  );
+                } else if (v || a) {
+                  setPlayerError(
+                    "この動画は再生できません。H.264/AACで再ダウンロードしてください。"
+                  );
+                } else {
+                  setPlayerError(
+                    "この動画は再生できません。コーデック未確認のため、先に『コーデック確認』を実行してください。"
+                  );
+                }
+              }}
+            />
+          )}
+          {playerDebug && <p className="progress-line codec-line">{playerDebug}</p>}
+          {playerError && playerFilePath && (
+            <div className="action-row">
+              <button className="ghost small" onClick={openExternalPlayer}>
+                外部プレイヤーで開く
+              </button>
+              <button className="ghost small" onClick={revealInFolder}>
+                フォルダを開く
+              </button>
+            </div>
+          )}
+        </div>
+        <aside className="player-chat">
+          <div className="player-chat-header">
+            <div className="player-chat-title">
+              <span className="comment-title">チャット</span>
+              <span
+                className={`badge ${
+                  sortedPlayerComments.length > 0 ? "badge-success" : "badge-muted"
+                }`}
+              >
+                {sortedPlayerComments.length > 0 ? "同期" : "同期不可"}
+              </span>
+            </div>
+            <div className="player-chat-actions">
+              <button
+                className="ghost tiny"
+                onClick={() => setIsChatAutoScroll((prev) => !prev)}
+              >
+                {isChatAutoScroll ? "自動スクロール: ON" : "自動スクロール: OFF"}
+              </button>
+            </div>
+          </div>
+          <div className="player-chat-meta">
+            <span>再生位置 {formatClock(playerTimeMs)}</span>
+            {playerCommentsLoading && <span>読み込み中...</span>}
+          </div>
+          {playerCommentsError && <p className="error small">{playerCommentsError}</p>}
+          {!playerCommentsLoading &&
+            !playerCommentsError &&
+            sortedPlayerComments.length === 0 && (
+              <p className="progress-line">
+                同期可能なチャットがありません。ライブチャットリプレイのみ対応しています。
+              </p>
+            )}
+          <div className="player-chat-list">
+            {playerVisibleComments.map((comment, index) => (
+              <div
+                key={`${comment.author}-${comment.offsetMs ?? index}-${index}`}
+                className="player-chat-item"
+              >
+                <div className="comment-meta">
+                  <span>{comment.author}</span>
+                  {comment.offsetMs !== undefined && (
+                    <span>{formatClock(comment.offsetMs)}</span>
+                  )}
+                </div>
+                <div className="comment-text">{comment.text}</div>
+              </div>
+            ))}
+            <div ref={playerChatEndRef} />
+          </div>
+        </aside>
+      </div>
+    </>
+  );
+
+  if (isPlayerWindow) {
+    return (
+      <main className="app player-window">
+        <header className="app-header">
+          <div>
+            <h1>{playerTitle || "再生"}</h1>
+          </div>
+        </header>
+        {isPlayerOpen ? (
+          <section className="player-window-body">{playerContent}</section>
+        ) : (
+          <section className="empty">
+            再生する動画が選択されていません。メインウィンドウから動画を再生してください。
+          </section>
+        )}
+      </main>
+    );
+  }
 
   return (
     <main className="app">
@@ -2370,6 +2681,30 @@ function App() {
         </div>
       )}
 
+      {isSwitchConfirmOpen && (
+        <div className="modal-backdrop" onClick={closeSwitchConfirm}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>再生切替</h2>
+              <button className="icon" onClick={closeSwitchConfirm}>
+                ×
+              </button>
+            </div>
+            <div className="modal-body">
+              <p>{switchConfirmMessage}</p>
+            </div>
+            <div className="modal-footer">
+              <button className="ghost" onClick={closeSwitchConfirm}>
+                キャンセル
+              </button>
+              <button className="primary" onClick={confirmSwitch}>
+                切り替える
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {isPlayerOpen && (
         <div className="modal-backdrop" onClick={closePlayer}>
           <div className="modal modal-wide" onClick={(e) => e.stopPropagation()}>
@@ -2379,126 +2714,7 @@ function App() {
                 ×
               </button>
             </div>
-            <div className="modal-body">
-              <div className="comment-title">{playerTitle}</div>
-              {playerLoading && <p className="progress-line">読み込み中...</p>}
-              {playerError && <p className="error">{playerError}</p>}
-              <div className="player-layout">
-                <div className="player-media">
-                  {playerSrc && !playerError && (
-                    <video
-                      ref={playerVideoRef}
-                      className="player-video"
-                      controls
-                      preload="metadata"
-                      src={playerSrc}
-                      onCanPlay={() => setPlayerError("")}
-                      onTimeUpdate={(event) => {
-                        setPlayerTimeMs(Math.floor(event.currentTarget.currentTime * 1000));
-                      }}
-                      onError={(event) => {
-                        const media = event.currentTarget;
-                        const err = media.error;
-                        const debug = `code=${err?.code ?? "none"} network=${media.networkState} ready=${media.readyState} src=${media.currentSrc}`;
-                        setPlayerDebug(debug);
-                        const info = playerVideoId ? mediaInfoById[playerVideoId] : null;
-                        const v = info?.videoCodec?.toLowerCase();
-                        const a = info?.audioCodec?.toLowerCase();
-                        if (v && !a) {
-                          setPlayerError(
-                            "音声トラックが含まれていません。ffmpegを用意して再ダウンロードしてください。"
-                          );
-                        } else if (a && !v) {
-                          setPlayerError(
-                            "映像トラックが含まれていません。再ダウンロードしてください。"
-                          );
-                        } else if (v && a && v.includes("h264") && a.includes("aac")) {
-                          setPlayerError(
-                            "この動画は再生できません。Linux側のコーデック(GStreamer)が未導入の可能性があります。"
-                          );
-                        } else if (v || a) {
-                          setPlayerError(
-                            "この動画は再生できません。H.264/AACで再ダウンロードしてください。"
-                          );
-                        } else {
-                          setPlayerError(
-                            "この動画は再生できません。コーデック未確認のため、先に『コーデック確認』を実行してください。"
-                          );
-                        }
-                      }}
-                    />
-                  )}
-                  {playerDebug && (
-                    <p className="progress-line codec-line">{playerDebug}</p>
-                  )}
-                  {playerError && playerFilePath && (
-                    <div className="action-row">
-                      <button className="ghost small" onClick={openExternalPlayer}>
-                        外部プレイヤーで開く
-                      </button>
-                      <button className="ghost small" onClick={revealInFolder}>
-                        フォルダを開く
-                      </button>
-                    </div>
-                  )}
-                </div>
-                <aside className="player-chat">
-                  <div className="player-chat-header">
-                    <div className="player-chat-title">
-                      <span className="comment-title">チャット</span>
-                      <span
-                        className={`badge ${
-                          sortedPlayerComments.length > 0
-                            ? "badge-success"
-                            : "badge-muted"
-                        }`}
-                      >
-                        {sortedPlayerComments.length > 0 ? "同期" : "同期不可"}
-                      </span>
-                    </div>
-                    <div className="player-chat-actions">
-                      <button
-                        className="ghost tiny"
-                        onClick={() => setIsChatAutoScroll((prev) => !prev)}
-                      >
-                        {isChatAutoScroll ? "自動スクロール: ON" : "自動スクロール: OFF"}
-                      </button>
-                    </div>
-                  </div>
-                  <div className="player-chat-meta">
-                    <span>再生位置 {formatClock(playerTimeMs)}</span>
-                    {playerCommentsLoading && <span>読み込み中...</span>}
-                  </div>
-                  {playerCommentsError && (
-                    <p className="error small">{playerCommentsError}</p>
-                  )}
-                  {!playerCommentsLoading &&
-                    !playerCommentsError &&
-                    sortedPlayerComments.length === 0 && (
-                      <p className="progress-line">
-                        同期可能なチャットがありません。ライブチャットリプレイのみ対応しています。
-                      </p>
-                    )}
-                  <div className="player-chat-list">
-                    {playerVisibleComments.map((comment, index) => (
-                      <div
-                        key={`${comment.author}-${comment.offsetMs ?? index}-${index}`}
-                        className="player-chat-item"
-                      >
-                        <div className="comment-meta">
-                          <span>{comment.author}</span>
-                          {comment.offsetMs !== undefined && (
-                            <span>{formatClock(comment.offsetMs)}</span>
-                          )}
-                        </div>
-                        <div className="comment-text">{comment.text}</div>
-                      </div>
-                    ))}
-                    <div ref={playerChatEndRef} />
-                  </div>
-                </aside>
-              </div>
-            </div>
+            <div className="modal-body">{playerContent}</div>
             <div className="modal-footer">
               <button className="primary" onClick={closePlayer}>
                 閉じる
