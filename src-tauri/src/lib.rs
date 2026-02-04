@@ -1077,7 +1077,15 @@ fn comments_file_exists(id: String, output_dir: String) -> Result<bool, String> 
     if !dir.exists() {
         return Ok(false);
     }
-    Ok(find_comments_file(&dir, &id).is_some())
+    let Some(path) = find_comments_file(&dir, &id) else {
+        return Ok(false);
+    };
+    let is_info = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .map(|name| name.to_lowercase().ends_with(".info.json"))
+        .unwrap_or(false);
+    Ok(!is_info)
 }
 
 #[tauri::command]

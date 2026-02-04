@@ -8,7 +8,12 @@ import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
 import "./App.css";
 
 type DownloadStatus = "pending" | "downloading" | "downloaded" | "failed";
-type CommentStatus = "pending" | "downloading" | "downloaded" | "failed";
+type CommentStatus =
+  | "pending"
+  | "downloading"
+  | "downloaded"
+  | "failed"
+  | "unavailable";
 
 type VideoItem = {
   id: string;
@@ -534,42 +539,61 @@ function App() {
       unlisten = await listen<CommentFinished>(
         "comments-finished",
         (event) => {
-          const { id, success, stderr, stdout } = event.payload;
-          setCommentsDownloadingIds((prev) => prev.filter((item) => item !== id));
-          if (success) {
-            setVideos((prev) =>
-              prev.map((v) =>
-                v.id === id ? { ...v, commentsStatus: "downloaded" } : v
-              )
-            );
-            setCommentErrors((prev) => {
-              const next = { ...prev };
-              delete next[id];
-              return next;
-            });
-            setCommentProgressLines((prev) => {
-              const next = { ...prev };
-              delete next[id];
-              return next;
-            });
-          } else {
-            setVideos((prev) =>
-              prev.map((v) =>
-                v.id === id ? { ...v, commentsStatus: "failed" } : v
-              )
-            );
-            const details = stderr || stdout || "不明なエラー";
-            setCommentErrors((prev) => ({ ...prev, [id]: details }));
-            setErrorMessage("ライブチャット取得に失敗しました。詳細を確認してください。");
-          }
-          setPendingCommentIds((prev) => prev.filter((item) => item !== id));
-          if (
-            bulkDownloadRef.current.active &&
-            bulkDownloadRef.current.currentId === id &&
-            bulkDownloadRef.current.phase === "comments"
-          ) {
-            handleBulkCompletion(id, false);
-          }
+          void (async () => {
+            const { id, success, stderr, stdout } = event.payload;
+            setCommentsDownloadingIds((prev) => prev.filter((item) => item !== id));
+            if (success) {
+              let hasComments = true;
+              const outputDir = downloadDirRef.current.trim();
+              if (outputDir) {
+                try {
+                  hasComments = await invoke<boolean>("comments_file_exists", {
+                    id,
+                    outputDir,
+                  });
+                } catch {
+                  hasComments = true;
+                }
+              }
+              setVideos((prev) =>
+                prev.map((v) =>
+                  v.id === id
+                    ? {
+                        ...v,
+                        commentsStatus: hasComments ? "downloaded" : "unavailable",
+                      }
+                    : v
+                )
+              );
+              setCommentErrors((prev) => {
+                const next = { ...prev };
+                delete next[id];
+                return next;
+              });
+              setCommentProgressLines((prev) => {
+                const next = { ...prev };
+                delete next[id];
+                return next;
+              });
+            } else {
+              setVideos((prev) =>
+                prev.map((v) =>
+                  v.id === id ? { ...v, commentsStatus: "failed" } : v
+                )
+              );
+              const details = stderr || stdout || "不明なエラー";
+              setCommentErrors((prev) => ({ ...prev, [id]: details }));
+              setErrorMessage("ライブチャット取得に失敗しました。詳細を確認してください。");
+            }
+            setPendingCommentIds((prev) => prev.filter((item) => item !== id));
+            if (
+              bulkDownloadRef.current.active &&
+              bulkDownloadRef.current.currentId === id &&
+              bulkDownloadRef.current.phase === "comments"
+            ) {
+              handleBulkCompletion(id, false);
+            }
+          })();
         }
       );
     };
@@ -1195,6 +1219,7 @@ function App() {
     const video = videosRef.current.find((item) => item.id === id);
     if (!video) return;
     if (video.commentsStatus === "downloaded") return;
+    if (video.commentsStatus === "unavailable") return;
     if (commentsDownloadingIds.includes(id)) return;
     setPendingCommentIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
     if (bulkDownloadRef.current.active && bulkDownloadRef.current.currentId === id) {
@@ -1305,6 +1330,9 @@ function App() {
   };
 
   const startCommentsDownload = async (video: VideoItem) => {
+    if (video.commentsStatus === "unavailable") {
+      return;
+    }
     const outputDir = downloadDirRef.current.trim();
     if (!outputDir) {
       setErrorMessage("保存先フォルダが未設定です。設定から選択してください。");
@@ -2350,41 +2378,43 @@ function App() {
                           : ""}
                       </p>
                     )}
-                    <div className="comment-row">
-                      <span
-                        className={`badge ${
-                          isCommentsDownloading
-                            ? "badge-pending"
+                    {video.commentsStatus !== "unavailable" && (
+                      <div className="comment-row">
+                        <span
+                          className={`badge ${
+                            isCommentsDownloading
+                              ? "badge-pending"
+                              : video.commentsStatus === "downloaded"
+                                ? "badge-success"
+                                : video.commentsStatus === "pending"
+                                  ? "badge-pending"
+                                  : "badge-muted"
+                          }`}
+                        >
+                          {isCommentsDownloading
+                            ? "ライブチャット取得中"
                             : video.commentsStatus === "downloaded"
-                              ? "badge-success"
+                              ? "ライブチャット取得済"
                               : video.commentsStatus === "pending"
-                                ? "badge-pending"
-                                : "badge-muted"
-                        }`}
-                      >
-                        {isCommentsDownloading
-                          ? "ライブチャット取得中"
-                          : video.commentsStatus === "downloaded"
-                            ? "ライブチャット取得済"
-                            : video.commentsStatus === "pending"
-                              ? "ライブチャット未取得"
-                              : "ライブチャット失敗"}
-                      </span>
-                      <button
-                        className="ghost small"
-                        onClick={() => startCommentsDownload(video)}
-                        disabled={isCommentsDownloading}
-                      >
-                        {isCommentsDownloading ? "取得中..." : "ライブチャット取得"}
-                      </button>
-                      <button
-                        className="ghost small"
-                        onClick={() => openComments(video)}
-                        disabled={video.commentsStatus !== "downloaded"}
-                      >
-                        チャットを見る
-                      </button>
-                    </div>
+                                ? "ライブチャット未取得"
+                                : "ライブチャット失敗"}
+                        </span>
+                        <button
+                          className="ghost small"
+                          onClick={() => startCommentsDownload(video)}
+                          disabled={isCommentsDownloading}
+                        >
+                          {isCommentsDownloading ? "取得中..." : "ライブチャット取得"}
+                        </button>
+                        <button
+                          className="ghost small"
+                          onClick={() => openComments(video)}
+                          disabled={video.commentsStatus !== "downloaded"}
+                        >
+                          チャットを見る
+                        </button>
+                      </div>
+                    )}
                     {video.commentsStatus === "failed" &&
                       commentErrors[video.id] && (
                         <p className="error small">
