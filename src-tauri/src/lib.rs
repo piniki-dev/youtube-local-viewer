@@ -1,11 +1,12 @@
 use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
-use std::time::SystemTime;
-use tauri::{AppHandle, Emitter, Manager};
+use std::time::{Duration, SystemTime};
+use tauri::{AppHandle, Emitter, Manager, State};
 use std::{fs, path::PathBuf};
 
 #[derive(Clone, Serialize)]
@@ -14,6 +15,7 @@ struct DownloadFinished {
     success: bool,
     stdout: String,
     stderr: String,
+    cancelled: bool,
 }
 
 #[derive(Clone, Serialize)]
@@ -22,6 +24,12 @@ struct CommentsFinished {
     success: bool,
     stdout: String,
     stderr: String,
+}
+
+#[derive(Clone, Default)]
+struct DownloadProcessState {
+    children: Arc<Mutex<HashMap<String, Arc<Mutex<Child>>>>>,
+    cancelled: Arc<Mutex<HashSet<String>>>,
 }
 
 #[derive(Clone, Serialize)]
@@ -123,6 +131,7 @@ struct PersistedState {
 #[tauri::command]
 fn start_download(
     app: AppHandle,
+    state: State<DownloadProcessState>,
     id: String,
     url: String,
     output_dir: String,
@@ -134,6 +143,7 @@ fn start_download(
     let output_path = format!("{}/%(title)s [%(id)s].%(ext)s", output_dir);
     let yt_dlp = resolve_override(yt_dlp_path).unwrap_or_else(resolve_yt_dlp);
     let ffmpeg_location = resolve_override(ffmpeg_path);
+    let state = state.inner().clone();
 
     std::thread::spawn(move || {
         let mut command = Command::new(yt_dlp);
@@ -141,6 +151,10 @@ fn start_download(
             .arg("--no-playlist")
             .arg("--newline")
             .arg("--progress")
+            .arg("--sleep-interval")
+            .arg("1")
+            .arg("--max-sleep-interval")
+            .arg("3")
             .arg("-f")
             .arg("bestvideo[ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/best[ext=mp4][vcodec^=avc1]")
             .arg("--merge-output-format")
@@ -162,7 +176,7 @@ fn start_download(
         }
         command.arg(&url).stdout(Stdio::piped()).stderr(Stdio::piped());
 
-        let mut child = match command.spawn() {
+        let child = match command.spawn() {
             Ok(child) => child,
             Err(err) => {
                 let _ = app.emit(
@@ -172,16 +186,42 @@ fn start_download(
                         success: false,
                         stdout: "".to_string(),
                         stderr: format!("yt-dlpの起動に失敗しました: {}", err),
+                        cancelled: false,
                     },
                 );
                 return;
             }
         };
 
+        let child = Arc::new(Mutex::new(child));
+        if let Ok(mut map) = state.children.lock() {
+            map.insert(id.clone(), child.clone());
+        }
+
         let stdout_acc = Arc::new(Mutex::new(String::new()));
         let stderr_acc = Arc::new(Mutex::new(String::new()));
 
-        if let Some(stdout) = child.stdout.take() {
+        let stdout = {
+            let mut guard = match child.lock() {
+                Ok(guard) => guard,
+                Err(err) => {
+                    let _ = app.emit(
+                        "download-finished",
+                        DownloadFinished {
+                            id,
+                            success: false,
+                            stdout: "".to_string(),
+                            stderr: format!("yt-dlpの制御に失敗しました: {}", err),
+                            cancelled: false,
+                        },
+                    );
+                    return;
+                }
+            };
+            guard.stdout.take()
+        };
+
+        if let Some(stdout) = stdout {
             let app_clone = app.clone();
             let id_clone = id.clone();
             let stdout_acc_clone = stdout_acc.clone();
@@ -200,7 +240,27 @@ fn start_download(
             });
         }
 
-        if let Some(stderr) = child.stderr.take() {
+        let stderr = {
+            let mut guard = match child.lock() {
+                Ok(guard) => guard,
+                Err(err) => {
+                    let _ = app.emit(
+                        "download-finished",
+                        DownloadFinished {
+                            id,
+                            success: false,
+                            stdout: "".to_string(),
+                            stderr: format!("yt-dlpの制御に失敗しました: {}", err),
+                            cancelled: false,
+                        },
+                    );
+                    return;
+                }
+            };
+            guard.stderr.take()
+        };
+
+        if let Some(stderr) = stderr {
             let app_clone = app.clone();
             let id_clone = id.clone();
             let stderr_acc_clone = stderr_acc.clone();
@@ -219,9 +279,33 @@ fn start_download(
             });
         }
 
-        let output = match child.wait() {
-            Ok(status) => status,
-            Err(err) => {
+        let output = loop {
+            let status = {
+                let mut guard = match child.lock() {
+                    Ok(guard) => guard,
+                    Err(err) => {
+                        let _ = app.emit(
+                            "download-finished",
+                            DownloadFinished {
+                                id,
+                                success: false,
+                                stdout: "".to_string(),
+                                stderr: format!("yt-dlpの制御に失敗しました: {}", err),
+                                cancelled: false,
+                            },
+                        );
+                        return;
+                    }
+                };
+                guard.try_wait()
+            };
+            match status {
+                Ok(Some(status)) => break status,
+                Ok(None) => {
+                    std::thread::sleep(Duration::from_millis(200));
+                    continue;
+                }
+                Err(err) => {
                 let _ = app.emit(
                     "download-finished",
                     DownloadFinished {
@@ -229,14 +313,23 @@ fn start_download(
                         success: false,
                         stdout: "".to_string(),
                         stderr: format!("yt-dlpの実行に失敗しました: {}", err),
+                        cancelled: false,
                     },
                 );
-                return;
+                    return;
+                }
             }
         };
 
         let stdout = stdout_acc.lock().map(|s| s.clone()).unwrap_or_default();
         let stderr = stderr_acc.lock().map(|s| s.clone()).unwrap_or_default();
+        if let Ok(mut map) = state.children.lock() {
+            map.remove(&id);
+        }
+        let cancelled = match state.cancelled.lock() {
+            Ok(mut set) => set.remove(&id),
+            Err(_) => false,
+        };
 
         let _ = app.emit(
             "download-finished",
@@ -245,9 +338,37 @@ fn start_download(
                 success: output.success(),
                 stdout,
                 stderr,
+                cancelled,
             },
         );
     });
+
+    Ok(())
+}
+
+#[tauri::command]
+fn stop_download(state: State<DownloadProcessState>, id: String) -> Result<(), String> {
+    let child = match state.children.lock() {
+        Ok(map) => map.get(&id).cloned(),
+        Err(err) => return Err(format!("停止処理に失敗しました: {}", err)),
+    };
+
+    let Some(child) = child else {
+        return Err("停止対象のダウンロードが見つかりませんでした。".to_string());
+    };
+
+    if let Ok(mut set) = state.cancelled.lock() {
+        set.insert(id);
+    }
+
+    let mut guard = match child.lock() {
+        Ok(guard) => guard,
+        Err(err) => return Err(format!("停止処理に失敗しました: {}", err)),
+    };
+
+    guard
+        .kill()
+        .map_err(|err| format!("ダウンロード停止に失敗しました: {}", err))?;
 
     Ok(())
 }
@@ -1612,8 +1733,10 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::default().build())
+        .manage(DownloadProcessState::default())
         .invoke_handler(tauri::generate_handler![
             start_download,
+            stop_download,
             start_comments_download,
             list_channel_videos,
             get_video_metadata,

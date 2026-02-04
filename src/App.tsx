@@ -104,6 +104,7 @@ type DownloadFinished = {
   success: boolean;
   stdout: string;
   stderr: string;
+  cancelled?: boolean;
 };
 
 type CommentFinished = {
@@ -128,6 +129,17 @@ type MediaInfo = {
   height?: number | null;
   duration?: number | null;
   container?: string | null;
+};
+
+type BulkDownloadState = {
+  active: boolean;
+  total: number;
+  completed: number;
+  currentId: string | null;
+  currentTitle: string;
+  queue: string[];
+  stopRequested: boolean;
+  phase: "video" | "comments" | null;
 };
 
 const VIDEO_STORAGE_KEY = "ytlv_videos";
@@ -200,6 +212,19 @@ function App() {
   const [remoteComponents, setRemoteComponents] = useState<
     "none" | "ejs:github" | "ejs:npm"
   >("none");
+  const [bulkDownload, setBulkDownload] = useState<BulkDownloadState>({
+    active: false,
+    total: 0,
+    completed: 0,
+    currentId: null,
+    currentTitle: "",
+    queue: [],
+    stopRequested: false,
+    phase: null,
+  });
+  const [isBulkLogOpen, setIsBulkLogOpen] = useState(false);
+  const [isDownloadLogOpen, setIsDownloadLogOpen] = useState(false);
+  const [pendingCommentIds, setPendingCommentIds] = useState<string[]>([]);
   const [downloadFilter, setDownloadFilter] = useState<
     "all" | "downloaded" | "undownloaded"
   >("all");
@@ -212,6 +237,9 @@ function App() {
   const [searchQuery, setSearchQuery] = useState("");
   const playerVideoRef = useRef<HTMLVideoElement | null>(null);
   const playerChatEndRef = useRef<HTMLDivElement | null>(null);
+  const videosRef = useRef<VideoItem[]>([]);
+  const bulkDownloadRef = useRef<BulkDownloadState>(bulkDownload);
+  const downloadDirRef = useRef<string>("");
 
   useEffect(() => {
     const load = async () => {
@@ -314,6 +342,18 @@ function App() {
   }, []);
 
   useEffect(() => {
+    videosRef.current = videos;
+  }, [videos]);
+
+  useEffect(() => {
+    bulkDownloadRef.current = bulkDownload;
+  }, [bulkDownload]);
+
+  useEffect(() => {
+    downloadDirRef.current = downloadDir;
+  }, [downloadDir]);
+
+  useEffect(() => {
     let unlisten: (() => void) | null = null;
     const setup = async () => {
       unlisten = await listen<{ id: string; line: string }>(
@@ -336,9 +376,26 @@ function App() {
       unlisten = await listen<DownloadFinished>(
         "download-finished",
         (event) => {
-          const { id, success, stderr, stdout } = event.payload;
+          const { id, success, stderr, stdout, cancelled } = event.payload;
+          const wasCancelled = Boolean(cancelled);
           setDownloadingIds((prev) => prev.filter((item) => item !== id));
-          if (success) {
+          if (wasCancelled) {
+            setVideos((prev) =>
+              prev.map((v) =>
+                v.id === id ? { ...v, downloadStatus: "pending" } : v
+              )
+            );
+            setVideoErrors((prev) => {
+              const next = { ...prev };
+              delete next[id];
+              return next;
+            });
+            setProgressLines((prev) => {
+              const next = { ...prev };
+              delete next[id];
+              return next;
+            });
+          } else if (success) {
             setVideos((prev) =>
               prev.map((v) =>
                 v.id === id ? { ...v, downloadStatus: "downloaded" } : v
@@ -354,6 +411,7 @@ function App() {
               delete next[id];
               return next;
             });
+            maybeStartAutoCommentsDownload(id);
           } else {
             setVideos((prev) =>
               prev.map((v) =>
@@ -363,6 +421,13 @@ function App() {
             const details = stderr || stdout || "不明なエラー";
             setVideoErrors((prev) => ({ ...prev, [id]: details }));
             setErrorMessage("ダウンロードに失敗しました。詳細を確認してください。");
+          }
+          if (bulkDownloadRef.current.active && bulkDownloadRef.current.currentId === id) {
+            if (wasCancelled || !success) {
+              handleBulkCompletion(id, wasCancelled);
+            }
+          } else {
+            if (wasCancelled) return;
           }
         }
       );
@@ -423,6 +488,14 @@ function App() {
             const details = stderr || stdout || "不明なエラー";
             setCommentErrors((prev) => ({ ...prev, [id]: details }));
             setErrorMessage("ライブチャット取得に失敗しました。詳細を確認してください。");
+          }
+          setPendingCommentIds((prev) => prev.filter((item) => item !== id));
+          if (
+            bulkDownloadRef.current.active &&
+            bulkDownloadRef.current.currentId === id &&
+            bulkDownloadRef.current.phase === "comments"
+          ) {
+            handleBulkCompletion(id, false);
           }
         }
       );
@@ -878,8 +951,159 @@ function App() {
     }
   };
 
+  const startNextBulkDownload = (stateOverride?: BulkDownloadState) => {
+    const state = stateOverride ?? bulkDownloadRef.current;
+    if (!state.active) return;
+
+    const queue = [...state.queue];
+    let completed = state.completed;
+    let nextVideo: VideoItem | undefined;
+    let nextId: string | undefined;
+
+    while (queue.length > 0) {
+      const candidateId = queue.shift();
+      if (!candidateId) continue;
+      const candidate = videosRef.current.find((v) => v.id === candidateId);
+      if (!candidate || candidate.downloadStatus === "downloaded") {
+        completed += 1;
+        continue;
+      }
+      nextVideo = candidate;
+      nextId = candidateId;
+      break;
+    }
+
+    if (!nextVideo || !nextId) {
+      const doneState: BulkDownloadState = {
+        ...state,
+        active: false,
+        queue: [],
+        completed,
+        currentId: null,
+        currentTitle: "",
+        stopRequested: false,
+      };
+      setBulkDownload(doneState);
+      bulkDownloadRef.current = doneState;
+      return;
+    }
+
+    const nextState: BulkDownloadState = {
+      ...state,
+      queue,
+      completed,
+      currentId: nextId,
+      currentTitle: nextVideo.title,
+      phase: "video",
+    };
+    setBulkDownload(nextState);
+    bulkDownloadRef.current = nextState;
+    void startDownload(nextVideo);
+  };
+
+  const handleBulkCompletion = (id: string, cancelled: boolean) => {
+    const state = bulkDownloadRef.current;
+    if (!state.active || state.currentId !== id) return;
+    setPendingCommentIds((prev) => prev.filter((item) => item !== id));
+
+    const nextState: BulkDownloadState = {
+      ...state,
+      completed: state.completed + 1,
+      currentId: null,
+      currentTitle: "",
+      phase: null,
+    };
+
+    if (state.stopRequested || cancelled) {
+      const finalState: BulkDownloadState = {
+        ...nextState,
+        active: false,
+        queue: [],
+        stopRequested: false,
+      };
+      setBulkDownload(finalState);
+      bulkDownloadRef.current = finalState;
+      return;
+    }
+
+    setBulkDownload(nextState);
+    bulkDownloadRef.current = nextState;
+    startNextBulkDownload(nextState);
+  };
+
+  const maybeStartAutoCommentsDownload = (id: string) => {
+    const video = videosRef.current.find((item) => item.id === id);
+    if (!video) return;
+    if (video.commentsStatus === "downloaded") return;
+    if (commentsDownloadingIds.includes(id)) return;
+    setPendingCommentIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
+    if (bulkDownloadRef.current.active && bulkDownloadRef.current.currentId === id) {
+      const nextState: BulkDownloadState = {
+        ...bulkDownloadRef.current,
+        phase: "comments",
+      };
+      setBulkDownload(nextState);
+      bulkDownloadRef.current = nextState;
+    }
+    void startCommentsDownload(video);
+  };
+
+  const startBulkDownload = () => {
+    const outputDir = downloadDirRef.current.trim();
+    if (!outputDir) {
+      setErrorMessage("保存先フォルダが未設定です。設定から選択してください。");
+      setIsSettingsOpen(true);
+      return;
+    }
+    if (bulkDownloadRef.current.active) return;
+    if (downloadingIds.length > 0) {
+      setErrorMessage("他のダウンロードが進行中です。完了後に一括ダウンロードしてください。");
+      return;
+    }
+    const targets = videosRef.current.filter(
+      (video) => video.downloadStatus !== "downloaded"
+    );
+    if (targets.length === 0) {
+      setErrorMessage("未ダウンロードの動画がありません。");
+      return;
+    }
+
+    const nextState: BulkDownloadState = {
+      active: true,
+      total: targets.length,
+      completed: 0,
+      currentId: null,
+      currentTitle: "",
+      queue: targets.map((video) => video.id),
+      stopRequested: false,
+      phase: null,
+    };
+    setBulkDownload(nextState);
+    bulkDownloadRef.current = nextState;
+    startNextBulkDownload(nextState);
+  };
+
+  const stopBulkDownload = async () => {
+    const state = bulkDownloadRef.current;
+    if (!state.active || !state.currentId) return;
+
+    const nextState: BulkDownloadState = { ...state, stopRequested: true };
+    setBulkDownload(nextState);
+    bulkDownloadRef.current = nextState;
+
+    try {
+      await invoke("stop_download", { id: state.currentId });
+    } catch {
+      setErrorMessage("ダウンロード停止に失敗しました。");
+      const recoverState = { ...nextState, stopRequested: false };
+      setBulkDownload(recoverState);
+      bulkDownloadRef.current = recoverState;
+    }
+  };
+
   const startDownload = async (video: VideoItem) => {
-    if (!downloadDir) {
+    const outputDir = downloadDirRef.current.trim();
+    if (!outputDir) {
       setErrorMessage("保存先フォルダが未設定です。設定から選択してください。");
       setIsSettingsOpen(true);
       return;
@@ -894,7 +1118,7 @@ function App() {
       await invoke("start_download", {
         id: video.id,
         url: video.sourceUrl,
-        outputDir: downloadDir,
+        outputDir,
         cookiesFile: cookiesFile || null,
         remoteComponents: remoteComponents === "none" ? null : remoteComponents,
         ytDlpPath: ytDlpPath || null,
@@ -916,14 +1140,25 @@ function App() {
       }));
       setErrorMessage("ダウンロードに失敗しました。詳細を確認してください。");
       setDownloadingIds((prev) => prev.filter((id) => id !== video.id));
+      handleBulkCompletion(video.id, false);
     }
   };
 
   const startCommentsDownload = async (video: VideoItem) => {
-    if (!downloadDir) {
+    const outputDir = downloadDirRef.current.trim();
+    if (!outputDir) {
       setErrorMessage("保存先フォルダが未設定です。設定から選択してください。");
       setIsSettingsOpen(true);
       return;
+    }
+    setPendingCommentIds((prev) => prev.filter((id) => id !== video.id));
+    if (bulkDownloadRef.current.active && bulkDownloadRef.current.currentId === video.id) {
+      const nextState: BulkDownloadState = {
+        ...bulkDownloadRef.current,
+        phase: "comments",
+      };
+      setBulkDownload(nextState);
+      bulkDownloadRef.current = nextState;
     }
     setCommentsDownloadingIds((prev) =>
       prev.includes(video.id) ? prev : [...prev, video.id]
@@ -937,7 +1172,7 @@ function App() {
       await invoke("start_comments_download", {
         id: video.id,
         url: video.sourceUrl,
-        outputDir: downloadDir,
+        outputDir,
         cookiesFile: cookiesFile || null,
         remoteComponents: remoteComponents === "none" ? null : remoteComponents,
         ytDlpPath: ytDlpPath || null,
@@ -1360,6 +1595,45 @@ function App() {
     });
   }, [sortedVideos, downloadFilter, typeFilter, searchQuery]);
 
+  const hasUndownloaded = useMemo(
+    () => videos.some((video) => video.downloadStatus !== "downloaded"),
+    [videos]
+  );
+
+  const activeActivityItems = useMemo(() => {
+    const ids = new Set([
+      ...downloadingIds,
+      ...commentsDownloadingIds,
+      ...pendingCommentIds,
+    ]);
+    return Array.from(ids).map((id) => {
+      const video = videos.find((item) => item.id === id);
+      const isVideo = downloadingIds.includes(id);
+      const isComment = commentsDownloadingIds.includes(id);
+      const status = isComment
+        ? "ライブチャット取得中"
+        : isVideo
+          ? "動画ダウンロード中"
+          : "ライブチャット準備中";
+      const line = isComment
+        ? commentProgressLines[id] ?? ""
+        : progressLines[id] ?? "";
+      return {
+        id,
+        title: video?.title ?? id,
+        status,
+        line,
+      };
+    });
+  }, [
+    downloadingIds,
+    commentsDownloadingIds,
+    pendingCommentIds,
+    videos,
+    progressLines,
+    commentProgressLines,
+  ]);
+
   const formatPublishedAt = (value?: string) => {
     const parsedMs = parseDateValue(value);
     if (parsedMs !== null) {
@@ -1495,8 +1769,25 @@ function App() {
                 </button>
               </div>
             </div>
-            <div className="filter-summary">
-              表示: {filteredVideos.length} / {sortedVideos.length}
+            <div className="filter-actions">
+              <div className="filter-summary">
+                表示: {filteredVideos.length} / {sortedVideos.length}
+              </div>
+              <div className="bulk-download-group">
+                <button
+                  className="primary small"
+                  type="button"
+                  onClick={startBulkDownload}
+                  disabled={
+                    bulkDownload.active ||
+                    downloadingIds.length > 0 ||
+                    !hasUndownloaded ||
+                    !downloadDirRef.current.trim()
+                  }
+                >
+                  未ダウンロードを一括DL
+                </button>
+              </div>
             </div>
           </section>
 
@@ -1563,9 +1854,6 @@ function App() {
                           詳細
                         </button>
                       </div>
-                    )}
-                    {progressLines[video.id] && (
-                      <p className="progress-line">{progressLines[video.id]}</p>
                     )}
                     {displayStatus !== "downloaded" && (
                       <button
@@ -1659,11 +1947,6 @@ function App() {
                           {commentErrors[video.id].slice(0, 140)}
                         </p>
                       )}
-                    {commentProgressLines[video.id] && (
-                      <p className="progress-line">
-                        {commentProgressLines[video.id]}
-                      </p>
-                    )}
                         </>
                       );
                     })()}
@@ -1758,6 +2041,109 @@ function App() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {(bulkDownload.active || activeActivityItems.length > 0) && (
+        <div className="floating-stack">
+          {bulkDownload.active && (
+            <div
+              className={`floating-panel bulk-status ${
+                isBulkLogOpen ? "open" : ""
+              }`}
+              role="button"
+              tabIndex={0}
+              onClick={() => setIsBulkLogOpen((prev) => !prev)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  setIsBulkLogOpen((prev) => !prev);
+                }
+              }}
+            >
+              <div className="bulk-status-header">
+                <div className="bulk-status-title">
+                  <div className="spinner" />
+                  <span>
+                    ダウンロード中 ({bulkDownload.completed}/
+                    {bulkDownload.total})
+                  </span>
+                </div>
+                <button
+                  className="ghost tiny"
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    void stopBulkDownload();
+                  }}
+                  disabled={!bulkDownload.currentId || bulkDownload.stopRequested}
+                >
+                  {bulkDownload.stopRequested ? "停止中..." : "停止"}
+                </button>
+              </div>
+              {isBulkLogOpen && (
+                <div className="bulk-status-body">
+                  {bulkDownload.currentTitle && (
+                    <p className="bulk-status-title-line">
+                      現在: {bulkDownload.currentTitle}
+                    </p>
+                  )}
+                  {bulkDownload.phase && (
+                    <p className="bulk-status-title-line">
+                      状態: {bulkDownload.phase === "comments" ? "ライブチャット取得中" : "動画ダウンロード中"}
+                    </p>
+                  )}
+                  <pre className="bulk-status-log">
+                    {bulkDownload.currentId &&
+                    (bulkDownload.phase === "comments"
+                      ? commentProgressLines[bulkDownload.currentId]
+                      : progressLines[bulkDownload.currentId])
+                      ? (bulkDownload.phase === "comments"
+                          ? commentProgressLines[bulkDownload.currentId]
+                          : progressLines[bulkDownload.currentId])
+                      : "ログ待機中..."}
+                  </pre>
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeActivityItems.length > 0 && !bulkDownload.active && (
+            <div
+              className={`floating-panel download-status ${
+                isDownloadLogOpen ? "open" : ""
+              }`}
+              role="button"
+              tabIndex={0}
+              onClick={() => setIsDownloadLogOpen((prev) => !prev)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  setIsDownloadLogOpen((prev) => !prev);
+                }
+              }}
+            >
+              <div className="bulk-status-header">
+                <div className="bulk-status-title">
+                  <div className="spinner" />
+                  <span>ダウンロード中 ({activeActivityItems.length}件)</span>
+                </div>
+              </div>
+              {isDownloadLogOpen && (
+                <div className="bulk-status-body">
+                  {activeActivityItems.map((item) => (
+                    <div key={item.id} className="download-status-item">
+                      <p className="bulk-status-title-line">{item.title}</p>
+                      <p className="bulk-status-title-line">{item.status}</p>
+                      <pre className="bulk-status-log">
+                        {item.line || "ログ待機中..."}
+                      </pre>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
