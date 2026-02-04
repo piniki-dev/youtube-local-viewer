@@ -142,7 +142,7 @@ fn start_download(
 ) -> Result<(), String> {
     let output_path = format!("{}/%(title)s [%(id)s].%(ext)s", output_dir);
     let yt_dlp = resolve_override(yt_dlp_path).unwrap_or_else(resolve_yt_dlp);
-    let ffmpeg_location = resolve_override(ffmpeg_path);
+    let ffmpeg_location = resolve_override(ffmpeg_path).or_else(|| Some(resolve_ffmpeg()));
     let state = state.inner().clone();
 
     std::thread::spawn(move || {
@@ -386,7 +386,7 @@ fn start_comments_download(
 ) -> Result<(), String> {
     let output_path = format!("{}/%(title)s [%(id)s].%(ext)s", output_dir);
     let yt_dlp = resolve_override(yt_dlp_path).unwrap_or_else(resolve_yt_dlp);
-    let ffmpeg_location = resolve_override(ffmpeg_path);
+    let ffmpeg_location = resolve_override(ffmpeg_path).or_else(|| Some(resolve_ffmpeg()));
 
     std::thread::spawn(move || {
         let mut command = Command::new(yt_dlp);
@@ -1776,7 +1776,173 @@ fn resolve_yt_dlp() -> String {
     "yt-dlp".to_string()
 }
 
+fn resolve_ffmpeg() -> String {
+    if cfg!(windows) {
+        if let Ok(manifest_dir) = env::var("CARGO_MANIFEST_DIR") {
+            let manifest_path = PathBuf::from(&manifest_dir);
+            let candidates = [
+                manifest_path.join("ffmpeg.exe"),
+                manifest_path
+                    .parent()
+                    .map(|p| p.join("ffmpeg.exe"))
+                    .unwrap_or_else(|| manifest_path.join("ffmpeg.exe")),
+                manifest_path.join("ffmpeg").join("bin").join("ffmpeg.exe"),
+            ];
+            for candidate in candidates {
+                if candidate.exists() {
+                    return candidate.to_string_lossy().to_string();
+                }
+            }
+        }
+
+        if let Ok(exe_path) = env::current_exe() {
+            if let Some(parent) = exe_path.parent() {
+                let candidates = [
+                    parent.join("ffmpeg.exe"),
+                    parent.join("ffmpeg").join("bin").join("ffmpeg.exe"),
+                ];
+                for candidate in candidates {
+                    if candidate.exists() {
+                        return candidate.to_string_lossy().to_string();
+                    }
+                }
+            }
+        }
+
+        if let Ok(local_app_data) = env::var("LOCALAPPDATA") {
+            let candidates = [
+                PathBuf::from(&local_app_data)
+                    .join("Programs")
+                    .join("ffmpeg")
+                    .join("bin")
+                    .join("ffmpeg.exe"),
+                PathBuf::from(&local_app_data)
+                    .join("ffmpeg")
+                    .join("bin")
+                    .join("ffmpeg.exe"),
+            ];
+            for candidate in candidates {
+                if candidate.exists() {
+                    return candidate.to_string_lossy().to_string();
+                }
+            }
+        }
+
+        if let Ok(profile) = env::var("USERPROFILE") {
+            let candidates = [
+                PathBuf::from(&profile)
+                    .join("AppData")
+                    .join("Local")
+                    .join("Programs")
+                    .join("ffmpeg")
+                    .join("bin")
+                    .join("ffmpeg.exe"),
+                PathBuf::from(&profile)
+                    .join("bin")
+                    .join("ffmpeg.exe"),
+                PathBuf::from(&profile)
+                    .join(".local")
+                    .join("bin")
+                    .join("ffmpeg.exe"),
+            ];
+            for candidate in candidates {
+                if candidate.exists() {
+                    return candidate.to_string_lossy().to_string();
+                }
+            }
+        }
+
+        return "ffmpeg.exe".to_string();
+    }
+
+    if let Ok(home) = env::var("HOME") {
+        let candidate = format!("{}/.local/bin/ffmpeg", home);
+        if Path::new(&candidate).exists() {
+            return candidate;
+        }
+    }
+    "ffmpeg".to_string()
+}
+
 fn resolve_ffprobe() -> String {
+    if cfg!(windows) {
+        if let Ok(manifest_dir) = env::var("CARGO_MANIFEST_DIR") {
+            let manifest_path = PathBuf::from(&manifest_dir);
+            let candidates = [
+                manifest_path.join("ffprobe.exe"),
+                manifest_path
+                    .parent()
+                    .map(|p| p.join("ffprobe.exe"))
+                    .unwrap_or_else(|| manifest_path.join("ffprobe.exe")),
+                manifest_path.join("ffmpeg").join("bin").join("ffprobe.exe"),
+            ];
+            for candidate in candidates {
+                if candidate.exists() {
+                    return candidate.to_string_lossy().to_string();
+                }
+            }
+        }
+
+        if let Ok(exe_path) = env::current_exe() {
+            if let Some(parent) = exe_path.parent() {
+                let candidates = [
+                    parent.join("ffprobe.exe"),
+                    parent.join("ffmpeg").join("bin").join("ffprobe.exe"),
+                ];
+                for candidate in candidates {
+                    if candidate.exists() {
+                        return candidate.to_string_lossy().to_string();
+                    }
+                }
+            }
+        }
+
+        if let Ok(local_app_data) = env::var("LOCALAPPDATA") {
+            let candidates = [
+                PathBuf::from(&local_app_data)
+                    .join("Programs")
+                    .join("ffmpeg")
+                    .join("bin")
+                    .join("ffprobe.exe"),
+                PathBuf::from(&local_app_data)
+                    .join("ffmpeg")
+                    .join("bin")
+                    .join("ffprobe.exe"),
+            ];
+            for candidate in candidates {
+                if candidate.exists() {
+                    return candidate.to_string_lossy().to_string();
+                }
+            }
+        }
+
+        if let Ok(profile) = env::var("USERPROFILE") {
+            let candidates = [
+                PathBuf::from(&profile)
+                    .join("AppData")
+                    .join("Local")
+                    .join("Programs")
+                    .join("ffmpeg")
+                    .join("bin")
+                    .join("ffprobe.exe"),
+                PathBuf::from(&profile)
+                    .join("bin")
+                    .join("ffprobe.exe"),
+                PathBuf::from(&profile)
+                    .join(".local")
+                    .join("bin")
+                    .join("ffprobe.exe"),
+            ];
+            for candidate in candidates {
+                if candidate.exists() {
+                    return candidate.to_string_lossy().to_string();
+                }
+            }
+        }
+
+        return "ffprobe.exe".to_string();
+    }
+
     if let Ok(home) = env::var("HOME") {
         let candidate = format!("{}/.local/bin/ffprobe", home);
         if Path::new(&candidate).exists() {
