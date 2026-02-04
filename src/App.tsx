@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { emitTo, listen } from "@tauri-apps/api/event";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
@@ -256,6 +256,24 @@ function App() {
     if (typeof window === "undefined") return false;
     return new URLSearchParams(window.location.search).get("player") === "1";
   }, []);
+  const requestAutoPlay = useCallback(() => {
+    if (!isPlayerWindow) return;
+    const video = playerVideoRef.current;
+    if (!video || !playerSrc || playerError) return;
+    if (Number.isFinite(video.currentTime) && video.currentTime > 0) {
+      try {
+        video.currentTime = 0;
+      } catch {
+        // ignore seek errors
+      }
+    }
+    const result = video.play();
+    if (result && typeof result.catch === "function") {
+      result.catch(() => {
+        // ignore autoplay errors
+      });
+    }
+  }, [isPlayerWindow, playerSrc, playerError]);
 
   useEffect(() => {
     const load = async () => {
@@ -1372,14 +1390,6 @@ function App() {
     await openPlayerWindow(target, { skipConfirm: true });
   };
 
-  const closePlayerWindow = async () => {
-    try {
-      await getCurrentWindow().close();
-    } catch {
-      // ignore close errors
-    }
-  };
-
   const openPlayer = async (video: VideoItem) => {
     if (!isPlayerWindow) {
       if (!downloadDir) {
@@ -1468,6 +1478,23 @@ function App() {
     }
     void openPlayer(target);
   }, [isPlayerWindow, isStateReady, pendingPlayerId]);
+
+  useEffect(() => {
+    if (!isPlayerWindow || !isPlayerOpen) return;
+    const video = playerVideoRef.current;
+    if (!video || !playerSrc || playerError) return;
+    if (video.readyState >= 2) {
+      requestAutoPlay();
+      return;
+    }
+    const handleCanPlay = () => {
+      requestAutoPlay();
+    };
+    video.addEventListener("canplay", handleCanPlay, { once: true });
+    return () => {
+      video.removeEventListener("canplay", handleCanPlay);
+    };
+  }, [isPlayerWindow, isPlayerOpen, playerSrc, playerError, requestAutoPlay]);
 
   const closePlayer = () => {
     setIsPlayerOpen(false);
@@ -1828,6 +1855,7 @@ function App() {
             <video
               ref={playerVideoRef}
               className="player-video"
+              autoPlay
               controls
               preload="metadata"
               src={playerSrc}
