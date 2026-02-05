@@ -183,6 +183,8 @@ body {
   display: flex;
   flex-direction: column;
   box-shadow: 0 6px 18px rgba(15, 20, 30, 0.08);
+  content-visibility: auto;
+  contain-intrinsic-size: 320px 360px;
 }
 
 .video-card.skeleton-card {

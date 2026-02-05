@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { emitTo, listen } from "@tauri-apps/api/event";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
@@ -44,6 +51,11 @@ type VideoItem = {
   downloadStatus: DownloadStatus;
   commentsStatus: CommentStatus;
   addedAt: string;
+};
+
+type IndexedVideo = VideoItem & {
+  searchText: string;
+  sortTime: number;
 };
 
 type ChannelFeedItem = {
@@ -281,6 +293,7 @@ function App() {
     "published-desc" | "published-asc"
   >("published-desc");
   const [searchQuery, setSearchQuery] = useState("");
+  const deferredSearchQuery = useDeferredValue(searchQuery);
   const playerVideoRef = useRef<HTMLVideoElement | null>(null);
   const playerChatEndRef = useRef<HTMLDivElement | null>(null);
   const videosRef = useRef<VideoItem[]>([]);
@@ -1960,33 +1973,9 @@ function App() {
     return added ?? 0;
   };
 
-  const sortedVideos = useMemo(() => {
-    const sorted = [...videos].sort((a, b) => {
-      const timeA = getVideoSortTime(a);
-      const timeB = getVideoSortTime(b);
-      if (timeA === timeB) {
-        return b.addedAt.localeCompare(a.addedAt);
-      }
-      return publishedSort === "published-desc"
-        ? timeB - timeA
-        : timeA - timeB;
-    });
-    return sorted;
-  }, [videos, publishedSort]);
-
-  const filteredVideos = useMemo(() => {
-    const normalizedQuery = searchQuery.trim().toLowerCase();
-    const tokens = normalizedQuery ? normalizedQuery.split(/\s+/) : [];
-    return sortedVideos.filter((video) => {
-      const matchesDownload =
-        downloadFilter === "all"
-          ? true
-          : downloadFilter === "downloaded"
-            ? video.downloadStatus === "downloaded"
-            : video.downloadStatus !== "downloaded";
-      const type = video.contentType ?? "video";
-      const matchesType = typeFilter === "all" ? true : type === typeFilter;
-      const haystack = [
+  const indexedVideos = useMemo<IndexedVideo[]>(() => {
+    return videos.map((video) => {
+      const searchText = [
         video.title,
         video.channel,
         video.description,
@@ -1997,13 +1986,47 @@ function App() {
         .filter(Boolean)
         .join(" ")
         .toLowerCase();
+      return {
+        ...video,
+        searchText,
+        sortTime: getVideoSortTime(video),
+      };
+    });
+  }, [videos]);
+
+  const sortedVideos = useMemo(() => {
+    const sorted = [...indexedVideos].sort((a, b) => {
+      const timeA = a.sortTime;
+      const timeB = b.sortTime;
+      if (timeA === timeB) {
+        return b.addedAt.localeCompare(a.addedAt);
+      }
+      return publishedSort === "published-desc"
+        ? timeB - timeA
+        : timeA - timeB;
+    });
+    return sorted;
+  }, [indexedVideos, publishedSort]);
+
+  const filteredVideos = useMemo(() => {
+    const normalizedQuery = deferredSearchQuery.trim().toLowerCase();
+    const tokens = normalizedQuery ? normalizedQuery.split(/\s+/) : [];
+    return sortedVideos.filter((video) => {
+      const matchesDownload =
+        downloadFilter === "all"
+          ? true
+          : downloadFilter === "downloaded"
+            ? video.downloadStatus === "downloaded"
+            : video.downloadStatus !== "downloaded";
+      const type = video.contentType ?? "video";
+      const matchesType = typeFilter === "all" ? true : type === typeFilter;
       const matchesQuery =
         tokens.length === 0
           ? true
-          : tokens.every((token) => haystack.includes(token));
+          : tokens.every((token) => video.searchText.includes(token));
       return matchesDownload && matchesType && matchesQuery;
     });
-  }, [sortedVideos, downloadFilter, typeFilter, searchQuery]);
+  }, [sortedVideos, downloadFilter, typeFilter, deferredSearchQuery]);
 
   const hasUndownloaded = useMemo(
     () => videos.some((video) => video.downloadStatus !== "downloaded"),
