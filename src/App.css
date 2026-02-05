@@ -16,17 +16,34 @@
   -webkit-text-size-adjust: 100%;
 }
 
+html,
+body,
+#root {
+  height: 100%;
+}
+
 body {
   font-family: inherit;
+  overflow: hidden;
 }
 
 .app {
-  max-width: 960px;
+  max-width: 1280px;
   margin: 0 auto;
   padding: 32px 24px 40px;
   display: flex;
   flex-direction: column;
   gap: 20px;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.app-body {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  flex: 1;
+  min-height: 0;
 }
 
 .app-header {
@@ -174,6 +191,20 @@ body {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 16px;
+}
+
+.grid-virtual {
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+}
+
+.grid-virtual-container {
+  width: 100%;
+  min-height: 320px;
+  height: 100%;
+  overflow: auto;
+  overflow-x: hidden;
 }
 
 .video-card {
@@ -676,9 +707,6 @@ body {
 }
 
 .bulk-status {
-  position: fixed;
-  right: 20px;
-  bottom: 20px;
   background: #111;
   color: #fff;
   border-radius: 14px;
@@ -687,7 +715,6 @@ body {
   max-width: min(360px, 90vw);
   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.2);
   cursor: pointer;
-  z-index: 2000;
 }
 
 
@@ -710,6 +737,12 @@ body {
   font-weight: 600;
 }
 
+.bulk-status-muted {
+  font-size: 12px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.7);
+}
+
 .floating-panel .spinner {
   width: 16px;
   height: 16px;
@@ -723,6 +756,12 @@ body {
   background: rgba(255, 255, 255, 0.08);
   border-radius: 10px;
   padding: 8px 10px;
+}
+
+.bulk-status-paused {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .floating-panel.is-error .bulk-status-body {

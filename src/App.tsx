@@ -12,6 +12,8 @@ import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
+import AutoSizer from "react-virtualized-auto-sizer";
+import { FixedSizeGrid as Grid, type GridChildComponentProps } from "react-window";
 import "./App.css";
 
 type DownloadStatus = "pending" | "downloading" | "downloaded" | "failed";
@@ -133,6 +135,15 @@ type CommentFinished = {
   stderr: string;
 };
 
+type MetadataFinished = {
+  id: string;
+  success: boolean;
+  stdout: string;
+  stderr: string;
+  metadata?: VideoMetadata | null;
+  hasLiveChat?: boolean | null;
+};
+
 type CommentItem = {
   author: string;
   text: string;
@@ -153,7 +164,7 @@ type MediaInfo = {
 type FloatingErrorItem = {
   id: string;
   title: string;
-  phase: "video" | "comments";
+  phase: "video" | "comments" | "metadata";
   details: string;
   createdAt: number;
 };
@@ -167,6 +178,12 @@ type BulkDownloadState = {
   queue: string[];
   stopRequested: boolean;
   phase: "video" | "comments" | null;
+};
+
+type MetadataFetchState = {
+  active: boolean;
+  total: number;
+  completed: number;
 };
 
 const COOKIE_BROWSER_OPTIONS = [
@@ -188,6 +205,10 @@ const REMOTE_COMPONENTS_KEY = "ytlv_remote_components";
 const YTDLP_PATH_KEY = "ytlv_yt_dlp_path";
 const FFMPEG_PATH_KEY = "ytlv_ffmpeg_path";
 const FFPROBE_PATH_KEY = "ytlv_ffprobe_path";
+
+const GRID_CARD_WIDTH = 240;
+const GRID_GAP = 16;
+const GRID_ROW_HEIGHT = 420;
 
 type PersistedState = {
   videos: VideoItem[];
@@ -286,6 +307,13 @@ function App() {
   const [downloadFilter, setDownloadFilter] = useState<
     "all" | "downloaded" | "undownloaded"
   >("all");
+  const [metadataFetch, setMetadataFetch] = useState<MetadataFetchState>({
+    active: false,
+    total: 0,
+    completed: 0,
+  });
+  const [metadataPaused, setMetadataPaused] = useState(false);
+  const [metadataPauseReason, setMetadataPauseReason] = useState("");
   const [typeFilter, setTypeFilter] = useState<
     "all" | "video" | "live" | "shorts"
   >("all");
@@ -299,6 +327,26 @@ function App() {
   const videosRef = useRef<VideoItem[]>([]);
   const bulkDownloadRef = useRef<BulkDownloadState>(bulkDownload);
   const downloadDirRef = useRef<string>("");
+  const metadataFetchRef = useRef<MetadataFetchState>(metadataFetch);
+  const pendingMetadataIdsRef = useRef<Set<string>>(new Set());
+  const pendingMetadataUpdatesRef = useRef<Map<string, Partial<VideoItem>>>(
+    new Map()
+  );
+  const metadataFlushTimerRef = useRef<number | null>(null);
+  const metadataQueueRef = useRef<Array<{ id: string; sourceUrl?: string | null }>>(
+    []
+  );
+  const metadataActiveIdRef = useRef<string | null>(null);
+  const metadataActiveItemRef = useRef<
+    { id: string; sourceUrl?: string | null } | null
+  >(null);
+  const metadataPausedRef = useRef(false);
+  const autoMetadataCheckRef = useRef(false);
+  const autoMetadataStartupRef = useRef(false);
+  const prevMetadataActiveRef = useRef(false);
+  const indexedVideosRef = useRef<IndexedVideo[]>([]);
+  const sortedVideosRef = useRef<IndexedVideo[]>([]);
+  const filteredVideosRef = useRef<IndexedVideo[]>([]);
   const isPlayerWindow = useMemo(() => {
     if (typeof window === "undefined") return false;
     return new URLSearchParams(window.location.search).get("player") === "1";
@@ -454,6 +502,22 @@ function App() {
   useEffect(() => {
     bulkDownloadRef.current = bulkDownload;
   }, [bulkDownload]);
+
+
+  useEffect(() => {
+    metadataFetchRef.current = metadataFetch;
+  }, [metadataFetch]);
+
+  useEffect(() => {
+    metadataPausedRef.current = metadataPaused;
+  }, [metadataPaused]);
+
+  useEffect(() => {
+    if (!metadataFetch.active) {
+    }
+  }, [metadataFetch.active]);
+
+  // moved below scheduleBackgroundMetadataFetch
 
   useEffect(() => {
     downloadDirRef.current = downloadDir;
@@ -671,6 +735,149 @@ function App() {
       if (unlisten) unlisten();
     };
   }, []);
+
+  const startNextMetadataDownload = useCallback(async () => {
+    if (metadataActiveIdRef.current) return;
+    if (metadataPausedRef.current) return;
+    const next = metadataQueueRef.current.shift();
+    if (!next) return;
+
+    const outputDir = downloadDirRef.current.trim();
+    if (!outputDir) {
+      pendingMetadataIdsRef.current.delete(next.id);
+      setMetadataFetch((prev) => {
+        const completed = prev.completed + 1;
+        const active = completed < prev.total;
+        return { ...prev, completed, active };
+      });
+      if (metadataQueueRef.current.length > 0) {
+        window.setTimeout(startNextMetadataDownload, 0);
+      }
+      return;
+    }
+
+    const detailUrl =
+      next.sourceUrl?.trim() || `https://www.youtube.com/watch?v=${next.id}`;
+    metadataActiveIdRef.current = next.id;
+    metadataActiveItemRef.current = next;
+    try {
+      await invoke("start_metadata_download", {
+        id: next.id,
+        url: detailUrl,
+        outputDir,
+        cookiesFile: cookiesFile || null,
+        cookiesSource: cookiesSource || null,
+        cookiesBrowser: cookiesSource === "browser" ? cookiesBrowser || null : null,
+        remoteComponents: remoteComponents === "none" ? null : remoteComponents,
+        ytDlpPath: ytDlpPath || null,
+        ffmpegPath: ffmpegPath || null,
+      });
+    } catch {
+      pendingMetadataIdsRef.current.delete(next.id);
+      metadataActiveIdRef.current = null;
+      setMetadataFetch((prev) => {
+        const completed = prev.completed + 1;
+        const active = completed < prev.total;
+        return { ...prev, completed, active };
+      });
+      if (metadataQueueRef.current.length > 0) {
+        window.setTimeout(startNextMetadataDownload, 0);
+      }
+    }
+  }, [cookiesFile, cookiesSource, cookiesBrowser, remoteComponents, ytDlpPath, ffmpegPath]);
+
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    const setup = async () => {
+      unlisten = await listen<MetadataFinished>(
+        "metadata-finished",
+        (event) => {
+          const { id, success, metadata, hasLiveChat, stderr, stdout } = event.payload;
+          metadataActiveIdRef.current = null;
+          pendingMetadataIdsRef.current.delete(id);
+
+          if (success) {
+            metadataActiveItemRef.current = null;
+            const currentVideo = videosRef.current.find((item) => item.id === id);
+            const patch: Partial<VideoItem> = {};
+
+            if (metadata) {
+              const metaFields = buildMetadataFields({
+                webpageUrl: metadata.webpageUrl ?? null,
+                durationSec: metadata.durationSec ?? null,
+                uploadDate: metadata.uploadDate ?? null,
+                releaseTimestamp: metadata.releaseTimestamp ?? null,
+                timestamp: metadata.timestamp ?? null,
+                liveStatus: metadata.liveStatus ?? null,
+                isLive: metadata.isLive ?? null,
+                wasLive: metadata.wasLive ?? null,
+                viewCount: metadata.viewCount ?? null,
+                likeCount: metadata.likeCount ?? null,
+                commentCount: metadata.commentCount ?? null,
+                tags: metadata.tags ?? null,
+                categories: metadata.categories ?? null,
+                description: metadata.description ?? null,
+                channelId: metadata.channelId ?? null,
+                uploaderId: metadata.uploaderId ?? null,
+                channelUrl: metadata.channelUrl ?? null,
+                uploaderUrl: metadata.uploaderUrl ?? null,
+                availability: metadata.availability ?? null,
+                language: metadata.language ?? null,
+                audioLanguage: metadata.audioLanguage ?? null,
+                ageLimit: metadata.ageLimit ?? null,
+              });
+              patch.title = (metadata.title ?? currentVideo?.title) || "Untitled";
+              patch.channel = (metadata.channel ?? currentVideo?.channel) || "YouTube";
+              patch.sourceUrl =
+                metadata.webpageUrl ?? metadata.url ?? currentVideo?.sourceUrl ?? "";
+              patch.thumbnail =
+                currentVideo?.thumbnail ?? metadata.thumbnail ?? currentVideo?.thumbnail;
+              Object.assign(patch, metaFields);
+            }
+
+            if (typeof hasLiveChat === "boolean") {
+              if (hasLiveChat) {
+                if (currentVideo?.commentsStatus !== "downloaded") {
+                  patch.commentsStatus = "downloaded";
+                }
+              } else if (currentVideo?.commentsStatus === "pending") {
+                patch.commentsStatus = "unavailable";
+              }
+            }
+
+            if (Object.keys(patch).length > 0) {
+              pendingMetadataUpdatesRef.current.set(id, patch);
+              scheduleMetadataFlush();
+            }
+          } else {
+            const details = stderr || stdout || "不明なエラー";
+            addDownloadErrorItem(id, "metadata", details);
+            const activeItem = metadataActiveItemRef.current;
+            if (activeItem) {
+              metadataQueueRef.current.unshift(activeItem);
+              metadataActiveItemRef.current = null;
+            }
+            setMetadataPauseReason(details);
+            setMetadataPaused(true);
+          }
+
+          setMetadataFetch((prev) => {
+            const completed = prev.completed + 1;
+            const active = completed < prev.total;
+            return { ...prev, completed, active };
+          });
+
+          if (!metadataPausedRef.current && metadataQueueRef.current.length > 0) {
+            window.setTimeout(startNextMetadataDownload, 250);
+          }
+        }
+      );
+    };
+    void setup();
+    return () => {
+      if (unlisten) unlisten();
+    };
+  }, [startNextMetadataDownload]);
 
   useEffect(() => {
     if (!isStateReady) return;
@@ -988,6 +1195,131 @@ function App() {
     `https://i.ytimg.com/vi/${id}/hqdefault.jpg`,
   ];
 
+  const flushMetadataUpdates = () => {
+    if (metadataFlushTimerRef.current !== null) {
+      window.clearTimeout(metadataFlushTimerRef.current);
+      metadataFlushTimerRef.current = null;
+    }
+    const updates = new Map(pendingMetadataUpdatesRef.current);
+    pendingMetadataUpdatesRef.current.clear();
+    if (updates.size === 0) return;
+    setVideos((prev) =>
+      prev.map((item) => {
+        const patch = updates.get(item.id);
+        return patch ? ({ ...item, ...patch } satisfies VideoItem) : item;
+      })
+    );
+  };
+
+  const scheduleMetadataFlush = () => {
+    if (metadataFlushTimerRef.current !== null) return;
+    metadataFlushTimerRef.current = window.setTimeout(() => {
+      flushMetadataUpdates();
+    }, 300);
+  };
+
+  const scheduleBackgroundMetadataFetch = (
+    items: Array<{ id: string; sourceUrl?: string | null }>
+  ) => {
+    const outputDir = downloadDirRef.current.trim();
+    if (!outputDir || items.length === 0) return;
+    const normalizedItems = items
+      .map((item) => ({
+        id: item.id,
+        sourceUrl: item.sourceUrl?.trim() || `https://www.youtube.com/watch?v=${item.id}`,
+      }))
+      .filter((item) => item.id);
+    const uniqueItems = normalizedItems.filter(
+      (item) => !pendingMetadataIdsRef.current.has(item.id)
+    );
+    if (uniqueItems.length === 0) return;
+
+    uniqueItems.forEach((item) => {
+      pendingMetadataIdsRef.current.add(item.id);
+      metadataQueueRef.current.push(item);
+    });
+
+    setMetadataFetch((prev) => ({
+      active: true,
+      total: prev.total + uniqueItems.length,
+      completed: prev.completed,
+    }));
+
+    const start = () => startNextMetadataDownload();
+    if (typeof window.requestIdleCallback === "function") {
+      window.requestIdleCallback(() => start(), { timeout: 1500 });
+      return;
+    }
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        window.setTimeout(start, 0);
+      });
+    });
+  };
+
+  const checkAndStartMetadataRecovery = useCallback(async () => {
+    if (autoMetadataCheckRef.current) return;
+    if (metadataPausedRef.current) return;
+    const outputDir = downloadDirRef.current.trim();
+    if (!outputDir) return;
+
+    autoMetadataCheckRef.current = true;
+    try {
+      const snapshot = videosRef.current;
+      const candidates: Array<{ id: string; sourceUrl?: string | null }> = [];
+
+      let infoIds = new Set<string>();
+      let chatIds = new Set<string>();
+      try {
+        const index = await invoke<{ infoIds: string[]; chatIds: string[] }>(
+          "get_metadata_index",
+          { outputDir }
+        );
+        infoIds = new Set(index?.infoIds ?? []);
+        chatIds = new Set(index?.chatIds ?? []);
+      } catch {
+        infoIds = new Set();
+        chatIds = new Set();
+      }
+
+      for (const video of snapshot) {
+        if (!video?.id) continue;
+        if (pendingMetadataIdsRef.current.has(video.id)) continue;
+        if (metadataActiveIdRef.current === video.id) continue;
+
+        const needsLiveChatRetry =
+          video.commentsStatus === "pending" || video.commentsStatus === "failed";
+
+        const hasInfo = infoIds.has(video.id);
+        const hasChat = chatIds.has(video.id);
+
+        if (!hasInfo || (needsLiveChatRetry && !hasChat)) {
+          candidates.push({ id: video.id, sourceUrl: video.sourceUrl });
+        }
+      }
+
+      if (candidates.length > 0) {
+        scheduleBackgroundMetadataFetch(candidates);
+      }
+    } finally {
+      autoMetadataCheckRef.current = false;
+    }
+  }, [scheduleBackgroundMetadataFetch]);
+
+  useEffect(() => {
+    if (!isStateReady || autoMetadataStartupRef.current) return;
+    autoMetadataStartupRef.current = true;
+    void checkAndStartMetadataRecovery();
+  }, [isStateReady, checkAndStartMetadataRecovery]);
+
+  useEffect(() => {
+    const wasActive = prevMetadataActiveRef.current;
+    if (wasActive && !metadataFetch.active) {
+      void checkAndStartMetadataRecovery();
+    }
+    prevMetadataActiveRef.current = metadataFetch.active;
+  }, [metadataFetch.active, checkAndStartMetadataRecovery]);
+
   const toThumbnailSrc = (thumbnail?: string) => {
     if (!thumbnail) return undefined;
     if (
@@ -1020,51 +1352,41 @@ function App() {
     setIsAddOpen(false);
     try {
       const oembedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${id}&format=json`;
-      const [oembedRes, metadata] = await Promise.all([
-        fetch(oembedUrl),
-        invoke<VideoMetadata>("get_video_metadata", {
-          url: trimmed,
-          cookiesFile: cookiesFile || null,
-          cookiesSource: cookiesSource || null,
-          cookiesBrowser: cookiesSource === "browser" ? cookiesBrowser || null : null,
-          remoteComponents: remoteComponents === "none" ? null : remoteComponents,
-          ytDlpPath: ytDlpPath || null,
-        }).catch(() => null),
-      ]);
+      const oembedRes = await fetch(oembedUrl);
       const data = oembedRes.ok ? await oembedRes.json() : null;
       const metaFields = buildMetadataFields({
-        webpageUrl: metadata?.webpageUrl ?? null,
-        durationSec: metadata?.durationSec ?? null,
-        uploadDate: metadata?.uploadDate ?? null,
-        releaseTimestamp: metadata?.releaseTimestamp ?? null,
-        timestamp: metadata?.timestamp ?? null,
-        liveStatus: metadata?.liveStatus ?? null,
-        isLive: metadata?.isLive ?? null,
-        wasLive: metadata?.wasLive ?? null,
-        viewCount: metadata?.viewCount ?? null,
-        likeCount: metadata?.likeCount ?? null,
-        commentCount: metadata?.commentCount ?? null,
-        tags: metadata?.tags ?? null,
-        categories: metadata?.categories ?? null,
-        description: metadata?.description ?? null,
-        channelId: metadata?.channelId ?? null,
-        uploaderId: metadata?.uploaderId ?? null,
-        channelUrl: metadata?.channelUrl ?? null,
-        uploaderUrl: metadata?.uploaderUrl ?? null,
-        availability: metadata?.availability ?? null,
-        language: metadata?.language ?? null,
-        audioLanguage: metadata?.audioLanguage ?? null,
-        ageLimit: metadata?.ageLimit ?? null,
+        webpageUrl: null,
+        durationSec: null,
+        uploadDate: null,
+        releaseTimestamp: null,
+        timestamp: null,
+        liveStatus: null,
+        isLive: null,
+        wasLive: null,
+        viewCount: null,
+        likeCount: null,
+        commentCount: null,
+        tags: null,
+        categories: null,
+        description: null,
+        channelId: null,
+        uploaderId: null,
+        channelUrl: null,
+        uploaderUrl: null,
+        availability: null,
+        language: null,
+        audioLanguage: null,
+        ageLimit: null,
       });
-      const primaryThumbnail = data?.thumbnail_url ?? metadata?.thumbnail ?? null;
+      const primaryThumbnail = data?.thumbnail_url ?? null;
       const resolvedThumbnail = await resolveThumbnailPath(
         id,
         buildThumbnailCandidates(id, primaryThumbnail)
       );
       const newVideo: VideoItem = {
         id,
-        title: data?.title ?? metadata?.title ?? "Untitled",
-        channel: data?.author_name ?? metadata?.channel ?? "YouTube",
+        title: data?.title ?? "Untitled",
+        channel: data?.author_name ?? "YouTube",
         thumbnail:
           resolvedThumbnail ??
           primaryThumbnail ??
@@ -1076,6 +1398,7 @@ function App() {
         addedAt: new Date().toISOString(),
       };
       setVideos((prev) => [newVideo, ...prev]);
+      scheduleBackgroundMetadataFetch([{ id, sourceUrl: trimmed }]);
       if (downloadOnAdd) {
         void startDownload(newVideo);
       }
@@ -1102,7 +1425,7 @@ function App() {
     setChannelFetchProgress(0);
     setChannelFetchMessage("チャンネル情報を取得中...");
     try {
-      setChannelFetchProgress(35);
+      setChannelFetchProgress(5);
       setChannelFetchMessage("動画一覧を取得中...");
       const result = await invoke<ChannelFeedItem[]>("list_channel_videos", {
         url: trimmed,
@@ -1113,16 +1436,22 @@ function App() {
         ytDlpPath: ytDlpPath || null,
         limit: null,
       });
-      setChannelFetchProgress(70);
-      setChannelFetchMessage("動画リストを整理中...");
+      setChannelFetchProgress(10);
 
       const existingIds = new Set(videos.map((v) => v.id));
+      const candidates = (result ?? []).filter(
+        (item) => item?.id && !existingIds.has(item.id)
+      );
+      const totalCandidates = candidates.length;
+      setChannelFetchMessage(
+        `動画リストを整理中... (0/${Math.max(totalCandidates, 0)})`
+      );
+
       const baseTime = Date.now();
       const total = result?.length ?? 0;
+      let completed = 0;
       const newItems = await Promise.all(
-        (result ?? [])
-          .filter((item) => item?.id && !existingIds.has(item.id))
-          .map(async (item, index) => {
+        candidates.map(async (item, index) => {
             const addedAt = new Date(baseTime + (total - index)).toISOString();
             const metaFields = buildMetadataFields({
               webpageUrl: item.webpageUrl ?? item.url ?? null,
@@ -1148,11 +1477,18 @@ function App() {
               audioLanguage: item.audioLanguage ?? null,
               ageLimit: item.ageLimit ?? null,
             });
-            const primaryThumbnail = item.thumbnail || null;
+            const primaryThumbnail = item.thumbnail ?? null;
             const fallbackThumbnail = `https://i.ytimg.com/vi/${item.id}/hqdefault.jpg`;
             const resolvedThumbnail = await resolveThumbnailPath(
               item.id,
               buildThumbnailCandidates(item.id, primaryThumbnail)
+            );
+            completed += 1;
+            const ratio = totalCandidates > 0 ? completed / totalCandidates : 1;
+            const progress = Math.min(95, Math.round(10 + ratio * 85));
+            setChannelFetchProgress(progress);
+            setChannelFetchMessage(
+              `動画リストを整理中... (${completed}/${totalCandidates})`
             );
             return {
               id: item.id,
@@ -1173,19 +1509,11 @@ function App() {
         return;
       }
 
-      setChannelFetchProgress(90);
-      setChannelFetchMessage(`追加確認中... (${newItems.length}件)`);
-
-      const confirmed = window.confirm(
-        `${newItems.length}件の動画を追加してもいいですか？`
-      );
-      if (!confirmed) {
-        setChannelFetchMessage("キャンセルしました");
-        return;
-      }
-
       setChannelFetchMessage(`追加中... (${newItems.length}件)`);
       setVideos((prev) => [...newItems, ...prev]);
+      scheduleBackgroundMetadataFetch(
+        newItems.map((item) => ({ id: item.id, sourceUrl: item.sourceUrl }))
+      );
       setChannelUrl("");
       setIsAddOpen(false);
       setChannelFetchProgress(100);
@@ -1974,7 +2302,7 @@ function App() {
   };
 
   const indexedVideos = useMemo<IndexedVideo[]>(() => {
-    return videos.map((video) => {
+    const next = videos.map((video) => {
       const searchText = [
         video.title,
         video.channel,
@@ -1992,6 +2320,8 @@ function App() {
         sortTime: getVideoSortTime(video),
       };
     });
+    indexedVideosRef.current = next;
+    return next;
   }, [videos]);
 
   const sortedVideos = useMemo(() => {
@@ -2005,13 +2335,14 @@ function App() {
         ? timeB - timeA
         : timeA - timeB;
     });
+    sortedVideosRef.current = sorted;
     return sorted;
   }, [indexedVideos, publishedSort]);
 
   const filteredVideos = useMemo(() => {
     const normalizedQuery = deferredSearchQuery.trim().toLowerCase();
     const tokens = normalizedQuery ? normalizedQuery.split(/\s+/) : [];
-    return sortedVideos.filter((video) => {
+    const next = sortedVideos.filter((video) => {
       const matchesDownload =
         downloadFilter === "all"
           ? true
@@ -2026,6 +2357,8 @@ function App() {
           : tokens.every((token) => video.searchText.includes(token));
       return matchesDownload && matchesType && matchesQuery;
     });
+    filteredVideosRef.current = next;
+    return next;
   }, [sortedVideos, downloadFilter, typeFilter, deferredSearchQuery]);
 
   const hasUndownloaded = useMemo(
@@ -2034,6 +2367,187 @@ function App() {
   );
 
   const showAddSkeleton = isAdding && addMode === "video";
+
+  const renderSkeletonCard = () => (
+    <article className="video-card skeleton-card" aria-live="polite">
+      <div className="thumbnail skeleton thumbnail-skeleton" aria-hidden="true" />
+      <div className="video-info">
+        <div className="skeleton-line title skeleton" />
+        <div className="skeleton-line skeleton" />
+        <div className="skeleton-line small skeleton" />
+        <div className="skeleton-pill skeleton" />
+        <p className="skeleton-text" role="status">
+          読み込み中...
+        </p>
+      </div>
+    </article>
+  );
+
+  const renderVideoCard = (video: VideoItem) => {
+    const thumbnailSrc = toThumbnailSrc(video.thumbnail);
+    const isPlayable = video.downloadStatus === "downloaded";
+    return (
+      <article key={video.id} className="video-card">
+        <button
+          className={`thumbnail-button ${
+            isPlayable ? "is-playable" : "is-disabled"
+          }`}
+          type="button"
+          onClick={() => {
+            if (isPlayable) {
+              void openPlayer(video);
+            }
+          }}
+          disabled={!isPlayable}
+          aria-label={
+            isPlayable
+              ? `再生: ${video.title}`
+              : `未ダウンロードのため再生不可: ${video.title}`
+          }
+        >
+          <div className="thumbnail">
+            {thumbnailSrc && <img src={thumbnailSrc} alt={video.title} />}
+            <span className="play-overlay" aria-hidden="true">
+              ▶
+            </span>
+          </div>
+        </button>
+        <div className="video-info">
+          {(() => {
+            const isDownloading = downloadingIds.includes(video.id);
+            const isCommentsDownloading = commentsDownloadingIds.includes(video.id);
+            const displayStatus = isDownloading
+              ? "downloading"
+              : video.downloadStatus;
+            return (
+              <>
+                <h3>{video.title}</h3>
+                <p>{video.channel}</p>
+                {video.publishedAt && (
+                  <p>配信日: {formatPublishedAt(video.publishedAt)}</p>
+                )}
+                <span
+                  className={`badge ${
+                    displayStatus === "downloaded"
+                      ? "badge-success"
+                      : displayStatus === "downloading"
+                        ? "badge-pending"
+                        : displayStatus === "pending"
+                          ? "badge-pending"
+                          : "badge-muted"
+                  }`}
+                >
+                  {displayStatus === "downloaded"
+                    ? "ダウンロード済"
+                    : displayStatus === "downloading"
+                      ? "ダウンロード中"
+                      : displayStatus === "pending"
+                        ? "未ダウンロード"
+                        : "失敗"}
+                </span>
+                {displayStatus !== "downloaded" && (
+                  <button
+                    className="ghost small"
+                    onClick={() => startDownload(video)}
+                    disabled={isDownloading}
+                  >
+                    {isDownloading ? "ダウンロード中..." : "ダウンロード"}
+                  </button>
+                )}
+                {videoErrors[video.id] && (
+                  <button
+                    className="ghost tiny"
+                    onClick={() => {
+                      setErrorTargetId(video.id);
+                      setIsErrorOpen(true);
+                    }}
+                  >
+                    エラー詳細
+                  </button>
+                )}
+                {displayStatus === "downloaded" && (
+                  <div className="action-row">
+                    <button
+                      className="ghost small"
+                      onClick={() => checkMediaInfo(video)}
+                      disabled={mediaInfoLoadingIds.includes(video.id)}
+                    >
+                      {mediaInfoLoadingIds.includes(video.id)
+                        ? "確認中..."
+                        : "コーデック確認"}
+                    </button>
+                  </div>
+                )}
+                {mediaInfoErrors[video.id] && (
+                  <p className="error small">{mediaInfoErrors[video.id]}</p>
+                )}
+                {mediaInfoById[video.id] && (
+                  <p className="progress-line codec-line">
+                    動画: {mediaInfoById[video.id]?.videoCodec ?? "不明"}
+                    {mediaInfoById[video.id]?.width &&
+                    mediaInfoById[video.id]?.height
+                      ? ` ${mediaInfoById[video.id]?.width}x${
+                          mediaInfoById[video.id]?.height
+                        }`
+                      : ""}
+                    {mediaInfoById[video.id]?.duration
+                      ? ` / ${formatDuration(mediaInfoById[video.id]?.duration)}`
+                      : ""}
+                    {mediaInfoById[video.id]?.container
+                      ? ` / 容器: ${mediaInfoById[video.id]?.container}`
+                      : ""}
+                    {mediaInfoById[video.id]?.audioCodec
+                      ? ` / 音声: ${mediaInfoById[video.id]?.audioCodec}`
+                      : ""}
+                  </p>
+                )}
+                {video.commentsStatus !== "unavailable" && (
+                  <div className="comment-row">
+                    <span
+                      className={`badge ${
+                        isCommentsDownloading
+                          ? "badge-pending"
+                          : video.commentsStatus === "downloaded"
+                            ? "badge-success"
+                            : video.commentsStatus === "pending"
+                              ? "badge-pending"
+                              : "badge-muted"
+                      }`}
+                    >
+                      {isCommentsDownloading
+                        ? "ライブチャット取得中"
+                        : video.commentsStatus === "downloaded"
+                          ? "ライブチャット取得済"
+                          : video.commentsStatus === "pending"
+                            ? "ライブチャット未取得"
+                            : "ライブチャット失敗"}
+                    </span>
+                    <button
+                      className="ghost small"
+                      onClick={() => startCommentsDownload(video)}
+                      disabled={isCommentsDownloading}
+                    >
+                      {isCommentsDownloading ? "取得中..." : "ライブチャット取得"}
+                    </button>
+                    <button
+                      className="ghost small"
+                      onClick={() => openComments(video)}
+                      disabled={video.commentsStatus !== "downloaded"}
+                    >
+                      チャットを見る
+                    </button>
+                  </div>
+                )}
+                {commentErrors[video.id] && (
+                  <p className="error small">{commentErrors[video.id]}</p>
+                )}
+              </>
+            );
+          })()}
+        </div>
+      </article>
+    );
+  };
 
   const activeActivityItems = useMemo(() => {
     const ids = new Set([
@@ -2070,7 +2584,7 @@ function App() {
   ]);
 
   const addDownloadErrorItem = useCallback(
-    (id: string, phase: "video" | "comments", details: string) => {
+    (id: string, phase: "video" | "comments" | "metadata", details: string) => {
       const title = videosRef.current.find((item) => item.id === id)?.title ?? id;
       setDownloadErrorItems((prev) => {
         const nextItem: FloatingErrorItem = {
@@ -2101,11 +2615,12 @@ function App() {
       title: string;
       video?: FloatingErrorItem;
       comments?: FloatingErrorItem;
+      metadata?: FloatingErrorItem;
       createdAt: number;
     }[];
     const byTitle = new Map<
       string,
-      { title: string; video?: FloatingErrorItem; comments?: FloatingErrorItem; createdAt: number }
+      { title: string; video?: FloatingErrorItem; comments?: FloatingErrorItem; metadata?: FloatingErrorItem; createdAt: number }
     >();
     downloadErrorItems.forEach((item) => {
       const existing = byTitle.get(item.title);
@@ -2117,15 +2632,20 @@ function App() {
         if (!next.video || next.video.createdAt < item.createdAt) {
           next.video = item;
         }
-      } else {
+      } else if (item.phase === "comments") {
         if (!next.comments || next.comments.createdAt < item.createdAt) {
           next.comments = item;
+        }
+      } else {
+        if (!next.metadata || next.metadata.createdAt < item.createdAt) {
+          next.metadata = item;
         }
       }
       next.createdAt = Math.max(
         next.createdAt,
         next.video?.createdAt ?? 0,
-        next.comments?.createdAt ?? 0
+        next.comments?.createdAt ?? 0,
+        next.metadata?.createdAt ?? 0
       );
       byTitle.set(item.title, next);
     });
@@ -2306,13 +2826,14 @@ function App() {
         </div>
       </header>
 
-      {sortedVideos.length === 0 ? (
-        <section className="empty">
-          まだ動画がありません。右上の「＋ 動画を追加」から登録してください。
-        </section>
-      ) : (
-        <>
-          <section className="filter-bar">
+      <div className="app-body">
+        {sortedVideos.length === 0 ? (
+          <section className="empty">
+            まだ動画がありません。右上の「＋ 動画を追加」から登録してください。
+          </section>
+        ) : (
+          <>
+            <section className="filter-bar">
             <div className="filter-group filter-search">
               <span className="filter-label">検索</span>
               <div className="search-field">
@@ -2438,185 +2959,74 @@ function App() {
             </div>
           </section>
 
-          {filteredVideos.length === 0 && !showAddSkeleton ? (
-            <section className="empty">
-              条件に一致する動画がありません。
-            </section>
-          ) : (
-            <section className="grid">
-              {showAddSkeleton && (
-                <article className="video-card skeleton-card" aria-live="polite">
-                  <div className="thumbnail skeleton thumbnail-skeleton" aria-hidden="true" />
-                  <div className="video-info">
-                    <div className="skeleton-line title skeleton" />
-                    <div className="skeleton-line skeleton" />
-                    <div className="skeleton-line small skeleton" />
-                    <div className="skeleton-pill skeleton" />
-                    <p className="skeleton-text" role="status">
-                      読み込み中...
-                    </p>
-                  </div>
-                </article>
-              )}
-              {filteredVideos.map((video) => {
-                const thumbnailSrc = toThumbnailSrc(video.thumbnail);
-                const isPlayable = video.downloadStatus === "downloaded";
-                return (
-                  <article key={video.id} className="video-card">
-                    <button
-                      className={`thumbnail-button ${
-                        isPlayable ? "is-playable" : "is-disabled"
-                      }`}
-                      type="button"
-                      onClick={() => {
-                        if (isPlayable) {
-                          void openPlayer(video);
-                        }
-                      }}
-                      disabled={!isPlayable}
-                      aria-label={
-                        isPlayable
-                          ? `再生: ${video.title}`
-                          : `未ダウンロードのため再生不可: ${video.title}`
-                      }
-                    >
-                      <div className="thumbnail">
-                        {thumbnailSrc && (
-                          <img src={thumbnailSrc} alt={video.title} />
-                        )}
-                        <span className="play-overlay" aria-hidden="true">
-                          ▶
-                        </span>
-                      </div>
-                    </button>
-                    <div className="video-info">
-                      {(() => {
-                        const isDownloading = downloadingIds.includes(video.id);
-                        const isCommentsDownloading = commentsDownloadingIds.includes(
-                          video.id
-                        );
-                        const displayStatus = isDownloading
-                          ? "downloading"
-                          : video.downloadStatus;
-                        return (
-                          <>
-                      <h3>{video.title}</h3>
-                      <p>{video.channel}</p>
-                      {video.publishedAt && (
-                        <p>配信日: {formatPublishedAt(video.publishedAt)}</p>
-                      )}
-                      <span
-                        className={`badge ${
-                          displayStatus === "downloaded"
-                            ? "badge-success"
-                            : displayStatus === "downloading"
-                              ? "badge-pending"
-                            : displayStatus === "pending"
-                              ? "badge-pending"
-                              : "badge-muted"
-                        }`}
+            {filteredVideos.length === 0 && !showAddSkeleton ? (
+              <section className="empty">
+                条件に一致する動画がありません。
+              </section>
+            ) : (
+              <section className="grid-virtual">
+                <div className="grid-virtual-container">
+                  <AutoSizer>
+                    {({ width, height }: { width: number; height: number }) => {
+                    const totalItems =
+                      filteredVideos.length + (showAddSkeleton ? 1 : 0);
+                    const maxColumns = Math.min(
+                      4,
+                      Math.max(
+                        1,
+                        Math.floor((width + GRID_GAP) / (GRID_CARD_WIDTH + GRID_GAP))
+                      )
+                    );
+                    const columnCount = maxColumns;
+                    const columnWidth = GRID_CARD_WIDTH + GRID_GAP;
+                    const rowCount = Math.ceil(totalItems / columnCount);
+
+                    return (
+                      <Grid
+                        columnCount={columnCount}
+                        columnWidth={columnWidth + GRID_GAP}
+                        height={height}
+                        rowCount={rowCount}
+                        rowHeight={GRID_ROW_HEIGHT + GRID_GAP}
+                        width={width}
+                        overscanRowCount={2}
                       >
-                      {displayStatus === "downloaded"
-                        ? "ダウンロード済"
-                        : displayStatus === "downloading"
-                          ? "ダウンロード中"
-                          : displayStatus === "pending"
-                            ? "未ダウンロード"
-                            : "失敗"}
-                    </span>
-                    {displayStatus !== "downloaded" && (
-                      <button
-                        className="ghost small"
-                        onClick={() => startDownload(video)}
-                        disabled={isDownloading}
-                      >
-                        {isDownloading ? "ダウンロード中..." : "ダウンロード"}
-                      </button>
-                    )}
-                    {displayStatus === "downloaded" && (
-                      <div className="action-row">
-                        <button
-                          className="ghost small"
-                          onClick={() => checkMediaInfo(video)}
-                          disabled={mediaInfoLoadingIds.includes(video.id)}
-                        >
-                          {mediaInfoLoadingIds.includes(video.id)
-                            ? "確認中..."
-                            : "コーデック確認"}
-                        </button>
-                      </div>
-                    )}
-                    {mediaInfoErrors[video.id] && (
-                      <p className="error small">{mediaInfoErrors[video.id]}</p>
-                    )}
-                    {mediaInfoById[video.id] && (
-                      <p className="progress-line codec-line">
-                        動画: {mediaInfoById[video.id]?.videoCodec ?? "不明"}
-                        {mediaInfoById[video.id]?.width &&
-                        mediaInfoById[video.id]?.height
-                          ? ` ${mediaInfoById[video.id]?.width}x${
-                              mediaInfoById[video.id]?.height
-                            }`
-                          : ""}
-                        {mediaInfoById[video.id]?.duration
-                          ? ` / ${formatDuration(mediaInfoById[video.id]?.duration)}`
-                          : ""}
-                        {mediaInfoById[video.id]?.container
-                          ? ` / 容器: ${mediaInfoById[video.id]?.container}`
-                          : ""}
-                        {mediaInfoById[video.id]?.audioCodec
-                          ? ` / 音声: ${mediaInfoById[video.id]?.audioCodec}`
-                          : ""}
-                      </p>
-                    )}
-                    {video.commentsStatus !== "unavailable" && (
-                      <div className="comment-row">
-                        <span
-                          className={`badge ${
-                            isCommentsDownloading
-                              ? "badge-pending"
-                              : video.commentsStatus === "downloaded"
-                                ? "badge-success"
-                                : video.commentsStatus === "pending"
-                                  ? "badge-pending"
-                                  : "badge-muted"
-                          }`}
-                        >
-                          {isCommentsDownloading
-                            ? "ライブチャット取得中"
-                            : video.commentsStatus === "downloaded"
-                              ? "ライブチャット取得済"
-                              : video.commentsStatus === "pending"
-                                ? "ライブチャット未取得"
-                                : "ライブチャット失敗"}
-                        </span>
-                        <button
-                          className="ghost small"
-                          onClick={() => startCommentsDownload(video)}
-                          disabled={isCommentsDownloading}
-                        >
-                          {isCommentsDownloading ? "取得中..." : "ライブチャット取得"}
-                        </button>
-                        <button
-                          className="ghost small"
-                          onClick={() => openComments(video)}
-                          disabled={video.commentsStatus !== "downloaded"}
-                        >
-                          チャットを見る
-                        </button>
-                      </div>
-                    )}
-                        </>
-                      );
-                    })()}
-                  </div>
-                </article>
-                );
-              })}
-            </section>
-          )}
-        </>
-      )}
+                        {({ columnIndex, rowIndex, style }: GridChildComponentProps) => {
+                          const index = rowIndex * columnCount + columnIndex;
+                          if (index >= totalItems) return null;
+                          const offsetIndex = showAddSkeleton ? index - 1 : index;
+                          const adjustedStyle = {
+                            ...style,
+                            left: (style.left as number) + GRID_GAP,
+                            top: (style.top as number) + GRID_GAP,
+                            width: (style.width as number) - GRID_GAP,
+                            height: (style.height as number) - GRID_GAP,
+                          };
+                          if (showAddSkeleton && index === 0) {
+                            return (
+                              <div style={adjustedStyle}>
+                                {renderSkeletonCard()}
+                              </div>
+                            );
+                          }
+                          const video = filteredVideos[offsetIndex];
+                          if (!video) return null;
+                          return (
+                            <div style={adjustedStyle}>
+                              {renderVideoCard(video)}
+                            </div>
+                          );
+                        }}
+                      </Grid>
+                    );
+                    }}
+                  </AutoSizer>
+                </div>
+              </section>
+            )}
+          </>
+        )}
+      </div>
 
       {isAddOpen && (
         <div className="modal-backdrop" onClick={() => setIsAddOpen(false)}>
@@ -2704,8 +3114,44 @@ function App() {
         </div>
       )}
 
-      {(bulkDownload.active || activeActivityItems.length > 0 || hasDownloadErrors) && (
+      {(bulkDownload.active || activeActivityItems.length > 0 || hasDownloadErrors || metadataFetch.active) && (
         <div className="floating-stack">
+          {metadataFetch.active && (
+            <div className="floating-panel bulk-status">
+              <div className="bulk-status-header">
+                <div className="bulk-status-title">
+                  <div className="spinner" />
+                  <span>
+                    詳細情報取得中 ({metadataFetch.completed}/{metadataFetch.total})
+                  </span>
+                </div>
+              </div>
+              <div className="bulk-status-body">
+                {metadataPaused ? (
+                  <div className="bulk-status-paused">
+                    <p className="bulk-status-title-line">停止中: 再試行が必要です</p>
+                    {metadataPauseReason && (
+                      <pre className="bulk-status-log">{metadataPauseReason}</pre>
+                    )}
+                    <button
+                      className="ghost small"
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setMetadataPaused(false);
+                        setMetadataPauseReason("");
+                        window.setTimeout(startNextMetadataDownload, 0);
+                      }}
+                    >
+                      再試行
+                    </button>
+                  </div>
+                ) : (
+                  <pre className="bulk-status-log">バックグラウンドで取得しています…</pre>
+                )}
+              </div>
+            </div>
+          )}
           {hasDownloadErrors && (
             <div
               className={`floating-panel download-errors ${
@@ -2775,6 +3221,16 @@ function App() {
                                   </p>
                                   <pre className="bulk-status-log">
                                     {item.comments.details}
+                                  </pre>
+                                </div>
+                              )}
+                              {item.metadata && (
+                                <div className="download-error-section">
+                                  <p className="bulk-status-title-line">
+                                    詳細情報
+                                  </p>
+                                  <pre className="bulk-status-log">
+                                    {item.metadata.details}
                                   </pre>
                                 </div>
                               )}
@@ -2883,7 +3339,7 @@ function App() {
             </div>
           )}
 
-          {activeActivityItems.length > 0 && !bulkDownload.active && (
+          {activeActivityItems.length > 0 && (
             <div
               className={`floating-panel download-status ${
                 isDownloadLogOpen ? "open" : ""

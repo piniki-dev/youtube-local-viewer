@@ -14,6 +14,9 @@ const YTDLP_TITLE_WARNING: &str =
     "No title found in player responses; falling back to title from initial data";
 const YTDLP_WARNING_RETRY_MAX: usize = 10;
 const YTDLP_WARNING_RETRY_SLEEP_MS: u64 = 500;
+const YTDLP_NONE_DECODE_ERROR: &str = "NoneType";
+const YTDLP_NONE_DECODE_RETRY_MAX: usize = 2;
+const YTDLP_NONE_DECODE_RETRY_SLEEP_MS: u64 = 10_000;
 
 fn apply_cookies_args(
     command: &mut Command,
@@ -58,6 +61,24 @@ struct CommentsFinished {
     success: bool,
     stdout: String,
     stderr: String,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MetadataFinished {
+    id: String,
+    success: bool,
+    stdout: String,
+    stderr: String,
+    metadata: Option<VideoMetadata>,
+    has_live_chat: Option<bool>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MetadataIndex {
+    info_ids: Vec<String>,
+    chat_ids: Vec<String>,
 }
 
 #[derive(Clone, Default)]
@@ -216,6 +237,150 @@ fn write_error_log(
     fs::write(&file_path, content)
         .map_err(|e| format!("ログの保存に失敗しました: {}", e))?;
     Ok(())
+}
+
+fn parse_video_metadata_value(value: &serde_json::Value) -> VideoMetadata {
+    VideoMetadata {
+        id: value.get("id").and_then(|v| v.as_str()).map(|s| s.to_string()),
+        title: value.get("title").and_then(|v| v.as_str()).map(|s| s.to_string()),
+        channel: value
+            .get("channel")
+            .and_then(|v| v.as_str())
+            .or_else(|| value.get("uploader").and_then(|v| v.as_str()))
+            .or_else(|| value.get("channel_title").and_then(|v| v.as_str()))
+            .map(|s| s.to_string()),
+        thumbnail: value
+            .get("thumbnail")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+        url: value
+            .get("url")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+        webpage_url: value
+            .get("webpage_url")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+        duration_sec: value.get("duration").and_then(|v| v.as_u64()),
+        upload_date: value
+            .get("upload_date")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+        release_timestamp: value
+            .get("release_timestamp")
+            .and_then(|v| v.as_i64()),
+        timestamp: value.get("timestamp").and_then(|v| v.as_i64()),
+        live_status: value
+            .get("live_status")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+        is_live: value.get("is_live").and_then(|v| v.as_bool()),
+        was_live: value.get("was_live").and_then(|v| v.as_bool()),
+        view_count: value.get("view_count").and_then(|v| v.as_u64()),
+        like_count: value.get("like_count").and_then(|v| v.as_u64()),
+        comment_count: value.get("comment_count").and_then(|v| v.as_u64()),
+        tags: value
+            .get("tags")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|item| item.as_str().map(|s| s.to_string()))
+                    .collect::<Vec<String>>()
+            }),
+        categories: value
+            .get("categories")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|item| item.as_str().map(|s| s.to_string()))
+                    .collect::<Vec<String>>()
+            }),
+        description: value
+            .get("description")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+        channel_id: value
+            .get("channel_id")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+        uploader_id: value
+            .get("uploader_id")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+        channel_url: value
+            .get("channel_url")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+        uploader_url: value
+            .get("uploader_url")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+        availability: value
+            .get("availability")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+        language: value
+            .get("language")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+        audio_language: value
+            .get("audio_language")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+        age_limit: value.get("age_limit").and_then(|v| v.as_u64()),
+    }
+}
+
+fn find_info_json(dir: &Path, id: &str) -> Option<PathBuf> {
+    if !dir.exists() {
+        return None;
+    }
+    let id_lower = id.to_lowercase();
+    let entries = fs::read_dir(dir).ok()?;
+    let mut candidates: Vec<PathBuf> = Vec::new();
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let name = match path.file_name().and_then(|n| n.to_str()) {
+            Some(name) => name.to_string(),
+            None => continue,
+        };
+        let name_lower = name.to_lowercase();
+        if !name_lower.ends_with(".info.json") {
+            continue;
+        }
+        if name_lower.contains(&id_lower) {
+            return Some(path);
+        }
+        candidates.push(path);
+    }
+
+    for path in candidates {
+        if let Ok(content) = fs::read_to_string(&path) {
+            if let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) {
+                if let Some(video_id) = value.get("id").and_then(|v| v.as_str()) {
+                    if video_id.eq_ignore_ascii_case(id) {
+                        return Some(path);
+                    }
+                }
+                if let Some(display_id) = value.get("display_id").and_then(|v| v.as_str()) {
+                    if display_id.eq_ignore_ascii_case(id) {
+                        return Some(path);
+                    }
+                }
+                if let Some(video_id) = value.get("video_id").and_then(|v| v.as_str()) {
+                    if video_id.eq_ignore_ascii_case(id) {
+                        return Some(path);
+                    }
+                }
+            }
+        }
+    }
+
+    None
 }
 
 #[tauri::command]
@@ -723,6 +888,27 @@ fn start_comments_download(
                 continue;
             }
 
+            let none_decode_retry = !last_success
+                && attempt < YTDLP_NONE_DECODE_RETRY_MAX
+                && (last_stderr.contains(YTDLP_NONE_DECODE_ERROR)
+                    || last_stdout.contains(YTDLP_NONE_DECODE_ERROR))
+                && (last_stderr.contains("decode") || last_stdout.contains("decode"));
+            if none_decode_retry {
+                let _ = app.emit(
+                    "metadata-progress",
+                    serde_json::json!({
+                        "id": id.clone(),
+                        "line": format!(
+                            "一時的なエラーを検知したためリトライします ({}/{})",
+                            attempt,
+                            YTDLP_NONE_DECODE_RETRY_MAX
+                        )
+                    }),
+                );
+                std::thread::sleep(Duration::from_millis(YTDLP_NONE_DECODE_RETRY_SLEEP_MS));
+                continue;
+            }
+
             break;
         }
 
@@ -737,6 +923,237 @@ fn start_comments_download(
                 success: last_success,
                 stdout: last_stdout,
                 stderr: last_stderr,
+            },
+        );
+    });
+
+    Ok(())
+}
+
+#[tauri::command]
+fn start_metadata_download(
+    app: AppHandle,
+    id: String,
+    url: String,
+    output_dir: String,
+    cookies_file: Option<String>,
+    cookies_source: Option<String>,
+    cookies_browser: Option<String>,
+    remote_components: Option<String>,
+    yt_dlp_path: Option<String>,
+    ffmpeg_path: Option<String>,
+) -> Result<(), String> {
+    let output_path = format!("{}/%(title)s [%(id)s].%(ext)s", output_dir);
+    let yt_dlp = resolve_override(yt_dlp_path).unwrap_or_else(resolve_yt_dlp);
+    let ffmpeg_location = resolve_override(ffmpeg_path).or_else(|| Some(resolve_ffmpeg()));
+
+    std::thread::spawn(move || {
+        let mut last_stdout = String::new();
+        let mut last_stderr = String::new();
+        let mut last_success = false;
+
+        if let Err(err) = fs::create_dir_all(&output_dir) {
+            let _ = app.emit(
+                "metadata-finished",
+                MetadataFinished {
+                    id,
+                    success: false,
+                    stdout: "".to_string(),
+                    stderr: format!("保存先フォルダの作成に失敗しました: {}", err),
+                    metadata: None,
+                    has_live_chat: None,
+                },
+            );
+            return;
+        }
+
+        for attempt in 1..=YTDLP_WARNING_RETRY_MAX {
+            let warning_seen = Arc::new(AtomicBool::new(false));
+            let mut command = Command::new(&yt_dlp);
+            command
+                .arg("--no-playlist")
+                .arg("--newline")
+                .arg("--progress")
+                .arg("--skip-download")
+                .arg("--write-comments")
+                .arg("--write-subs")
+                .arg("--sub-langs")
+                .arg("live_chat")
+                .arg("--sub-format")
+                .arg("json")
+                .arg("--write-info-json")
+                .arg("-o")
+                .arg(&output_path);
+            if let Some(location) = &ffmpeg_location {
+                command.arg("--ffmpeg-location").arg(location);
+            }
+            apply_cookies_args(
+                &mut command,
+                cookies_source.as_deref(),
+                cookies_file.as_deref(),
+                cookies_browser.as_deref(),
+            );
+            if let Some(remote) = &remote_components {
+                if !remote.trim().is_empty() {
+                    command.arg("--remote-components").arg(remote);
+                }
+            }
+            command.arg(&url).stdout(Stdio::piped()).stderr(Stdio::piped());
+
+            let mut child = match command.spawn() {
+                Ok(child) => child,
+                Err(err) => {
+                    let _ = write_error_log(
+                        &app,
+                        "metadata_download",
+                        &id,
+                        "",
+                        &format!("yt-dlpの起動に失敗しました: {}", err),
+                    );
+                    let _ = app.emit(
+                        "metadata-finished",
+                        MetadataFinished {
+                            id,
+                            success: false,
+                            stdout: "".to_string(),
+                            stderr: format!("yt-dlpの起動に失敗しました: {}", err),
+                            metadata: None,
+                            has_live_chat: None,
+                        },
+                    );
+                    return;
+                }
+            };
+
+            let stdout_acc = Arc::new(Mutex::new(String::new()));
+            let stderr_acc = Arc::new(Mutex::new(String::new()));
+
+            if let Some(stdout) = child.stdout.take() {
+                let app_clone = app.clone();
+                let id_clone = id.clone();
+                let stdout_acc_clone = stdout_acc.clone();
+                let warning_seen_clone = warning_seen.clone();
+                std::thread::spawn(move || {
+                    let reader = BufReader::new(stdout);
+                    for line in reader.lines().flatten() {
+                        if line.contains(YTDLP_TITLE_WARNING) {
+                            warning_seen_clone.store(true, Ordering::Relaxed);
+                        }
+                        if let Ok(mut buf) = stdout_acc_clone.lock() {
+                            buf.push_str(&line);
+                            buf.push('\n');
+                        }
+                        let _ = app_clone.emit(
+                            "metadata-progress",
+                            serde_json::json!({ "id": id_clone, "line": line }),
+                        );
+                    }
+                });
+            }
+
+            if let Some(stderr) = child.stderr.take() {
+                let app_clone = app.clone();
+                let id_clone = id.clone();
+                let stderr_acc_clone = stderr_acc.clone();
+                let warning_seen_clone = warning_seen.clone();
+                std::thread::spawn(move || {
+                    let reader = BufReader::new(stderr);
+                    for line in reader.lines().flatten() {
+                        if line.contains(YTDLP_TITLE_WARNING) {
+                            warning_seen_clone.store(true, Ordering::Relaxed);
+                        }
+                        if let Ok(mut buf) = stderr_acc_clone.lock() {
+                            buf.push_str(&line);
+                            buf.push('\n');
+                        }
+                        let _ = app_clone.emit(
+                            "metadata-progress",
+                            serde_json::json!({ "id": id_clone, "line": line }),
+                        );
+                    }
+                });
+            }
+
+            let output = match child.wait() {
+                Ok(status) => status,
+                Err(err) => {
+                    let _ = write_error_log(
+                        &app,
+                        "metadata_download",
+                        &id,
+                        "",
+                        &format!("yt-dlpの実行に失敗しました: {}", err),
+                    );
+                    let _ = app.emit(
+                        "metadata-finished",
+                        MetadataFinished {
+                            id,
+                            success: false,
+                            stdout: "".to_string(),
+                            stderr: format!("yt-dlpの実行に失敗しました: {}", err),
+                            metadata: None,
+                            has_live_chat: None,
+                        },
+                    );
+                    return;
+                }
+            };
+
+            let stdout = stdout_acc.lock().map(|s| s.clone()).unwrap_or_default();
+            let stderr = stderr_acc.lock().map(|s| s.clone()).unwrap_or_default();
+
+            last_stdout = stdout;
+            last_stderr = stderr;
+            last_success = output.success();
+
+            let warning_retry = warning_seen.load(Ordering::Relaxed);
+            if warning_retry && attempt < YTDLP_WARNING_RETRY_MAX {
+                let _ = app.emit(
+                    "metadata-progress",
+                    serde_json::json!({
+                        "id": id.clone(),
+                        "line": format!(
+                            "警告を検知したためリトライします ({}/{})",
+                            attempt,
+                            YTDLP_WARNING_RETRY_MAX
+                        )
+                    }),
+                );
+                std::thread::sleep(Duration::from_millis(YTDLP_WARNING_RETRY_SLEEP_MS));
+                continue;
+            }
+
+            break;
+        }
+
+        if !last_success {
+            let _ = write_error_log(&app, "metadata_download", &id, &last_stdout, &last_stderr);
+        }
+
+        let mut metadata: Option<VideoMetadata> = None;
+        let mut has_live_chat: Option<bool> = None;
+
+        if last_success {
+            let dir = PathBuf::from(&output_dir);
+            if let Some(info_path) = find_info_json(&dir, &id) {
+                if let Ok(content) = fs::read_to_string(&info_path) {
+                    if let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) {
+                        metadata = Some(parse_video_metadata_value(&value));
+                    }
+                }
+            }
+            has_live_chat = comments_file_exists(id.clone(), output_dir.clone()).ok();
+        }
+
+        let _ = app.emit(
+            "metadata-finished",
+            MetadataFinished {
+                id,
+                success: last_success,
+                stdout: last_stdout,
+                stderr: last_stderr,
+                metadata,
+                has_live_chat,
             },
         );
     });
@@ -789,95 +1206,194 @@ fn get_video_metadata(
     let value: serde_json::Value = serde_json::from_slice(&output.stdout)
         .map_err(|e| format!("yt-dlpの出力解析に失敗しました: {}", e))?;
 
-    Ok(VideoMetadata {
-        id: value.get("id").and_then(|v| v.as_str()).map(|s| s.to_string()),
-        title: value.get("title").and_then(|v| v.as_str()).map(|s| s.to_string()),
-        channel: value
-            .get("channel")
+    Ok(parse_video_metadata_value(&value))
+}
+
+#[tauri::command]
+fn get_channel_metadata(
+    url: String,
+    cookies_file: Option<String>,
+    cookies_source: Option<String>,
+    cookies_browser: Option<String>,
+    remote_components: Option<String>,
+    yt_dlp_path: Option<String>,
+    limit: Option<u32>,
+) -> Result<Vec<VideoMetadata>, String> {
+    let yt_dlp = resolve_override(yt_dlp_path).unwrap_or_else(resolve_yt_dlp);
+    let mut command = Command::new(yt_dlp);
+    command
+        .arg("--dump-single-json")
+        .arg("--yes-playlist")
+        .arg("--ignore-errors")
+        .arg("--no-warnings")
+        .arg("--skip-download");
+    if let Some(limit) = limit {
+        if limit > 0 {
+            command.arg("--playlist-end").arg(limit.to_string());
+        }
+    }
+    apply_cookies_args(
+        &mut command,
+        cookies_source.as_deref(),
+        cookies_file.as_deref(),
+        cookies_browser.as_deref(),
+    );
+    if let Some(remote) = remote_components {
+        if !remote.trim().is_empty() {
+            command.arg("--remote-components").arg(remote);
+        }
+    }
+    command.arg(&url);
+
+    let output = command
+        .output()
+        .map_err(|e| format!("yt-dlpの起動に失敗しました: {}", e))?;
+
+    if !output.status.success() && output.stdout.is_empty() {
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        return Err(if stderr.trim().is_empty() {
+            "yt-dlpの実行に失敗しました。".to_string()
+        } else {
+            stderr
+        });
+    }
+
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout)
+        .map_err(|e| format!("yt-dlpの出力解析に失敗しました: {}", e))?;
+    let entries = value
+        .get("entries")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| "動画一覧が取得できませんでした。".to_string())?;
+
+    let channel_id = value
+        .get("channel_id")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .or_else(|| {
+            value
+                .get("uploader_id")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+        });
+
+    let mut items = Vec::new();
+    for entry in entries {
+        let id = entry
+            .get("id")
             .and_then(|v| v.as_str())
-            .or_else(|| value.get("uploader").and_then(|v| v.as_str()))
-            .or_else(|| value.get("channel_title").and_then(|v| v.as_str()))
-            .map(|s| s.to_string()),
-        thumbnail: value
-            .get("thumbnail")
+            .or_else(|| entry.get("url").and_then(|v| v.as_str()))
+            .map(|s| s.to_string());
+        let Some(id) = id else {
+            continue;
+        };
+
+        if channel_id.as_deref().is_some_and(|cid| cid == id) {
+            continue;
+        }
+
+        let title_value = entry
+            .get("title")
             .and_then(|v| v.as_str())
-            .map(|s| s.to_string()),
-        url: value
-            .get("url")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string()),
-        webpage_url: value
-            .get("webpage_url")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string()),
-        duration_sec: value.get("duration").and_then(|v| v.as_u64()),
-        upload_date: value
-            .get("upload_date")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string()),
-        release_timestamp: value
-            .get("release_timestamp")
-            .and_then(|v| v.as_i64()),
-        timestamp: value.get("timestamp").and_then(|v| v.as_i64()),
-        live_status: value
-            .get("live_status")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string()),
-        is_live: value.get("is_live").and_then(|v| v.as_bool()),
-        was_live: value.get("was_live").and_then(|v| v.as_bool()),
-        view_count: value.get("view_count").and_then(|v| v.as_u64()),
-        like_count: value.get("like_count").and_then(|v| v.as_u64()),
-        comment_count: value.get("comment_count").and_then(|v| v.as_u64()),
-        tags: value
-            .get("tags")
-            .and_then(|v| v.as_array())
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|item| item.as_str().map(|s| s.to_string()))
-                    .collect::<Vec<String>>()
-            }),
-        categories: value
-            .get("categories")
-            .and_then(|v| v.as_array())
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|item| item.as_str().map(|s| s.to_string()))
-                    .collect::<Vec<String>>()
-            }),
-        description: value
-            .get("description")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string()),
-        channel_id: value
-            .get("channel_id")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string()),
-        uploader_id: value
-            .get("uploader_id")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string()),
-        channel_url: value
-            .get("channel_url")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string()),
-        uploader_url: value
-            .get("uploader_url")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string()),
-        availability: value
-            .get("availability")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string()),
-        language: value
-            .get("language")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string()),
-        audio_language: value
-            .get("audio_language")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string()),
-        age_limit: value.get("age_limit").and_then(|v| v.as_u64()),
-    })
+            .unwrap_or("Untitled")
+            .to_string();
+
+        if title_value.ends_with(" - Videos")
+            || title_value.ends_with(" - Live")
+            || title_value.ends_with(" - Shorts")
+        {
+            continue;
+        }
+
+        items.push(VideoMetadata {
+            id: Some(id),
+            title: Some(title_value),
+            channel: entry
+                .get("channel")
+                .and_then(|v| v.as_str())
+                .or_else(|| entry.get("uploader").and_then(|v| v.as_str()))
+                .or_else(|| entry.get("channel_title").and_then(|v| v.as_str()))
+                .map(|s| s.to_string()),
+            thumbnail: entry
+                .get("thumbnail")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
+            url: entry
+                .get("url")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
+            webpage_url: entry
+                .get("webpage_url")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
+            duration_sec: entry.get("duration").and_then(|v| v.as_u64()),
+            upload_date: entry
+                .get("upload_date")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
+            release_timestamp: entry.get("release_timestamp").and_then(|v| v.as_i64()),
+            timestamp: entry.get("timestamp").and_then(|v| v.as_i64()),
+            live_status: entry
+                .get("live_status")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
+            is_live: entry.get("is_live").and_then(|v| v.as_bool()),
+            was_live: entry.get("was_live").and_then(|v| v.as_bool()),
+            view_count: entry.get("view_count").and_then(|v| v.as_u64()),
+            like_count: entry.get("like_count").and_then(|v| v.as_u64()),
+            comment_count: entry.get("comment_count").and_then(|v| v.as_u64()),
+            tags: entry
+                .get("tags")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|item| item.as_str().map(|s| s.to_string()))
+                        .collect::<Vec<String>>()
+                }),
+            categories: entry
+                .get("categories")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|item| item.as_str().map(|s| s.to_string()))
+                        .collect::<Vec<String>>()
+                }),
+            description: entry
+                .get("description")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
+            channel_id: entry
+                .get("channel_id")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
+            uploader_id: entry
+                .get("uploader_id")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
+            channel_url: entry
+                .get("channel_url")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
+            uploader_url: entry
+                .get("uploader_url")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
+            availability: entry
+                .get("availability")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
+            language: entry
+                .get("language")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
+            audio_language: entry
+                .get("audio_language")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
+            age_limit: entry.get("age_limit").and_then(|v| v.as_u64()),
+        });
+    }
+
+    Ok(items)
 }
 
 
@@ -1331,6 +1847,87 @@ fn comments_file_exists(id: String, output_dir: String) -> Result<bool, String> 
         .map(|name| name.to_lowercase().ends_with(".info.json"))
         .unwrap_or(false);
     Ok(!is_info)
+}
+
+#[tauri::command]
+fn info_json_exists(id: String, output_dir: String) -> Result<bool, String> {
+    let dir = PathBuf::from(output_dir);
+    if !dir.exists() {
+        return Ok(false);
+    }
+    Ok(find_info_json(&dir, &id).is_some())
+}
+
+#[tauri::command]
+fn get_metadata_index(output_dir: String) -> Result<MetadataIndex, String> {
+    let dir = PathBuf::from(output_dir);
+    if !dir.exists() {
+        return Ok(MetadataIndex {
+            info_ids: Vec::new(),
+            chat_ids: Vec::new(),
+        });
+    }
+
+    let mut info_ids: HashSet<String> = HashSet::new();
+    let mut chat_ids: HashSet<String> = HashSet::new();
+
+    let entries = fs::read_dir(&dir).map_err(|e| format!("保存先フォルダを読み込めません: {}", e))?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let name = match path.file_name().and_then(|n| n.to_str()) {
+            Some(name) => name.to_string(),
+            None => continue,
+        };
+        let name_lower = name.to_lowercase();
+        let is_info = name_lower.ends_with(".info.json");
+        let is_chat = name_lower.ends_with(".live_chat.json") || name_lower.ends_with(".comments.json");
+        if !is_info && !is_chat {
+            continue;
+        }
+
+        if let (Some(open_idx), Some(close_idx)) = (name.rfind('['), name.rfind(']')) {
+            if close_idx > open_idx + 1 {
+                let id = name[(open_idx + 1)..close_idx].trim().to_string();
+                if !id.is_empty() {
+                    if is_info {
+                        info_ids.insert(id.clone());
+                    }
+                    if is_chat {
+                        chat_ids.insert(id);
+                    }
+                    continue;
+                }
+            }
+        }
+
+        // Fallback: inspect JSON for ID if filename does not include it.
+        if let Ok(content) = fs::read_to_string(&path) {
+            if let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) {
+                let id = value
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .or_else(|| value.get("video_id").and_then(|v| v.as_str()))
+                    .or_else(|| value.get("display_id").and_then(|v| v.as_str()))
+                    .map(|s| s.to_string());
+                if let Some(id) = id {
+                    if is_info {
+                        info_ids.insert(id.clone());
+                    }
+                    if is_chat {
+                        chat_ids.insert(id);
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(MetadataIndex {
+        info_ids: info_ids.into_iter().collect(),
+        chat_ids: chat_ids.into_iter().collect(),
+    })
 }
 
 #[tauri::command]
@@ -2217,12 +2814,16 @@ pub fn run() {
             start_download,
             stop_download,
             start_comments_download,
+            start_metadata_download,
             list_channel_videos,
+            get_channel_metadata,
             get_video_metadata,
             get_comments,
             resolve_video_file,
             video_file_exists,
             comments_file_exists,
+            info_json_exists,
+            get_metadata_index,
             probe_media,
             load_state,
             save_state,
