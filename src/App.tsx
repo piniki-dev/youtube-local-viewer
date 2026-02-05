@@ -1004,6 +1004,7 @@ function App() {
     }
 
     setIsAdding(true);
+    setIsAddOpen(false);
     try {
       const oembedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${id}&format=json`;
       const [oembedRes, metadata] = await Promise.all([
@@ -1069,6 +1070,7 @@ function App() {
       setIsAddOpen(false);
     } catch {
       setErrorMessage("動画情報の取得に失敗しました。");
+      setIsAddOpen(true);
     } finally {
       setIsAdding(false);
     }
@@ -2008,6 +2010,8 @@ function App() {
     [videos]
   );
 
+  const showAddSkeleton = isAdding && addMode === "video";
+
   const activeActivityItems = useMemo(() => {
     const ids = new Set([
       ...downloadingIds,
@@ -2411,12 +2415,26 @@ function App() {
             </div>
           </section>
 
-          {filteredVideos.length === 0 ? (
+          {filteredVideos.length === 0 && !showAddSkeleton ? (
             <section className="empty">
               条件に一致する動画がありません。
             </section>
           ) : (
             <section className="grid">
+              {showAddSkeleton && (
+                <article className="video-card skeleton-card" aria-live="polite">
+                  <div className="thumbnail skeleton thumbnail-skeleton" aria-hidden="true" />
+                  <div className="video-info">
+                    <div className="skeleton-line title skeleton" />
+                    <div className="skeleton-line skeleton" />
+                    <div className="skeleton-line small skeleton" />
+                    <div className="skeleton-pill skeleton" />
+                    <p className="skeleton-text" role="status">
+                      読み込み中...
+                    </p>
+                  </div>
+                </article>
+              )}
               {filteredVideos.map((video) => {
                 const thumbnailSrc = toThumbnailSrc(video.thumbnail);
                 const isPlayable = video.downloadStatus === "downloaded";

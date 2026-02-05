@@ -185,6 +185,46 @@ body {
   box-shadow: 0 6px 18px rgba(15, 20, 30, 0.08);
 }
 
+.video-card.skeleton-card {
+  pointer-events: none;
+}
+
+.skeleton {
+  background: linear-gradient(90deg, #eef1f6 0%, #e2e7f0 50%, #eef1f6 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.2s ease-in-out infinite;
+}
+
+.thumbnail-skeleton {
+  background: #e8ecf4;
+}
+
+.skeleton-line {
+  height: 12px;
+  border-radius: 6px;
+}
+
+.skeleton-line.title {
+  height: 14px;
+  width: 90%;
+}
+
+.skeleton-line.small {
+  width: 60%;
+}
+
+.skeleton-pill {
+  width: 90px;
+  height: 16px;
+  border-radius: 999px;
+}
+
+.skeleton-text {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: #8a90a0;
+}
+
 .thumbnail-button {
   border: none;
   padding: 0;
@@ -415,6 +455,15 @@ body {
 
 .checkbox {
   flex-direction: row;
+
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
   align-items: center;
   gap: 10px;
 }
