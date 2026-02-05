@@ -68,6 +68,20 @@ body {
   cursor: pointer;
 }
 
+.floating-panel.is-error {
+  background: #b42318;
+}
+
+.floating-panel.is-error .ghost {
+  border-color: rgba(255, 255, 255, 0.45);
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.floating-panel.is-error .ghost:hover {
+  border-color: rgba(255, 255, 255, 0.6);
+}
+
 .floating-panel.open {
   padding-bottom: 10px;
 }
@@ -658,6 +672,77 @@ body {
   background: rgba(255, 255, 255, 0.08);
   border-radius: 10px;
   padding: 8px 10px;
+}
+
+.floating-panel.is-error .bulk-status-body {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.download-error-group {
+  margin-bottom: 10px;
+}
+
+.download-error-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.95);
+  margin-bottom: 6px;
+}
+
+.download-error-item {
+  border-top: 1px solid rgba(255, 255, 255, 0.2);
+  padding-top: 6px;
+  margin-top: 6px;
+}
+
+.download-error-item:first-child {
+  border-top: none;
+  padding-top: 0;
+  margin-top: 0;
+}
+
+.download-error-carousel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.download-error-track {
+  overflow: hidden;
+}
+
+.download-error-slide {
+  display: flex;
+  transition: transform 0.25s ease;
+  width: 100%;
+}
+
+.download-error-card {
+  flex: 0 0 100%;
+  border-top: 1px solid rgba(255, 255, 255, 0.2);
+  padding-top: 6px;
+}
+
+.download-error-section {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed rgba(255, 255, 255, 0.25);
+}
+
+.download-error-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.download-error-index {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.85);
 }
 
 .bulk-status-title-line {

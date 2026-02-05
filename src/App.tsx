@@ -138,6 +138,14 @@ type MediaInfo = {
   container?: string | null;
 };
 
+type FloatingErrorItem = {
+  id: string;
+  title: string;
+  phase: "video" | "comments";
+  details: string;
+  createdAt: number;
+};
+
 type BulkDownloadState = {
   active: boolean;
   total: number;
@@ -216,6 +224,7 @@ function App() {
   const [commentsTitle, setCommentsTitle] = useState("");
   const [commentsList, setCommentsList] = useState<CommentItem[]>([]);
   const [commentsError, setCommentsError] = useState("");
+  const [downloadErrorItems, setDownloadErrorItems] = useState<FloatingErrorItem[]>([]);
   const [isStateReady, setIsStateReady] = useState(false);
   const [isPlayerOpen, setIsPlayerOpen] = useState(false);
   const [playerTitle, setPlayerTitle] = useState("");
@@ -259,6 +268,8 @@ function App() {
   });
   const [isBulkLogOpen, setIsBulkLogOpen] = useState(false);
   const [isDownloadLogOpen, setIsDownloadLogOpen] = useState(false);
+  const [isDownloadErrorOpen, setIsDownloadErrorOpen] = useState(false);
+  const [downloadErrorIndex, setDownloadErrorIndex] = useState(0);
   const [pendingCommentIds, setPendingCommentIds] = useState<string[]>([]);
   const [downloadFilter, setDownloadFilter] = useState<
     "all" | "downloaded" | "undownloaded"
@@ -541,6 +552,7 @@ function App() {
             );
             const details = stderr || stdout || "不明なエラー";
             setVideoErrors((prev) => ({ ...prev, [id]: details }));
+            addDownloadErrorItem(id, "video", details);
             setErrorMessage("ダウンロードに失敗しました。詳細を確認してください。");
           }
           if (bulkDownloadRef.current.active && bulkDownloadRef.current.currentId === id) {
@@ -626,6 +638,7 @@ function App() {
               );
               const details = stderr || stdout || "不明なエラー";
               setCommentErrors((prev) => ({ ...prev, [id]: details }));
+              addDownloadErrorItem(id, "comments", details);
               setErrorMessage("ライブチャット取得に失敗しました。詳細を確認してください。");
             }
             setPendingCommentIds((prev) => prev.filter((item) => item !== id));
@@ -2029,6 +2042,81 @@ function App() {
     commentProgressLines,
   ]);
 
+  const addDownloadErrorItem = useCallback(
+    (id: string, phase: "video" | "comments", details: string) => {
+      const title = videosRef.current.find((item) => item.id === id)?.title ?? id;
+      setDownloadErrorItems((prev) => {
+        const nextItem: FloatingErrorItem = {
+          id,
+          title,
+          phase,
+          details,
+          createdAt: Date.now(),
+        };
+        const filtered = prev.filter(
+          (item) => !(item.id === id && item.phase === phase)
+        );
+        return [nextItem, ...filtered].slice(0, 5);
+      });
+    },
+    []
+  );
+
+  const clearDownloadErrors = useCallback(() => {
+    setDownloadErrorItems([]);
+    setDownloadErrorIndex(0);
+  }, []);
+
+  const hasDownloadErrors = downloadErrorItems.length > 0;
+
+  const downloadErrorSlides = useMemo(() => {
+    if (downloadErrorItems.length === 0) return [] as {
+      title: string;
+      video?: FloatingErrorItem;
+      comments?: FloatingErrorItem;
+      createdAt: number;
+    }[];
+    const byTitle = new Map<
+      string,
+      { title: string; video?: FloatingErrorItem; comments?: FloatingErrorItem; createdAt: number }
+    >();
+    downloadErrorItems.forEach((item) => {
+      const existing = byTitle.get(item.title);
+      const next = existing ?? {
+        title: item.title,
+        createdAt: item.createdAt,
+      };
+      if (item.phase === "video") {
+        if (!next.video || next.video.createdAt < item.createdAt) {
+          next.video = item;
+        }
+      } else {
+        if (!next.comments || next.comments.createdAt < item.createdAt) {
+          next.comments = item;
+        }
+      }
+      next.createdAt = Math.max(
+        next.createdAt,
+        next.video?.createdAt ?? 0,
+        next.comments?.createdAt ?? 0
+      );
+      byTitle.set(item.title, next);
+    });
+    return Array.from(byTitle.values()).sort(
+      (a, b) => b.createdAt - a.createdAt
+    );
+  }, [downloadErrorItems]);
+
+  useEffect(() => {
+    if (downloadErrorSlides.length === 0) {
+      setDownloadErrorIndex(0);
+      return;
+    }
+    setDownloadErrorIndex((prev) =>
+      Math.min(Math.max(prev, 0), downloadErrorSlides.length - 1)
+    );
+  }, [downloadErrorSlides.length]);
+
   const formatPublishedAt = (value?: string) => {
     const parsedMs = parseDateValue(value);
     if (parsedMs !== null) {
@@ -2395,22 +2483,6 @@ function App() {
                             ? "未ダウンロード"
                             : "失敗"}
                     </span>
-                    {video.downloadStatus === "failed" && videoErrors[video.id] && (
-                      <div className="error-row">
-                        <p className="error small">
-                          {videoErrors[video.id].slice(0, 140)}
-                        </p>
-                        <button
-                          className="ghost tiny"
-                          onClick={() => {
-                            setErrorTargetId(video.id);
-                            setIsErrorOpen(true);
-                          }}
-                        >
-                          詳細
-                        </button>
-                      </div>
-                    )}
                     {displayStatus !== "downloaded" && (
                       <button
                         className="ghost small"
@@ -2493,12 +2565,6 @@ function App() {
                         </button>
                       </div>
                     )}
-                    {video.commentsStatus === "failed" &&
-                      commentErrors[video.id] && (
-                        <p className="error small">
-                          {commentErrors[video.id].slice(0, 140)}
-                        </p>
-                      )}
                         </>
                       );
                     })()}
@@ -2597,8 +2663,123 @@ function App() {
         </div>
       )}
 
-      {(bulkDownload.active || activeActivityItems.length > 0) && (
+      {(bulkDownload.active || activeActivityItems.length > 0 || hasDownloadErrors) && (
         <div className="floating-stack">
+          {hasDownloadErrors && (
+            <div
+              className={`floating-panel download-errors ${
+                isDownloadErrorOpen ? "open" : ""
+              } is-error`}
+              role="button"
+              tabIndex={0}
+              onClick={() => setIsDownloadErrorOpen((prev) => !prev)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  setIsDownloadErrorOpen((prev) => !prev);
+                }
+              }}
+            >
+              <div className="bulk-status-header">
+                <div className="bulk-status-title">
+                  <span>ダウンロードエラー ({downloadErrorSlides.length}件)</span>
+                </div>
+                <button
+                  className="ghost tiny"
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    clearDownloadErrors();
+                  }}
+                >
+                  クリア
+                </button>
+              </div>
+              {isDownloadErrorOpen && (
+                <div
+                  className="bulk-status-body"
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  {downloadErrorSlides.length > 0 && (
+                    <div className="download-error-carousel">
+                      <div className="download-error-track">
+                        <div
+                          className="download-error-slide"
+                          style={{
+                            transform: `translateX(-${downloadErrorIndex * 100}%)`,
+                          }}
+                        >
+                          {downloadErrorSlides.map((item) => (
+                            <div
+                              key={item.title}
+                              className="download-error-card"
+                            >
+                              <p className="bulk-status-title-line">
+                                {item.title}
+                              </p>
+                              {item.video && (
+                                <div className="download-error-section">
+                                  <p className="bulk-status-title-line">
+                                    動画
+                                  </p>
+                                  <pre className="bulk-status-log">
+                                    {item.video.details}
+                                  </pre>
+                                </div>
+                              )}
+                              {item.comments && (
+                                <div className="download-error-section">
+                                  <p className="bulk-status-title-line">
+                                    ライブチャット
+                                  </p>
+                                  <pre className="bulk-status-log">
+                                    {item.comments.details}
+                                  </pre>
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="download-error-controls">
+                        <button
+                          className="ghost tiny"
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setDownloadErrorIndex((prev) =>
+                              Math.max(prev - 1, 0)
+                            );
+                          }}
+                          disabled={downloadErrorIndex === 0}
+                        >
+                          前へ
+                        </button>
+                        <span className="download-error-index">
+                          {downloadErrorIndex + 1}/{downloadErrorSlides.length}
+                        </span>
+                        <button
+                          className="ghost tiny"
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setDownloadErrorIndex((prev) =>
+                              Math.min(prev + 1, downloadErrorSlides.length - 1)
+                            );
+                          }}
+                          disabled={
+                            downloadErrorIndex >= downloadErrorSlides.length - 1
+                          }
+                        >
+                          次へ
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
           {bulkDownload.active && (
             <div
               className={`floating-panel bulk-status ${
@@ -2678,7 +2859,7 @@ function App() {
             >
               <div className="bulk-status-header">
                 <div className="bulk-status-title">
-                  <div className="spinner" />
+                  {activeActivityItems.length > 0 && <div className="spinner" />}
                   <span>ダウンロード中 ({activeActivityItems.length}件)</span>
                 </div>
               </div>
