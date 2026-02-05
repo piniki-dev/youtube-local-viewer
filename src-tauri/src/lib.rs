@@ -4,10 +4,16 @@ use std::env;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager, State};
 use std::{fs, path::PathBuf};
+
+const YTDLP_TITLE_WARNING: &str =
+    "No title found in player responses; falling back to title from initial data";
+const YTDLP_WARNING_RETRY_MAX: usize = 10;
+const YTDLP_WARNING_RETRY_SLEEP_MS: u64 = 500;
 
 #[derive(Clone, Serialize)]
 struct DownloadFinished {
@@ -200,166 +206,80 @@ fn start_download(
     let state = state.inner().clone();
 
     std::thread::spawn(move || {
-        let mut command = Command::new(yt_dlp);
-        command
-            .arg("--no-playlist")
-            .arg("--newline")
-            .arg("--progress")
-            .arg("--sleep-subtitles")
-            .arg("5")
-            .arg("--sleep-requests")
-            .arg("0.75")
-            .arg("--sleep-interval")
-            .arg("10")
-            .arg("--max-sleep-interval")
-            .arg("20")
-            .arg("-f")
-            .arg("bestvideo[ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/best[ext=mp4][vcodec^=avc1]")
-            .arg("--merge-output-format")
-            .arg("mp4")
-            .arg("-o")
-            .arg(output_path);
-        if let Some(location) = ffmpeg_location {
-            command.arg("--ffmpeg-location").arg(location);
-        }
-        if let Some(path) = cookies_file {
-            if !path.trim().is_empty() {
-                command.arg("--cookies").arg(path);
+        let mut last_stdout = String::new();
+        let mut last_stderr = String::new();
+        let mut last_success = false;
+        let mut last_cancelled = false;
+
+        for attempt in 1..=YTDLP_WARNING_RETRY_MAX {
+            let warning_seen = Arc::new(AtomicBool::new(false));
+            let mut command = Command::new(&yt_dlp);
+            command
+                .arg("--no-playlist")
+                .arg("--newline")
+                .arg("--progress")
+                .arg("--sleep-subtitles")
+                .arg("5")
+                .arg("--sleep-requests")
+                .arg("0.75")
+                .arg("--sleep-interval")
+                .arg("10")
+                .arg("--max-sleep-interval")
+                .arg("20")
+                .arg("-f")
+                .arg("bestvideo[ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/best[ext=mp4][vcodec^=avc1]")
+                .arg("--merge-output-format")
+                .arg("mp4")
+                .arg("-o")
+                .arg(&output_path);
+            if let Some(location) = &ffmpeg_location {
+                command.arg("--ffmpeg-location").arg(location);
             }
-        }
-        if let Some(remote) = remote_components {
-            if !remote.trim().is_empty() {
-                command.arg("--remote-components").arg(remote);
+            if let Some(path) = &cookies_file {
+                if !path.trim().is_empty() {
+                    command.arg("--cookies").arg(path);
+                }
             }
-        }
-        command.arg(&url).stdout(Stdio::piped()).stderr(Stdio::piped());
-
-        let child = match command.spawn() {
-            Ok(child) => child,
-            Err(err) => {
-                let _ = write_error_log(
-                    &app,
-                    "video_download",
-                    &id,
-                    "",
-                    &format!("yt-dlpの起動に失敗しました: {}", err),
-                );
-                let _ = app.emit(
-                    "download-finished",
-                    DownloadFinished {
-                        id: id.clone(),
-                        success: false,
-                        stdout: "".to_string(),
-                        stderr: format!("yt-dlpの起動に失敗しました: {}", err),
-                        cancelled: false,
-                    },
-                );
-                return;
+            if let Some(remote) = &remote_components {
+                if !remote.trim().is_empty() {
+                    command.arg("--remote-components").arg(remote);
+                }
             }
-        };
+            command.arg(&url).stdout(Stdio::piped()).stderr(Stdio::piped());
 
-        let child = Arc::new(Mutex::new(child));
-        if let Ok(mut map) = state.children.lock() {
-            map.insert(id.clone(), child.clone());
-        }
-
-        let stdout_acc = Arc::new(Mutex::new(String::new()));
-        let stderr_acc = Arc::new(Mutex::new(String::new()));
-
-        let stdout = {
-            let mut guard = match child.lock() {
-                Ok(guard) => guard,
+            let child = match command.spawn() {
+                Ok(child) => child,
                 Err(err) => {
+                    let _ = write_error_log(
+                        &app,
+                        "video_download",
+                        &id,
+                        "",
+                        &format!("yt-dlpの起動に失敗しました: {}", err),
+                    );
                     let _ = app.emit(
                         "download-finished",
                         DownloadFinished {
                             id: id.clone(),
                             success: false,
                             stdout: "".to_string(),
-                            stderr: format!("yt-dlpの制御に失敗しました: {}", err),
+                            stderr: format!("yt-dlpの起動に失敗しました: {}", err),
                             cancelled: false,
                         },
-                    );
-                    let _ = write_error_log(
-                        &app,
-                        "video_download",
-                        &id,
-                        "",
-                        &format!("yt-dlpの制御に失敗しました: {}", err),
                     );
                     return;
                 }
             };
-            guard.stdout.take()
-        };
 
-        if let Some(stdout) = stdout {
-            let app_clone = app.clone();
-            let id_clone = id.clone();
-            let stdout_acc_clone = stdout_acc.clone();
-            std::thread::spawn(move || {
-                let reader = BufReader::new(stdout);
-                for line in reader.lines().flatten() {
-                    if let Ok(mut buf) = stdout_acc_clone.lock() {
-                        buf.push_str(&line);
-                        buf.push('\n');
-                    }
-                    let _ = app_clone.emit(
-                        "download-progress",
-                        serde_json::json!({ "id": id_clone, "line": line }),
-                    );
-                }
-            });
-        }
+            let child = Arc::new(Mutex::new(child));
+            if let Ok(mut map) = state.children.lock() {
+                map.insert(id.clone(), child.clone());
+            }
 
-        let stderr = {
-            let mut guard = match child.lock() {
-                Ok(guard) => guard,
-                Err(err) => {
-                    let _ = app.emit(
-                        "download-finished",
-                        DownloadFinished {
-                            id: id.clone(),
-                            success: false,
-                            stdout: "".to_string(),
-                            stderr: format!("yt-dlpの制御に失敗しました: {}", err),
-                            cancelled: false,
-                        },
-                    );
-                    let _ = write_error_log(
-                        &app,
-                        "video_download",
-                        &id,
-                        "",
-                        &format!("yt-dlpの制御に失敗しました: {}", err),
-                    );
-                    return;
-                }
-            };
-            guard.stderr.take()
-        };
+            let stdout_acc = Arc::new(Mutex::new(String::new()));
+            let stderr_acc = Arc::new(Mutex::new(String::new()));
 
-        if let Some(stderr) = stderr {
-            let app_clone = app.clone();
-            let id_clone = id.clone();
-            let stderr_acc_clone = stderr_acc.clone();
-            std::thread::spawn(move || {
-                let reader = BufReader::new(stderr);
-                for line in reader.lines().flatten() {
-                    if let Ok(mut buf) = stderr_acc_clone.lock() {
-                        buf.push_str(&line);
-                        buf.push('\n');
-                    }
-                    let _ = app_clone.emit(
-                        "download-progress",
-                        serde_json::json!({ "id": id_clone, "line": line }),
-                    );
-                }
-            });
-        }
-
-        let output = loop {
-            let status = {
+            let stdout = {
                 let mut guard = match child.lock() {
                     Ok(guard) => guard,
                     Err(err) => {
@@ -383,59 +303,185 @@ fn start_download(
                         return;
                     }
                 };
-                guard.try_wait()
+                guard.stdout.take()
             };
-            match status {
-                Ok(Some(status)) => break status,
-                Ok(None) => {
-                    std::thread::sleep(Duration::from_millis(200));
-                    continue;
-                }
-                Err(err) => {
-                let _ = app.emit(
-                    "download-finished",
-                    DownloadFinished {
-                        id: id.clone(),
-                        success: false,
-                        stdout: "".to_string(),
-                        stderr: format!("yt-dlpの実行に失敗しました: {}", err),
-                        cancelled: false,
-                    },
-                );
-                let _ = write_error_log(
-                    &app,
-                    "video_download",
-                    &id,
-                    "",
-                    &format!("yt-dlpの実行に失敗しました: {}", err),
-                );
-                    return;
-                }
+
+            if let Some(stdout) = stdout {
+                let app_clone = app.clone();
+                let id_clone = id.clone();
+                let stdout_acc_clone = stdout_acc.clone();
+                let warning_seen_clone = warning_seen.clone();
+                std::thread::spawn(move || {
+                    let reader = BufReader::new(stdout);
+                    for line in reader.lines().flatten() {
+                        if line.contains(YTDLP_TITLE_WARNING) {
+                            warning_seen_clone.store(true, Ordering::Relaxed);
+                        }
+                        if let Ok(mut buf) = stdout_acc_clone.lock() {
+                            buf.push_str(&line);
+                            buf.push('\n');
+                        }
+                        let _ = app_clone.emit(
+                            "download-progress",
+                            serde_json::json!({ "id": id_clone, "line": line }),
+                        );
+                    }
+                });
             }
-        };
 
-        let stdout = stdout_acc.lock().map(|s| s.clone()).unwrap_or_default();
-        let stderr = stderr_acc.lock().map(|s| s.clone()).unwrap_or_default();
-        if let Ok(mut map) = state.children.lock() {
-            map.remove(&id);
+            let stderr = {
+                let mut guard = match child.lock() {
+                    Ok(guard) => guard,
+                    Err(err) => {
+                        let _ = app.emit(
+                            "download-finished",
+                            DownloadFinished {
+                                id: id.clone(),
+                                success: false,
+                                stdout: "".to_string(),
+                                stderr: format!("yt-dlpの制御に失敗しました: {}", err),
+                                cancelled: false,
+                            },
+                        );
+                        let _ = write_error_log(
+                            &app,
+                            "video_download",
+                            &id,
+                            "",
+                            &format!("yt-dlpの制御に失敗しました: {}", err),
+                        );
+                        return;
+                    }
+                };
+                guard.stderr.take()
+            };
+
+            if let Some(stderr) = stderr {
+                let app_clone = app.clone();
+                let id_clone = id.clone();
+                let stderr_acc_clone = stderr_acc.clone();
+                let warning_seen_clone = warning_seen.clone();
+                std::thread::spawn(move || {
+                    let reader = BufReader::new(stderr);
+                    for line in reader.lines().flatten() {
+                        if line.contains(YTDLP_TITLE_WARNING) {
+                            warning_seen_clone.store(true, Ordering::Relaxed);
+                        }
+                        if let Ok(mut buf) = stderr_acc_clone.lock() {
+                            buf.push_str(&line);
+                            buf.push('\n');
+                        }
+                        let _ = app_clone.emit(
+                            "download-progress",
+                            serde_json::json!({ "id": id_clone, "line": line }),
+                        );
+                    }
+                });
+            }
+
+            let output = loop {
+                let status = {
+                    let mut guard = match child.lock() {
+                        Ok(guard) => guard,
+                        Err(err) => {
+                            let _ = app.emit(
+                                "download-finished",
+                                DownloadFinished {
+                                    id: id.clone(),
+                                    success: false,
+                                    stdout: "".to_string(),
+                                    stderr: format!("yt-dlpの制御に失敗しました: {}", err),
+                                    cancelled: false,
+                                },
+                            );
+                            let _ = write_error_log(
+                                &app,
+                                "video_download",
+                                &id,
+                                "",
+                                &format!("yt-dlpの制御に失敗しました: {}", err),
+                            );
+                            return;
+                        }
+                    };
+                    guard.try_wait()
+                };
+                match status {
+                    Ok(Some(status)) => break status,
+                    Ok(None) => {
+                        std::thread::sleep(Duration::from_millis(200));
+                        continue;
+                    }
+                    Err(err) => {
+                        let _ = app.emit(
+                            "download-finished",
+                            DownloadFinished {
+                                id: id.clone(),
+                                success: false,
+                                stdout: "".to_string(),
+                                stderr: format!("yt-dlpの実行に失敗しました: {}", err),
+                                cancelled: false,
+                            },
+                        );
+                        let _ = write_error_log(
+                            &app,
+                            "video_download",
+                            &id,
+                            "",
+                            &format!("yt-dlpの実行に失敗しました: {}", err),
+                        );
+                        return;
+                    }
+                }
+            };
+
+            let stdout = stdout_acc.lock().map(|s| s.clone()).unwrap_or_default();
+            let stderr = stderr_acc.lock().map(|s| s.clone()).unwrap_or_default();
+            if let Ok(mut map) = state.children.lock() {
+                map.remove(&id);
+            }
+            let cancelled = match state.cancelled.lock() {
+                Ok(mut set) => set.remove(&id),
+                Err(_) => false,
+            };
+
+            last_stdout = stdout;
+            last_stderr = stderr;
+            last_success = output.success();
+            last_cancelled = cancelled;
+
+            let warning_retry = warning_seen.load(Ordering::Relaxed);
+            if warning_retry && !cancelled && attempt < YTDLP_WARNING_RETRY_MAX {
+                let _ = app.emit(
+                    "download-progress",
+                    serde_json::json!({
+                        "id": id.clone(),
+                        "line": format!(
+                            "警告を検知したためリトライします ({}/{})",
+                            attempt,
+                            YTDLP_WARNING_RETRY_MAX
+                        )
+                    }),
+                );
+                std::thread::sleep(Duration::from_millis(YTDLP_WARNING_RETRY_SLEEP_MS));
+                continue;
+            }
+
+            break;
         }
-        let cancelled = match state.cancelled.lock() {
-            Ok(mut set) => set.remove(&id),
-            Err(_) => false,
-        };
 
-        if !output.success() && !cancelled {
-            let _ = write_error_log(&app, "video_download", &id, &stdout, &stderr);
+        if !last_success && !last_cancelled {
+            let _ = write_error_log(&app, "video_download", &id, &last_stdout, &last_stderr);
         }
 
         let _ = app.emit(
             "download-finished",
             DownloadFinished {
                 id,
-                success: output.success(),
-                stdout,
-                stderr,
-                cancelled,
+                success: last_success,
+                stdout: last_stdout,
+                stderr: last_stderr,
+                cancelled: last_cancelled,
             },
         );
     });
@@ -486,137 +532,175 @@ fn start_comments_download(
     let ffmpeg_location = resolve_override(ffmpeg_path).or_else(|| Some(resolve_ffmpeg()));
 
     std::thread::spawn(move || {
-        let mut command = Command::new(yt_dlp);
-        command
-            .arg("--no-playlist")
-            .arg("--newline")
-            .arg("--progress")
-            .arg("--skip-download")
-            .arg("--write-comments")
-            .arg("--write-subs")
-            .arg("--sub-langs")
-            .arg("live_chat")
-            .arg("--sub-format")
-            .arg("json")
-            .arg("--write-info-json")
-            .arg("-o")
-            .arg(output_path);
-        if let Some(location) = ffmpeg_location {
-            command.arg("--ffmpeg-location").arg(location);
-        }
-        if let Some(path) = cookies_file {
-            if !path.trim().is_empty() {
-                command.arg("--cookies").arg(path);
-            }
-        }
-        if let Some(remote) = remote_components {
-            if !remote.trim().is_empty() {
-                command.arg("--remote-components").arg(remote);
-            }
-        }
-        command.arg(&url).stdout(Stdio::piped()).stderr(Stdio::piped());
+        let mut last_stdout = String::new();
+        let mut last_stderr = String::new();
+        let mut last_success = false;
 
-        let mut child = match command.spawn() {
-            Ok(child) => child,
-            Err(err) => {
-                let _ = write_error_log(
-                    &app,
-                    "comments_download",
-                    &id,
-                    "",
-                    &format!("yt-dlpの起動に失敗しました: {}", err),
-                );
-                let _ = app.emit(
-                    "comments-finished",
-                    CommentsFinished {
-                        id,
-                        success: false,
-                        stdout: "".to_string(),
-                        stderr: format!("yt-dlpの起動に失敗しました: {}", err),
-                    },
-                );
-                return;
+        for attempt in 1..=YTDLP_WARNING_RETRY_MAX {
+            let warning_seen = Arc::new(AtomicBool::new(false));
+            let mut command = Command::new(&yt_dlp);
+            command
+                .arg("--no-playlist")
+                .arg("--newline")
+                .arg("--progress")
+                .arg("--skip-download")
+                .arg("--write-comments")
+                .arg("--write-subs")
+                .arg("--sub-langs")
+                .arg("live_chat")
+                .arg("--sub-format")
+                .arg("json")
+                .arg("--write-info-json")
+                .arg("-o")
+                .arg(&output_path);
+            if let Some(location) = &ffmpeg_location {
+                command.arg("--ffmpeg-location").arg(location);
             }
-        };
-
-        let stdout_acc = Arc::new(Mutex::new(String::new()));
-        let stderr_acc = Arc::new(Mutex::new(String::new()));
-
-        if let Some(stdout) = child.stdout.take() {
-            let app_clone = app.clone();
-            let id_clone = id.clone();
-            let stdout_acc_clone = stdout_acc.clone();
-            std::thread::spawn(move || {
-                let reader = BufReader::new(stdout);
-                for line in reader.lines().flatten() {
-                    if let Ok(mut buf) = stdout_acc_clone.lock() {
-                        buf.push_str(&line);
-                        buf.push('\n');
-                    }
-                    let _ = app_clone.emit(
-                        "comments-progress",
-                        serde_json::json!({ "id": id_clone, "line": line }),
-                    );
+            if let Some(path) = &cookies_file {
+                if !path.trim().is_empty() {
+                    command.arg("--cookies").arg(path);
                 }
-            });
-        }
-
-        if let Some(stderr) = child.stderr.take() {
-            let app_clone = app.clone();
-            let id_clone = id.clone();
-            let stderr_acc_clone = stderr_acc.clone();
-            std::thread::spawn(move || {
-                let reader = BufReader::new(stderr);
-                for line in reader.lines().flatten() {
-                    if let Ok(mut buf) = stderr_acc_clone.lock() {
-                        buf.push_str(&line);
-                        buf.push('\n');
-                    }
-                    let _ = app_clone.emit(
-                        "comments-progress",
-                        serde_json::json!({ "id": id_clone, "line": line }),
-                    );
-                }
-            });
-        }
-
-        let output = match child.wait() {
-            Ok(status) => status,
-            Err(err) => {
-                let _ = write_error_log(
-                    &app,
-                    "comments_download",
-                    &id,
-                    "",
-                    &format!("yt-dlpの実行に失敗しました: {}", err),
-                );
-                let _ = app.emit(
-                    "comments-finished",
-                    CommentsFinished {
-                        id,
-                        success: false,
-                        stdout: "".to_string(),
-                        stderr: format!("yt-dlpの実行に失敗しました: {}", err),
-                    },
-                );
-                return;
             }
-        };
+            if let Some(remote) = &remote_components {
+                if !remote.trim().is_empty() {
+                    command.arg("--remote-components").arg(remote);
+                }
+            }
+            command.arg(&url).stdout(Stdio::piped()).stderr(Stdio::piped());
 
-        let stdout = stdout_acc.lock().map(|s| s.clone()).unwrap_or_default();
-        let stderr = stderr_acc.lock().map(|s| s.clone()).unwrap_or_default();
+            let mut child = match command.spawn() {
+                Ok(child) => child,
+                Err(err) => {
+                    let _ = write_error_log(
+                        &app,
+                        "comments_download",
+                        &id,
+                        "",
+                        &format!("yt-dlpの起動に失敗しました: {}", err),
+                    );
+                    let _ = app.emit(
+                        "comments-finished",
+                        CommentsFinished {
+                            id,
+                            success: false,
+                            stdout: "".to_string(),
+                            stderr: format!("yt-dlpの起動に失敗しました: {}", err),
+                        },
+                    );
+                    return;
+                }
+            };
 
-        if !output.success() {
-            let _ = write_error_log(&app, "comments_download", &id, &stdout, &stderr);
+            let stdout_acc = Arc::new(Mutex::new(String::new()));
+            let stderr_acc = Arc::new(Mutex::new(String::new()));
+
+            if let Some(stdout) = child.stdout.take() {
+                let app_clone = app.clone();
+                let id_clone = id.clone();
+                let stdout_acc_clone = stdout_acc.clone();
+                let warning_seen_clone = warning_seen.clone();
+                std::thread::spawn(move || {
+                    let reader = BufReader::new(stdout);
+                    for line in reader.lines().flatten() {
+                        if line.contains(YTDLP_TITLE_WARNING) {
+                            warning_seen_clone.store(true, Ordering::Relaxed);
+                        }
+                        if let Ok(mut buf) = stdout_acc_clone.lock() {
+                            buf.push_str(&line);
+                            buf.push('\n');
+                        }
+                        let _ = app_clone.emit(
+                            "comments-progress",
+                            serde_json::json!({ "id": id_clone, "line": line }),
+                        );
+                    }
+                });
+            }
+
+            if let Some(stderr) = child.stderr.take() {
+                let app_clone = app.clone();
+                let id_clone = id.clone();
+                let stderr_acc_clone = stderr_acc.clone();
+                let warning_seen_clone = warning_seen.clone();
+                std::thread::spawn(move || {
+                    let reader = BufReader::new(stderr);
+                    for line in reader.lines().flatten() {
+                        if line.contains(YTDLP_TITLE_WARNING) {
+                            warning_seen_clone.store(true, Ordering::Relaxed);
+                        }
+                        if let Ok(mut buf) = stderr_acc_clone.lock() {
+                            buf.push_str(&line);
+                            buf.push('\n');
+                        }
+                        let _ = app_clone.emit(
+                            "comments-progress",
+                            serde_json::json!({ "id": id_clone, "line": line }),
+                        );
+                    }
+                });
+            }
+
+            let output = match child.wait() {
+                Ok(status) => status,
+                Err(err) => {
+                    let _ = write_error_log(
+                        &app,
+                        "comments_download",
+                        &id,
+                        "",
+                        &format!("yt-dlpの実行に失敗しました: {}", err),
+                    );
+                    let _ = app.emit(
+                        "comments-finished",
+                        CommentsFinished {
+                            id,
+                            success: false,
+                            stdout: "".to_string(),
+                            stderr: format!("yt-dlpの実行に失敗しました: {}", err),
+                        },
+                    );
+                    return;
+                }
+            };
+
+            let stdout = stdout_acc.lock().map(|s| s.clone()).unwrap_or_default();
+            let stderr = stderr_acc.lock().map(|s| s.clone()).unwrap_or_default();
+
+            last_stdout = stdout;
+            last_stderr = stderr;
+            last_success = output.success();
+
+            let warning_retry = warning_seen.load(Ordering::Relaxed);
+            if warning_retry && attempt < YTDLP_WARNING_RETRY_MAX {
+                let _ = app.emit(
+                    "comments-progress",
+                    serde_json::json!({
+                        "id": id.clone(),
+                        "line": format!(
+                            "警告を検知したためリトライします ({}/{})",
+                            attempt,
+                            YTDLP_WARNING_RETRY_MAX
+                        )
+                    }),
+                );
+                std::thread::sleep(Duration::from_millis(YTDLP_WARNING_RETRY_SLEEP_MS));
+                continue;
+            }
+
+            break;
+        }
+
+        if !last_success {
+            let _ = write_error_log(&app, "comments_download", &id, &last_stdout, &last_stderr);
         }
 
         let _ = app.emit(
             "comments-finished",
             CommentsFinished {
                 id,
-                success: output.success(),
-                stdout,
-                stderr,
+                success: last_success,
+                stdout: last_stdout,
+                stderr: last_stderr,
             },
         );
     });
