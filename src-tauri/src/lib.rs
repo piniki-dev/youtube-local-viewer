@@ -15,6 +15,34 @@ const YTDLP_TITLE_WARNING: &str =
 const YTDLP_WARNING_RETRY_MAX: usize = 10;
 const YTDLP_WARNING_RETRY_SLEEP_MS: u64 = 500;
 
+fn apply_cookies_args(
+    command: &mut Command,
+    cookies_source: Option<&str>,
+    cookies_file: Option<&str>,
+    cookies_browser: Option<&str>,
+) {
+    let source = cookies_source.unwrap_or("").trim();
+    if source == "browser" {
+        if let Some(browser) = cookies_browser {
+            let trimmed = browser.trim();
+            if !trimmed.is_empty() {
+                command.arg("--cookies-from-browser").arg(trimmed);
+                return;
+            }
+        }
+    }
+
+    let should_use_file = source == "file" || (source.is_empty() && cookies_file.is_some());
+    if should_use_file {
+        if let Some(path) = cookies_file {
+            let trimmed = path.trim();
+            if !trimmed.is_empty() {
+                command.arg("--cookies").arg(trimmed);
+            }
+        }
+    }
+}
+
 #[derive(Clone, Serialize)]
 struct DownloadFinished {
     id: String,
@@ -128,6 +156,8 @@ struct PersistedState {
     videos: Vec<serde_json::Value>,
     download_dir: Option<String>,
     cookies_file: Option<String>,
+    cookies_source: Option<String>,
+    cookies_browser: Option<String>,
     remote_components: Option<String>,
     yt_dlp_path: Option<String>,
     ffmpeg_path: Option<String>,
@@ -196,6 +226,8 @@ fn start_download(
     url: String,
     output_dir: String,
     cookies_file: Option<String>,
+    cookies_source: Option<String>,
+    cookies_browser: Option<String>,
     remote_components: Option<String>,
     yt_dlp_path: Option<String>,
     ffmpeg_path: Option<String>,
@@ -235,11 +267,12 @@ fn start_download(
             if let Some(location) = &ffmpeg_location {
                 command.arg("--ffmpeg-location").arg(location);
             }
-            if let Some(path) = &cookies_file {
-                if !path.trim().is_empty() {
-                    command.arg("--cookies").arg(path);
-                }
-            }
+            apply_cookies_args(
+                &mut command,
+                cookies_source.as_deref(),
+                cookies_file.as_deref(),
+                cookies_browser.as_deref(),
+            );
             if let Some(remote) = &remote_components {
                 if !remote.trim().is_empty() {
                     command.arg("--remote-components").arg(remote);
@@ -523,6 +556,8 @@ fn start_comments_download(
     url: String,
     output_dir: String,
     cookies_file: Option<String>,
+    cookies_source: Option<String>,
+    cookies_browser: Option<String>,
     remote_components: Option<String>,
     yt_dlp_path: Option<String>,
     ffmpeg_path: Option<String>,
@@ -556,11 +591,12 @@ fn start_comments_download(
             if let Some(location) = &ffmpeg_location {
                 command.arg("--ffmpeg-location").arg(location);
             }
-            if let Some(path) = &cookies_file {
-                if !path.trim().is_empty() {
-                    command.arg("--cookies").arg(path);
-                }
-            }
+            apply_cookies_args(
+                &mut command,
+                cookies_source.as_deref(),
+                cookies_file.as_deref(),
+                cookies_browser.as_deref(),
+            );
             if let Some(remote) = &remote_components {
                 if !remote.trim().is_empty() {
                     command.arg("--remote-components").arg(remote);
@@ -712,6 +748,8 @@ fn start_comments_download(
 fn get_video_metadata(
     url: String,
     cookies_file: Option<String>,
+    cookies_source: Option<String>,
+    cookies_browser: Option<String>,
     remote_components: Option<String>,
     yt_dlp_path: Option<String>,
 ) -> Result<VideoMetadata, String> {
@@ -722,11 +760,12 @@ fn get_video_metadata(
         .arg("--skip-download")
         .arg("--no-playlist")
         .arg("--no-warnings");
-    if let Some(path) = cookies_file {
-        if !path.trim().is_empty() {
-            command.arg("--cookies").arg(path);
-        }
-    }
+    apply_cookies_args(
+        &mut command,
+        cookies_source.as_deref(),
+        cookies_file.as_deref(),
+        cookies_browser.as_deref(),
+    );
     if let Some(remote) = remote_components {
         if !remote.trim().is_empty() {
             command.arg("--remote-components").arg(remote);
@@ -846,6 +885,8 @@ fn get_video_metadata(
 fn list_channel_videos(
     url: String,
     cookies_file: Option<String>,
+    cookies_source: Option<String>,
+    cookies_browser: Option<String>,
     remote_components: Option<String>,
     yt_dlp_path: Option<String>,
     limit: Option<u32>,
@@ -862,6 +903,8 @@ fn list_channel_videos(
             &yt_dlp,
             &section_url,
             cookies_file.as_ref(),
+            cookies_source.as_deref(),
+            cookies_browser.as_deref(),
             remote_components.as_ref(),
             limit,
         ) {
@@ -882,6 +925,8 @@ fn fetch_channel_section(
     yt_dlp: &str,
     url: &str,
     cookies_file: Option<&String>,
+    cookies_source: Option<&str>,
+    cookies_browser: Option<&str>,
     remote_components: Option<&String>,
     limit: Option<u32>,
 ) -> Result<Vec<ChannelVideoItem>, String> {
@@ -898,11 +943,12 @@ fn fetch_channel_section(
             command.arg("--playlist-end").arg(limit.to_string());
         }
     }
-    if let Some(path) = cookies_file {
-        if !path.trim().is_empty() {
-            command.arg("--cookies").arg(path);
-        }
-    }
+    apply_cookies_args(
+        &mut command,
+        cookies_source,
+        cookies_file.map(|s| s.as_str()),
+        cookies_browser,
+    );
     if let Some(remote) = remote_components {
         if !remote.trim().is_empty() {
             command.arg("--remote-components").arg(remote);
@@ -1404,6 +1450,8 @@ fn load_state(app: AppHandle) -> Result<PersistedState, String> {
             videos: Vec::new(),
             download_dir: None,
             cookies_file: None,
+            cookies_source: None,
+            cookies_browser: None,
             remote_components: None,
             yt_dlp_path: None,
             ffmpeg_path: None,

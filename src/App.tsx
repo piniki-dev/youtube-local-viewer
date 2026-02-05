@@ -149,9 +149,21 @@ type BulkDownloadState = {
   phase: "video" | "comments" | null;
 };
 
+const COOKIE_BROWSER_OPTIONS = [
+  { value: "chrome", label: "Chrome" },
+  { value: "edge", label: "Edge" },
+  { value: "firefox", label: "Firefox" },
+  { value: "brave", label: "Brave" },
+  { value: "chromium", label: "Chromium" },
+  { value: "opera", label: "Opera" },
+  { value: "vivaldi", label: "Vivaldi" },
+];
+
 const VIDEO_STORAGE_KEY = "ytlv_videos";
 const DOWNLOAD_DIR_KEY = "ytlv_download_dir";
 const COOKIES_FILE_KEY = "ytlv_cookies_file";
+const COOKIES_SOURCE_KEY = "ytlv_cookies_source";
+const COOKIES_BROWSER_KEY = "ytlv_cookies_browser";
 const REMOTE_COMPONENTS_KEY = "ytlv_remote_components";
 const YTDLP_PATH_KEY = "ytlv_yt_dlp_path";
 const FFMPEG_PATH_KEY = "ytlv_ffmpeg_path";
@@ -161,6 +173,8 @@ type PersistedState = {
   videos: VideoItem[];
   downloadDir?: string | null;
   cookiesFile?: string | null;
+  cookiesSource?: string | null;
+  cookiesBrowser?: string | null;
   remoteComponents?: string | null;
   ytDlpPath?: string | null;
   ffmpegPath?: string | null;
@@ -186,6 +200,10 @@ function App() {
   const [isErrorOpen, setIsErrorOpen] = useState(false);
   const [errorTargetId, setErrorTargetId] = useState<string | null>(null);
   const [cookiesFile, setCookiesFile] = useState<string>("");
+  const [cookiesSource, setCookiesSource] = useState<"none" | "file" | "browser">(
+    "none"
+  );
+  const [cookiesBrowser, setCookiesBrowser] = useState<string>("");
   const [ytDlpPath, setYtDlpPath] = useState<string>("");
   const [ffmpegPath, setFfmpegPath] = useState<string>("");
   const [ffprobePath, setFfprobePath] = useState<string>("");
@@ -285,6 +303,8 @@ function App() {
       let loadedVideos: VideoItem[] = [];
       let loadedDownloadDir: string | null = null;
       let loadedCookiesFile: string | null = null;
+      let loadedCookiesSource: string | null = null;
+      let loadedCookiesBrowser: string | null = null;
       let loadedRemote: string | null = null;
       let loadedYtDlpPath: string | null = null;
       let loadedFfmpegPath: string | null = null;
@@ -296,6 +316,8 @@ function App() {
         }
         loadedDownloadDir = state?.downloadDir ?? null;
         loadedCookiesFile = state?.cookiesFile ?? null;
+        loadedCookiesSource = state?.cookiesSource ?? null;
+        loadedCookiesBrowser = state?.cookiesBrowser ?? null;
         loadedRemote = state?.remoteComponents ?? null;
         loadedYtDlpPath = state?.ytDlpPath ?? null;
         loadedFfmpegPath = state?.ffmpegPath ?? null;
@@ -332,6 +354,14 @@ function App() {
         const legacyCookies = localStorage.getItem(COOKIES_FILE_KEY);
         if (legacyCookies) loadedCookiesFile = legacyCookies;
       }
+      if (!loadedCookiesSource) {
+        const legacySource = localStorage.getItem(COOKIES_SOURCE_KEY);
+        if (legacySource) loadedCookiesSource = legacySource;
+      }
+      if (!loadedCookiesBrowser) {
+        const legacyBrowser = localStorage.getItem(COOKIES_BROWSER_KEY);
+        if (legacyBrowser) loadedCookiesBrowser = legacyBrowser;
+      }
       if (!loadedRemote) {
         const legacyRemote = localStorage.getItem(REMOTE_COMPONENTS_KEY);
         if (legacyRemote) loadedRemote = legacyRemote;
@@ -351,6 +381,17 @@ function App() {
 
       if (loadedDownloadDir) setDownloadDir(loadedDownloadDir);
       if (loadedCookiesFile) setCookiesFile(loadedCookiesFile);
+      if (!loadedCookiesSource && loadedCookiesFile) {
+        loadedCookiesSource = "file";
+      }
+      if (loadedCookiesSource === "file" || loadedCookiesSource === "browser") {
+        setCookiesSource(loadedCookiesSource as "file" | "browser");
+      }
+      if (loadedCookiesBrowser) {
+        setCookiesBrowser(loadedCookiesBrowser);
+      } else if (loadedCookiesSource === "browser") {
+        setCookiesBrowser("chrome");
+      }
       if (loadedRemote === "ejs:github" || loadedRemote === "ejs:npm") {
         setRemoteComponents(loadedRemote);
       }
@@ -364,6 +405,8 @@ function App() {
             videos: normalizedVideos,
             downloadDir: loadedDownloadDir,
             cookiesFile: loadedCookiesFile,
+            cookiesSource: loadedCookiesSource,
+            cookiesBrowser: loadedCookiesBrowser,
             remoteComponents: loadedRemote,
             ytDlpPath: loadedYtDlpPath,
             ffmpegPath: loadedFfmpegPath,
@@ -613,6 +656,8 @@ function App() {
             videos,
             downloadDir: downloadDir || null,
             cookiesFile: cookiesFile || null,
+            cookiesSource: cookiesSource || null,
+            cookiesBrowser: cookiesBrowser || null,
             remoteComponents: remoteComponents || null,
             ytDlpPath: ytDlpPath || null,
             ffmpegPath: ffmpegPath || null,
@@ -624,7 +669,7 @@ function App() {
       }
     };
     void persist();
-  }, [videos, downloadDir, cookiesFile, remoteComponents, ytDlpPath, ffmpegPath, ffprobePath, isStateReady]);
+  }, [videos, downloadDir, cookiesFile, cookiesSource, cookiesBrowser, remoteComponents, ytDlpPath, ffmpegPath, ffprobePath, isStateReady]);
 
   useEffect(() => {
     if (!isStateReady) return;
@@ -953,6 +998,8 @@ function App() {
         invoke<VideoMetadata>("get_video_metadata", {
           url: trimmed,
           cookiesFile: cookiesFile || null,
+          cookiesSource: cookiesSource || null,
+          cookiesBrowser: cookiesSource === "browser" ? cookiesBrowser || null : null,
           remoteComponents: remoteComponents === "none" ? null : remoteComponents,
           ytDlpPath: ytDlpPath || null,
         }).catch(() => null),
@@ -1032,6 +1079,8 @@ function App() {
       const result = await invoke<ChannelFeedItem[]>("list_channel_videos", {
         url: trimmed,
         cookiesFile: cookiesFile || null,
+        cookiesSource: cookiesSource || null,
+        cookiesBrowser: cookiesSource === "browser" ? cookiesBrowser || null : null,
         remoteComponents: remoteComponents === "none" ? null : remoteComponents,
         ytDlpPath: ytDlpPath || null,
         limit: null,
@@ -1305,6 +1354,8 @@ function App() {
         url: video.sourceUrl,
         outputDir,
         cookiesFile: cookiesFile || null,
+        cookiesSource: cookiesSource || null,
+        cookiesBrowser: cookiesSource === "browser" ? cookiesBrowser || null : null,
         remoteComponents: remoteComponents === "none" ? null : remoteComponents,
         ytDlpPath: ytDlpPath || null,
         ffmpegPath: ffmpegPath || null,
@@ -1362,6 +1413,8 @@ function App() {
         url: video.sourceUrl,
         outputDir,
         cookiesFile: cookiesFile || null,
+        cookiesSource: cookiesSource || null,
+        cookiesBrowser: cookiesSource === "browser" ? cookiesBrowser || null : null,
         remoteComponents: remoteComponents === "none" ? null : remoteComponents,
         ytDlpPath: ytDlpPath || null,
         ffmpegPath: ffmpegPath || null,
@@ -1772,11 +1825,13 @@ function App() {
       const selected = await openDialog({
         directory: false,
         multiple: false,
-        title: "YouTube Cookieファイルを選択",
+        title: "Cookieファイルを選択",
       });
       if (typeof selected === "string" && selected) {
         setCookiesFile(selected);
         localStorage.setItem(COOKIES_FILE_KEY, selected);
+        setCookiesSource("file");
+        localStorage.setItem(COOKIES_SOURCE_KEY, "file");
       }
     } catch {
       setErrorMessage("Cookieファイルの設定に失敗しました。");
@@ -1840,6 +1895,29 @@ function App() {
       localStorage.removeItem(REMOTE_COMPONENTS_KEY);
     } else {
       localStorage.setItem(REMOTE_COMPONENTS_KEY, value);
+    }
+  };
+
+  const updateCookiesSource = (value: "none" | "file" | "browser") => {
+    setCookiesSource(value);
+    if (value === "none") {
+      localStorage.removeItem(COOKIES_SOURCE_KEY);
+      return;
+    }
+    localStorage.setItem(COOKIES_SOURCE_KEY, value);
+    if (value === "browser" && !cookiesBrowser) {
+      const fallback = "chrome";
+      setCookiesBrowser(fallback);
+      localStorage.setItem(COOKIES_BROWSER_KEY, fallback);
+    }
+  };
+
+  const updateCookiesBrowser = (value: string) => {
+    setCookiesBrowser(value);
+    if (!value) {
+      localStorage.removeItem(COOKIES_BROWSER_KEY);
+    } else {
+      localStorage.setItem(COOKIES_BROWSER_KEY, value);
     }
   };
 
@@ -2645,15 +2723,83 @@ function App() {
               </div>
               <div className="setting-row">
                 <div>
-                  <p className="setting-label">YouTube Cookieファイル</p>
+                  <p className="setting-label">Cookieの取得元</p>
                   <p className="setting-value">
-                    {cookiesFile ? cookiesFile : "未設定"}
+                    {cookiesSource === "browser"
+                      ? "ブラウザ"
+                      : cookiesSource === "file"
+                        ? "ファイル"
+                        : "未使用"}
                   </p>
                 </div>
-                <button className="ghost" onClick={pickCookiesFile}>
-                  ファイルを選択
-                </button>
+                <div className="select-wrap">
+                  <select
+                    value={cookiesSource}
+                    onChange={(e) =>
+                      updateCookiesSource(
+                        e.target.value as "none" | "file" | "browser"
+                      )
+                    }
+                  >
+                    <option value="none">使用しない</option>
+                    <option value="file">Cookieファイル（推奨）</option>
+                    <option value="browser">ブラウザ（非推奨）</option>
+                  </select>
+                </div>
               </div>
+              {cookiesSource === "file" && (
+                <div className="setting-row">
+                  <div>
+                    <p className="setting-label">YouTube Cookieファイル</p>
+                    <p className="setting-value">
+                      {cookiesFile ? cookiesFile : "未設定"}
+                    </p>
+                  </div>
+                  <div className="action-row">
+                    <button className="ghost" onClick={pickCookiesFile}>
+                      ファイルを選択
+                    </button>
+                    {cookiesFile && (
+                      <button
+                        className="ghost"
+                        onClick={() => {
+                          setCookiesFile("");
+                          localStorage.removeItem(COOKIES_FILE_KEY);
+                        }}
+                      >
+                        クリア
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+              {cookiesSource === "browser" && (
+                <div className="setting-row">
+                  <div>
+                    <p className="setting-label">ブラウザ</p>
+                    <p className="setting-value">
+                      {cookiesBrowser
+                        ? COOKIE_BROWSER_OPTIONS.find(
+                            (option) => option.value === cookiesBrowser
+                          )?.label ?? cookiesBrowser
+                        : "未設定"}
+                    </p>
+                  </div>
+                  <div className="select-wrap">
+                    <select
+                      value={cookiesBrowser}
+                      onChange={(e) => updateCookiesBrowser(e.target.value)}
+                    >
+                      <option value="">選択してください</option>
+                      {COOKIE_BROWSER_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              )}
               <div className="setting-row">
                 <div>
                   <p className="setting-label">yt-dlp</p>
