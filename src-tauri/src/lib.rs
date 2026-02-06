@@ -26,6 +26,9 @@ const SETTINGS_DIR_NAME: &str = "settings";
 const INDEX_DIR_NAME: &str = "index";
 const SETTINGS_FILE_NAME: &str = "app.json";
 const VIDEOS_FILE_NAME: &str = "videos.json";
+const SETTINGS_SCHEMA_VERSION: u32 = 1;
+const VIDEOS_SCHEMA_VERSION: u32 = 1;
+const BACKUP_SCHEMA_VERSION: u32 = 2;
 const LIBRARY_VIDEOS_DIR_NAME: &str = "videos";
 const LIBRARY_COMMENTS_DIR_NAME: &str = "comments";
 const LIBRARY_METADATA_DIR_NAME: &str = "metadata";
@@ -233,6 +236,20 @@ struct PersistedVideos {
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct VersionedSettings {
+    version: u32,
+    data: PersistedSettings,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct VersionedVideos {
+    version: u32,
+    data: PersistedVideos,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct LocalFileCheckItem {
     id: String,
     title: String,
@@ -389,6 +406,26 @@ fn videos_file_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(dir.join(INDEX_DIR_NAME).join(VIDEOS_FILE_NAME))
 }
 
+fn parse_versioned_settings(content: &str) -> PersistedSettings {
+    if let Ok(wrapper) = serde_json::from_str::<VersionedSettings>(content) {
+        if wrapper.version <= SETTINGS_SCHEMA_VERSION {
+            return wrapper.data;
+        }
+        return PersistedSettings::default();
+    }
+    serde_json::from_str::<PersistedSettings>(content).unwrap_or_default()
+}
+
+fn parse_versioned_videos(content: &str) -> PersistedVideos {
+    if let Ok(wrapper) = serde_json::from_str::<VersionedVideos>(content) {
+        if wrapper.version <= VIDEOS_SCHEMA_VERSION {
+            return wrapper.data;
+        }
+        return PersistedVideos::default();
+    }
+    serde_json::from_str::<PersistedVideos>(content).unwrap_or_default()
+}
+
 fn read_settings(app: &AppHandle) -> PersistedSettings {
     let settings_path = match settings_file_path(app) {
         Ok(path) => path,
@@ -401,7 +438,7 @@ fn read_settings(app: &AppHandle) -> PersistedSettings {
         Ok(content) => content,
         Err(_) => return PersistedSettings::default(),
     };
-    serde_json::from_str::<PersistedSettings>(&content).unwrap_or_default()
+    parse_versioned_settings(&content)
 }
 
 fn collect_files_recursive(dir: &Path) -> Vec<PathBuf> {
@@ -2509,8 +2546,7 @@ fn load_state(app: AppHandle) -> Result<PersistedState, String> {
     let settings = if settings_path.exists() {
         let content = fs::read_to_string(&settings_path)
             .map_err(|e| format!("設定ファイルの読み込みに失敗しました: {}", e))?;
-        serde_json::from_str::<PersistedSettings>(&content)
-            .map_err(|e| format!("設定ファイルの解析に失敗しました: {}", e))?
+        parse_versioned_settings(&content)
     } else {
         PersistedSettings::default()
     };
@@ -2518,8 +2554,7 @@ fn load_state(app: AppHandle) -> Result<PersistedState, String> {
     let videos = if videos_path.exists() {
         let content = fs::read_to_string(&videos_path)
             .map_err(|e| format!("動画インデックスの読み込みに失敗しました: {}", e))?;
-        serde_json::from_str::<PersistedVideos>(&content)
-            .map_err(|e| format!("動画インデックスの解析に失敗しました: {}", e))?
+        parse_versioned_videos(&content)
     } else {
         PersistedVideos::default()
     };
@@ -2551,22 +2586,30 @@ fn save_state(app: AppHandle, state: PersistedState) -> Result<(), String> {
             .map_err(|e| format!("インデックスフォルダの作成に失敗しました: {}", e))?;
     }
 
-    let settings = PersistedSettings {
-        download_dir: state.download_dir,
-        cookies_file: state.cookies_file,
-        cookies_source: state.cookies_source,
-        cookies_browser: state.cookies_browser,
-        remote_components: state.remote_components,
-        yt_dlp_path: state.yt_dlp_path,
-        ffmpeg_path: state.ffmpeg_path,
-        ffprobe_path: state.ffprobe_path,
+    let settings = VersionedSettings {
+        version: SETTINGS_SCHEMA_VERSION,
+        data: PersistedSettings {
+            download_dir: state.download_dir,
+            cookies_file: state.cookies_file,
+            cookies_source: state.cookies_source,
+            cookies_browser: state.cookies_browser,
+            remote_components: state.remote_components,
+            yt_dlp_path: state.yt_dlp_path,
+            ffmpeg_path: state.ffmpeg_path,
+            ffprobe_path: state.ffprobe_path,
+        },
     };
     let settings_content = serde_json::to_string_pretty(&settings)
         .map_err(|e| format!("設定データの整形に失敗しました: {}", e))?;
     fs::write(&settings_path, settings_content)
         .map_err(|e| format!("設定ファイルの保存に失敗しました: {}", e))?;
 
-    let videos = PersistedVideos { videos: state.videos };
+    let videos = VersionedVideos {
+        version: VIDEOS_SCHEMA_VERSION,
+        data: PersistedVideos {
+            videos: state.videos,
+        },
+    };
     let videos_content = serde_json::to_string_pretty(&videos)
         .map_err(|e| format!("動画インデックスの整形に失敗しました: {}", e))?;
     fs::write(&videos_path, videos_content)
@@ -2574,11 +2617,13 @@ fn save_state(app: AppHandle, state: PersistedState) -> Result<(), String> {
     Ok(())
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ExportManifest {
     version: u32,
     created_at_ms: u128,
+    settings_version: Option<u32>,
+    videos_version: Option<u32>,
 }
 
 #[tauri::command]
@@ -2592,11 +2637,13 @@ fn export_state(app: AppHandle, output_path: String) -> Result<(), String> {
     let options = FileOptions::default();
 
     let manifest = ExportManifest {
-        version: 1,
+        version: BACKUP_SCHEMA_VERSION,
         created_at_ms: SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_millis())
             .unwrap_or(0),
+        settings_version: Some(SETTINGS_SCHEMA_VERSION),
+        videos_version: Some(VIDEOS_SCHEMA_VERSION),
     };
     let manifest_content = serde_json::to_string_pretty(&manifest)
         .map_err(|e| format!("マニフェストの作成に失敗しました: {}", e))?;
@@ -2634,6 +2681,21 @@ fn import_state(app: AppHandle, input_path: String) -> Result<(), String> {
         .map_err(|e| format!("インポート元の読み込みに失敗しました: {}", e))?;
     let mut archive = ZipArchive::new(file)
         .map_err(|e| format!("zipの読み込みに失敗しました: {}", e))?;
+
+    if let Ok(mut manifest_entry) = archive.by_name("manifest.json") {
+        let mut manifest_content = String::new();
+        manifest_entry
+            .read_to_string(&mut manifest_content)
+            .map_err(|e| format!("マニフェストの読み込みに失敗しました: {}", e))?;
+        if let Ok(manifest) = serde_json::from_str::<ExportManifest>(&manifest_content) {
+            if manifest.version > BACKUP_SCHEMA_VERSION {
+                return Err(format!(
+                    "このバックアップは新しい形式です（version: {}）。アプリを更新してください。",
+                    manifest.version
+                ));
+            }
+        }
+    }
 
     for i in 0..archive.len() {
         let mut entry = archive
@@ -2727,8 +2789,13 @@ fn save_thumbnail(
     let resolved_output = output_dir.as_deref().map(|s| s.trim()).filter(|s| !s.is_empty());
     let settings = if resolved_output.is_none() { read_settings(&app) } else { PersistedSettings::default() };
     let dir = if let Some(download_dir) = resolved_output.or(settings.download_dir.as_deref()) {
-        let handle = sanitize_path_component(uploader_id.as_deref().unwrap_or("unknown"), 64);
-        library_thumbnails_dir(download_dir).join(handle)
+        let base = library_thumbnails_dir(download_dir);
+        let handle = uploader_id.as_deref().map(|s| s.trim()).unwrap_or("");
+        if handle.is_empty() {
+            base
+        } else {
+            base.join(sanitize_path_component(handle, 64))
+        }
     } else {
         let base = app
             .path()
@@ -2750,6 +2817,37 @@ fn save_thumbnail(
         .map_err(|e| format!("サムネイルの保存に失敗しました: {}", e))?;
 
     Ok(file_path.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+fn resolve_thumbnail_path(output_dir: String, id: String) -> Result<Option<String>, String> {
+    let dir = library_thumbnails_dir(&output_dir);
+    if !dir.exists() {
+        return Ok(None);
+    }
+    let id_marker = format!("[{}]", id).to_lowercase();
+    for path in collect_files_recursive(&dir) {
+        if !path.is_file() {
+            continue;
+        }
+        let name = match path.file_name().and_then(|n| n.to_str()) {
+            Some(name) => name.to_string(),
+            None => continue,
+        };
+        let name_lower = name.to_lowercase();
+        if !name_lower.contains(&id_marker) {
+            continue;
+        }
+        if name_lower.ends_with(".jpg")
+            || name_lower.ends_with(".jpeg")
+            || name_lower.ends_with(".png")
+            || name_lower.ends_with(".webp")
+            || name_lower.ends_with(".gif")
+        {
+            return Ok(Some(path.to_string_lossy().to_string()));
+        }
+    }
+    Ok(None)
 }
 
 fn find_comments_file(dir: &Path, id: &str) -> Option<PathBuf> {
@@ -3542,6 +3640,7 @@ pub fn run() {
             save_state,
             export_state,
             import_state,
+            resolve_thumbnail_path,
             save_thumbnail,
             update_yt_dlp
         ])

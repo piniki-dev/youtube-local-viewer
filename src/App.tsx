@@ -51,6 +51,7 @@ type VideoItem = {
   language?: string;
   audioLanguage?: string;
   ageLimit?: number;
+  metadataFetched?: boolean;
   downloadStatus: DownloadStatus;
   commentsStatus: CommentStatus;
   addedAt: string;
@@ -220,6 +221,7 @@ const REMOTE_COMPONENTS_KEY = "ytlv_remote_components";
 const YTDLP_PATH_KEY = "ytlv_yt_dlp_path";
 const FFMPEG_PATH_KEY = "ytlv_ffmpeg_path";
 const FFPROBE_PATH_KEY = "ytlv_ffprobe_path";
+const INTEGRITY_CHECK_PENDING_KEY = "ytlv_integrity_check_pending";
 
 const GRID_CARD_WIDTH = 240;
 const GRID_GAP = 16;
@@ -248,6 +250,14 @@ type LocalFileCheckResult = {
   id: string;
   videoOk: boolean;
   commentsOk: boolean;
+};
+
+type IntegrityIssue = {
+  id: string;
+  title: string;
+  videoMissing: boolean;
+  commentsMissing: boolean;
+  metadataMissing: boolean;
 };
 
 function App() {
@@ -319,6 +329,16 @@ function App() {
   const [mediaInfoErrors, setMediaInfoErrors] = useState<Record<string, string>>({});
   const [mediaInfoLoadingIds, setMediaInfoLoadingIds] = useState<string[]>([]);
   const [hasCheckedFiles, setHasCheckedFiles] = useState(false);
+  const [isIntegrityOpen, setIsIntegrityOpen] = useState(false);
+  const [integrityIssues, setIntegrityIssues] = useState<IntegrityIssue[]>([]);
+  const [integritySummary, setIntegritySummary] = useState<{
+    total: number;
+    videoMissing: number;
+    commentsMissing: number;
+    metadataMissing: number;
+  } | null>(null);
+  const [integrityRunning, setIntegrityRunning] = useState(false);
+  const [integrityMessage, setIntegrityMessage] = useState("");
   const [remoteComponents, setRemoteComponents] = useState<
     "none" | "ejs:github" | "ejs:npm"
   >("none");
@@ -929,6 +949,31 @@ function App() {
               Object.assign(patch, metaFields);
             }
 
+            if (metadata) {
+              const thumbnailCandidates = buildThumbnailCandidates(
+                id,
+                metadata.thumbnail ?? currentVideo?.thumbnail ?? null
+              );
+              void (async () => {
+                const savedThumbnail = await resolveThumbnailPath(
+                  id,
+                  metadata.title ?? currentVideo?.title ?? "Untitled",
+                  metadata.uploaderId ?? null,
+                  metadata.uploaderUrl ?? null,
+                  metadata.channelUrl ?? null,
+                  thumbnailCandidates
+                );
+                if (savedThumbnail) {
+                  pendingMetadataUpdatesRef.current.set(id, {
+                    thumbnail: savedThumbnail,
+                  });
+                  scheduleMetadataFlush();
+                }
+              })();
+            }
+
+            patch.metadataFetched = true;
+
             if (typeof hasLiveChat === "boolean") {
               if (hasLiveChat) {
                 if (currentVideo?.commentsStatus !== "downloaded") {
@@ -1003,6 +1048,331 @@ function App() {
     setHasCheckedFiles(false);
   }, [downloadDir, isStateReady]);
 
+  const runLocalFileChecks = async (
+    outputDir: string,
+    items: LocalFileCheckItem[]
+  ) => {
+    let checks: LocalFileCheckResult[] = [];
+    try {
+      checks = await invoke<LocalFileCheckResult[]>("verify_local_files", {
+        outputDir,
+        items,
+      });
+    } catch {
+      checks = await Promise.all(
+        items.map(async (item) => {
+          let videoOk = !item.checkVideo;
+          let commentsOk = !item.checkComments;
+
+          if (item.checkVideo) {
+            try {
+              videoOk = await invoke<boolean>("video_file_exists", {
+                id: item.id,
+                title: item.title,
+                outputDir,
+              });
+            } catch {
+              videoOk = false;
+            }
+          }
+
+          if (item.checkComments) {
+            try {
+              commentsOk = await invoke<boolean>("comments_file_exists", {
+                id: item.id,
+                outputDir,
+              });
+            } catch {
+              commentsOk = false;
+            }
+          }
+
+          return { id: item.id, videoOk, commentsOk };
+        })
+      );
+    }
+    return checks;
+  };
+
+  const runStrictFileChecks = async (
+    outputDir: string,
+    items: LocalFileCheckItem[]
+  ) => {
+    return Promise.all(
+      items.map(async (item) => {
+        let videoOk = !item.checkVideo;
+        let commentsOk = !item.checkComments;
+
+        if (item.checkVideo) {
+          try {
+            videoOk = await invoke<boolean>("video_file_exists", {
+              id: item.id,
+              title: item.title,
+              outputDir,
+            });
+          } catch {
+            videoOk = false;
+          }
+        }
+
+        if (item.checkComments) {
+          try {
+            commentsOk = await invoke<boolean>("comments_file_exists", {
+              id: item.id,
+              outputDir,
+            });
+          } catch {
+            commentsOk = false;
+          }
+        }
+
+        return { id: item.id, videoOk, commentsOk };
+      })
+    );
+  };
+
+  const applyLocalFileCheckResults = (checks: LocalFileCheckResult[]) => {
+    const checkMap = new Map(checks.map((item) => [item.id, item]));
+
+    setVideos((prev) =>
+      prev.map((video) => {
+        const result = checkMap.get(video.id);
+        if (!result) return video;
+        return video;
+      })
+    );
+
+    setVideoErrors((prev) => {
+      const next = { ...prev };
+      for (const item of checks) {
+        if (!item.videoOk) {
+          next[item.id] = "動画ファイルが見つかりません。再ダウンロードしてください。";
+        } else if (next[item.id]?.includes("動画ファイルが見つかりません")) {
+          delete next[item.id];
+        }
+      }
+      return next;
+    });
+
+    setCommentErrors((prev) => {
+      const next = { ...prev };
+      for (const item of checks) {
+        if (!item.commentsOk) {
+          next[item.id] = "コメントファイルが見つかりません。再取得してください。";
+        } else if (next[item.id]?.includes("コメントファイルが見つかりません")) {
+          delete next[item.id];
+        }
+      }
+      return next;
+    });
+  };
+
+  const buildIntegrityReport = (
+    checks: LocalFileCheckResult[],
+    metadataIds?: Set<string>
+  ) => {
+    const titleMap = new Map(
+      videosRef.current.map((video) => [video.id, video.title])
+    );
+    const metadataExpectedMap = new Map(
+      videosRef.current.map((video) => [video.id, video.metadataFetched === true])
+    );
+    const issues = checks
+      .map((item) => {
+        const hasInfo = metadataIds ? metadataIds.has(item.id) : true;
+        const expectsMetadata = metadataExpectedMap.get(item.id) ?? false;
+        return {
+          id: item.id,
+          title: titleMap.get(item.id) ?? item.id,
+          videoMissing: !item.videoOk,
+          commentsMissing: !item.commentsOk,
+          metadataMissing: expectsMetadata && !hasInfo,
+        };
+      })
+      .filter(
+        (item) =>
+          item.videoMissing || item.commentsMissing || item.metadataMissing
+      );
+    const videoMissing = issues.filter((item) => item.videoMissing).length;
+    const commentsMissing = issues.filter((item) => item.commentsMissing).length;
+    const metadataMissing = issues.filter((item) => item.metadataMissing).length;
+    setIntegrityIssues(issues);
+    setIntegritySummary({
+      total: issues.length,
+      videoMissing,
+      commentsMissing,
+      metadataMissing,
+    });
+    return issues;
+  };
+
+  const hasMissingVideoError = (id: string) =>
+    videoErrors[id]?.includes("動画ファイルが見つかりません") ?? false;
+
+  const hasMissingCommentError = (id: string) =>
+    commentErrors[id]?.includes("コメントファイルが見つかりません") ?? false;
+
+  const shouldCheckComments = (video: VideoItem) => {
+    if (video.commentsStatus === "unavailable") return false;
+    if (video.commentsStatus === "downloaded") return true;
+    if (video.commentsStatus === "failed") return true;
+    return hasMissingCommentError(video.id);
+  };
+
+  const scheduleBackgroundMetadataFetch = (
+    items: Array<{ id: string; sourceUrl?: string | null }>
+  ) => {
+    const outputDir = downloadDirRef.current.trim();
+    if (!outputDir || items.length === 0) return;
+    const normalizedItems = items
+      .map((item) => ({
+        id: item.id,
+        sourceUrl:
+          item.sourceUrl?.trim() || `https://www.youtube.com/watch?v=${item.id}`,
+      }))
+      .filter((item) => item.id);
+    const uniqueItems = normalizedItems.filter(
+      (item) => !pendingMetadataIdsRef.current.has(item.id)
+    );
+    if (uniqueItems.length === 0) return;
+
+    uniqueItems.forEach((item) => {
+      pendingMetadataIdsRef.current.add(item.id);
+      metadataQueueRef.current.push(item);
+    });
+
+    setMetadataFetch((prev) => ({
+      active: true,
+      total: prev.total + uniqueItems.length,
+      completed: prev.completed,
+    }));
+
+    const start = () => startNextMetadataDownload();
+    if (typeof window.requestIdleCallback === "function") {
+      window.requestIdleCallback(() => start(), { timeout: 1500 });
+      return;
+    }
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        window.setTimeout(start, 0);
+      });
+    });
+  };
+
+  const checkAndStartMetadataRecovery = useCallback(
+    async (force = false) => {
+      if (!ytDlpUpdateDoneRef.current) return;
+      if (autoMetadataCheckRef.current) return;
+      if (metadataPausedRef.current) return;
+      if (!force && ((integritySummary?.total ?? 0) > 0 || integrityIssues.length > 0)) return;
+      const outputDir = downloadDirRef.current.trim();
+      if (!outputDir) return;
+
+      autoMetadataCheckRef.current = true;
+      try {
+        const snapshot = videosRef.current;
+        const candidates: Array<{ id: string; sourceUrl?: string | null }> = [];
+
+        let infoIds = new Set<string>();
+        let chatIds = new Set<string>();
+        try {
+          const index = await invoke<{ infoIds: string[]; chatIds: string[] }>(
+            "get_metadata_index",
+            { outputDir }
+          );
+          infoIds = new Set(index?.infoIds ?? []);
+          chatIds = new Set(index?.chatIds ?? []);
+        } catch {
+          infoIds = new Set();
+          chatIds = new Set();
+        }
+
+        for (const video of snapshot) {
+          if (!video?.id) continue;
+          if (pendingMetadataIdsRef.current.has(video.id)) continue;
+          if (metadataActiveIdRef.current === video.id) continue;
+
+          const needsLiveChatRetry =
+            video.commentsStatus === "pending" || video.commentsStatus === "failed";
+
+          const hasInfo = infoIds.has(video.id);
+          const hasChat = chatIds.has(video.id);
+
+          if (!hasInfo || (needsLiveChatRetry && !hasChat)) {
+            candidates.push({ id: video.id, sourceUrl: video.sourceUrl });
+          }
+        }
+
+        if (candidates.length > 0) {
+          scheduleBackgroundMetadataFetch(candidates);
+        }
+      } finally {
+        autoMetadataCheckRef.current = false;
+      }
+    },
+    [scheduleBackgroundMetadataFetch, integritySummary, integrityIssues.length]
+  );
+
+  const runIntegrityCheck = useCallback(
+    async (openModal = true, overrideDir?: string) => {
+      setIntegrityMessage("");
+      const targetDir = overrideDir ?? downloadDir;
+      if (!targetDir) {
+        setIntegrityIssues([]);
+        setIntegritySummary(null);
+        setIntegrityMessage("保存先フォルダが未設定です。設定から選択してください。");
+        if (openModal) setIsIntegrityOpen(true);
+        return;
+      }
+
+      const items: LocalFileCheckItem[] = videosRef.current.map((video) => ({
+        id: video.id,
+        title: video.title,
+        checkVideo:
+          video.downloadStatus === "downloaded" || hasMissingVideoError(video.id),
+        checkComments: shouldCheckComments(video),
+      }));
+
+      if (items.length === 0) {
+        setIntegrityIssues([]);
+        setIntegritySummary({
+          total: 0,
+          videoMissing: 0,
+          commentsMissing: 0,
+          metadataMissing: 0,
+        });
+        if (openModal) setIsIntegrityOpen(true);
+        return;
+      }
+
+      setIntegrityRunning(true);
+      try {
+        const checks = await runStrictFileChecks(targetDir, items);
+        let infoIds: Set<string> | undefined;
+        try {
+          const index = await invoke<{ infoIds: string[] }>("get_metadata_index", {
+            outputDir: targetDir,
+          });
+          infoIds = new Set(index?.infoIds ?? []);
+        } catch {
+          infoIds = undefined;
+        }
+        applyLocalFileCheckResults(checks);
+        const issues = buildIntegrityReport(checks, infoIds);
+        setHasCheckedFiles(true);
+        if (issues.length === 0) {
+          void checkAndStartMetadataRecovery(true);
+        }
+      } catch {
+        setIntegrityMessage("整合性チェックに失敗しました。");
+      } finally {
+        setIntegrityRunning(false);
+        if (openModal) setIsIntegrityOpen(true);
+      }
+    },
+    [downloadDir, checkAndStartMetadataRecovery]
+  );
+
   useEffect(() => {
     if (!isStateReady || hasCheckedFiles) return;
     if (!downloadDir || videos.length === 0) return;
@@ -1011,92 +1381,19 @@ function App() {
       const items: LocalFileCheckItem[] = videos.map((video) => ({
         id: video.id,
         title: video.title,
-        checkVideo: video.downloadStatus === "downloaded",
-        checkComments: video.commentsStatus === "downloaded",
+        checkVideo:
+          video.downloadStatus === "downloaded" || hasMissingVideoError(video.id),
+        checkComments: shouldCheckComments(video),
       }));
 
-      let checks: LocalFileCheckResult[] = [];
       try {
-        checks = await invoke<LocalFileCheckResult[]>("verify_local_files", {
-          outputDir: downloadDir,
-          items,
-        });
+        const checks = await runLocalFileChecks(downloadDir, items);
+        applyLocalFileCheckResults(checks);
+        buildIntegrityReport(checks);
+        setHasCheckedFiles(true);
       } catch {
-        checks = await Promise.all(
-          items.map(async (item) => {
-            let videoOk = !item.checkVideo;
-            let commentsOk = !item.checkComments;
-
-            if (item.checkVideo) {
-              try {
-                videoOk = await invoke<boolean>("video_file_exists", {
-                  id: item.id,
-                  title: item.title,
-                  outputDir: downloadDir,
-                });
-              } catch {
-                videoOk = false;
-              }
-            }
-
-            if (item.checkComments) {
-              try {
-                commentsOk = await invoke<boolean>("comments_file_exists", {
-                  id: item.id,
-                  outputDir: downloadDir,
-                });
-              } catch {
-                commentsOk = false;
-              }
-            }
-
-            return { id: item.id, videoOk, commentsOk };
-          })
-        );
+        setHasCheckedFiles(true);
       }
-
-      const checkMap = new Map(checks.map((item) => [item.id, item]));
-
-      setVideos((prev) =>
-        prev.map((video) => {
-          const result = checkMap.get(video.id);
-          if (!result) return video;
-          let next = video;
-          if (video.downloadStatus === "downloaded" && !result.videoOk) {
-            next = { ...next, downloadStatus: "failed" };
-          }
-          if (video.commentsStatus === "downloaded" && !result.commentsOk) {
-            next = { ...next, commentsStatus: "failed" };
-          }
-          return next;
-        })
-      );
-
-      setVideoErrors((prev) => {
-        const next = { ...prev };
-        for (const item of checks) {
-          if (!item.videoOk) {
-            next[item.id] = "動画ファイルが見つかりません。再ダウンロードしてください。";
-          } else if (next[item.id]?.includes("動画ファイルが見つかりません")) {
-            delete next[item.id];
-          }
-        }
-        return next;
-      });
-
-      setCommentErrors((prev) => {
-        const next = { ...prev };
-        for (const item of checks) {
-          if (!item.commentsOk) {
-            next[item.id] = "コメントファイルが見つかりません。再取得してください。";
-          } else if (next[item.id]?.includes("コメントファイルが見つかりません")) {
-            delete next[item.id];
-          }
-        }
-        return next;
-      });
-
-      setHasCheckedFiles(true);
     };
 
     void verifyLocalFiles();
@@ -1107,6 +1404,14 @@ function App() {
     if (!downloadDir || videos.length === 0) return true;
     return hasCheckedFiles;
   }, [isStateReady, downloadDir, videos.length, hasCheckedFiles]);
+
+  useEffect(() => {
+    if (!isStateReady) return;
+    const pending = localStorage.getItem(INTEGRITY_CHECK_PENDING_KEY);
+    if (pending !== "1") return;
+    localStorage.removeItem(INTEGRITY_CHECK_PENDING_KEY);
+    void runIntegrityCheck(true);
+  }, [isStateReady, runIntegrityCheck]);
 
   useEffect(() => {
     if (!isStateReady || !isDataCheckDone) return;
@@ -1275,6 +1580,31 @@ function App() {
     return "jpg";
   };
 
+  const convertImageToPng = async (buffer: ArrayBuffer) => {
+    try {
+      const blob = new Blob([buffer]);
+      const bitmap = await createImageBitmap(blob).catch(() => null);
+      if (!bitmap) return null;
+      const canvas = document.createElement("canvas");
+      canvas.width = bitmap.width;
+      canvas.height = bitmap.height;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return null;
+      ctx.drawImage(bitmap, 0, 0);
+      if (typeof bitmap.close === "function") {
+        bitmap.close();
+      }
+      const pngBlob = await new Promise<Blob | null>((resolve) =>
+        canvas.toBlob(resolve, "image/png")
+      );
+      if (!pngBlob) return null;
+      const pngBuffer = await pngBlob.arrayBuffer();
+      return new Uint8Array(pngBuffer);
+    } catch {
+      return null;
+    }
+  };
+
   const deriveUploaderHandle = (
     uploaderId?: string | null,
     uploaderUrl?: string | null,
@@ -1311,9 +1641,10 @@ function App() {
             continue;
           }
           const contentType = response.headers.get("content-type");
-          const extension = guessThumbnailExtension(url, contentType);
           const buffer = await response.arrayBuffer();
-          const data = Array.from(new Uint8Array(buffer));
+          const converted = await convertImageToPng(buffer);
+          const extension = converted ? "png" : guessThumbnailExtension(url, contentType);
+          const data = Array.from(converted ?? new Uint8Array(buffer));
           const handle = deriveUploaderHandle(uploaderId, uploaderUrl, channelUrl);
           const savedPath = await invoke<string>("save_thumbnail", {
             videoId,
@@ -1332,6 +1663,43 @@ function App() {
     } catch {
       return candidates[0];
     }
+  };
+
+  const isRemoteThumbnail = (value?: string | null) => {
+    if (!value) return false;
+    return (
+      value.startsWith("http://") ||
+      value.startsWith("https://") ||
+      value.startsWith("asset://") ||
+      value.startsWith("data:")
+    );
+  };
+
+  const refreshThumbnailsForDir = async (outputDir: string) => {
+    const snapshot = videosRef.current;
+    if (!outputDir || snapshot.length === 0) return;
+    const updates = new Map<string, string>();
+    for (const video of snapshot) {
+      if (!video.thumbnail || isRemoteThumbnail(video.thumbnail)) continue;
+      try {
+        const resolved = await invoke<string | null>("resolve_thumbnail_path", {
+          outputDir,
+          id: video.id,
+        });
+        if (resolved && resolved !== video.thumbnail) {
+          updates.set(video.id, resolved);
+        }
+      } catch {
+        // ignore lookup failures
+      }
+    }
+    if (updates.size === 0) return;
+    setVideos((prev) =>
+      prev.map((item) => {
+        const next = updates.get(item.id);
+        return next ? { ...item, thumbnail: next } : item;
+      })
+    );
   };
 
   const buildThumbnailCandidates = (id: string, primary?: string | null) => [
@@ -1364,94 +1732,6 @@ function App() {
     }, 300);
   };
 
-  const scheduleBackgroundMetadataFetch = (
-    items: Array<{ id: string; sourceUrl?: string | null }>
-  ) => {
-    const outputDir = downloadDirRef.current.trim();
-    if (!outputDir || items.length === 0) return;
-    const normalizedItems = items
-      .map((item) => ({
-        id: item.id,
-        sourceUrl: item.sourceUrl?.trim() || `https://www.youtube.com/watch?v=${item.id}`,
-      }))
-      .filter((item) => item.id);
-    const uniqueItems = normalizedItems.filter(
-      (item) => !pendingMetadataIdsRef.current.has(item.id)
-    );
-    if (uniqueItems.length === 0) return;
-
-    uniqueItems.forEach((item) => {
-      pendingMetadataIdsRef.current.add(item.id);
-      metadataQueueRef.current.push(item);
-    });
-
-    setMetadataFetch((prev) => ({
-      active: true,
-      total: prev.total + uniqueItems.length,
-      completed: prev.completed,
-    }));
-
-    const start = () => startNextMetadataDownload();
-    if (typeof window.requestIdleCallback === "function") {
-      window.requestIdleCallback(() => start(), { timeout: 1500 });
-      return;
-    }
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        window.setTimeout(start, 0);
-      });
-    });
-  };
-
-  const checkAndStartMetadataRecovery = useCallback(async () => {
-    if (!ytDlpUpdateDoneRef.current) return;
-    if (autoMetadataCheckRef.current) return;
-    if (metadataPausedRef.current) return;
-    const outputDir = downloadDirRef.current.trim();
-    if (!outputDir) return;
-
-    autoMetadataCheckRef.current = true;
-    try {
-      const snapshot = videosRef.current;
-      const candidates: Array<{ id: string; sourceUrl?: string | null }> = [];
-
-      let infoIds = new Set<string>();
-      let chatIds = new Set<string>();
-      try {
-        const index = await invoke<{ infoIds: string[]; chatIds: string[] }>(
-          "get_metadata_index",
-          { outputDir }
-        );
-        infoIds = new Set(index?.infoIds ?? []);
-        chatIds = new Set(index?.chatIds ?? []);
-      } catch {
-        infoIds = new Set();
-        chatIds = new Set();
-      }
-
-      for (const video of snapshot) {
-        if (!video?.id) continue;
-        if (pendingMetadataIdsRef.current.has(video.id)) continue;
-        if (metadataActiveIdRef.current === video.id) continue;
-
-        const needsLiveChatRetry =
-          video.commentsStatus === "pending" || video.commentsStatus === "failed";
-
-        const hasInfo = infoIds.has(video.id);
-        const hasChat = chatIds.has(video.id);
-
-        if (!hasInfo || (needsLiveChatRetry && !hasChat)) {
-          candidates.push({ id: video.id, sourceUrl: video.sourceUrl });
-        }
-      }
-
-      if (candidates.length > 0) {
-        scheduleBackgroundMetadataFetch(candidates);
-      }
-    } finally {
-      autoMetadataCheckRef.current = false;
-    }
-  }, [scheduleBackgroundMetadataFetch]);
 
   useEffect(() => {
     if (!isStateReady || autoMetadataStartupRef.current) return;
@@ -1527,22 +1807,12 @@ function App() {
         ageLimit: null,
       });
       const primaryThumbnail = data?.thumbnail_url ?? null;
-      const resolvedThumbnail = await resolveThumbnailPath(
-        id,
-        data?.title ?? "Untitled",
-        null,
-        data?.author_url ?? null,
-        data?.author_url ?? null,
-        buildThumbnailCandidates(id, primaryThumbnail)
-      );
       const newVideo: VideoItem = {
         id,
         title: data?.title ?? "Untitled",
         channel: data?.author_name ?? "YouTube",
         thumbnail:
-          resolvedThumbnail ??
-          primaryThumbnail ??
-          `https://i.ytimg.com/vi/${id}/hqdefault.jpg`,
+          primaryThumbnail ?? `https://i.ytimg.com/vi/${id}/hqdefault.jpg`,
         sourceUrl: trimmed,
         ...metaFields,
         downloadStatus: "pending",
@@ -1631,14 +1901,6 @@ function App() {
             });
             const primaryThumbnail = item.thumbnail ?? null;
             const fallbackThumbnail = `https://i.ytimg.com/vi/${item.id}/hqdefault.jpg`;
-            const resolvedThumbnail = await resolveThumbnailPath(
-              item.id,
-              item.title || "Untitled",
-              item.uploaderId ?? null,
-              item.uploaderUrl ?? null,
-              item.channelUrl ?? null,
-              buildThumbnailCandidates(item.id, primaryThumbnail)
-            );
             completed += 1;
             const ratio = totalCandidates > 0 ? completed / totalCandidates : 1;
             const progress = Math.min(95, Math.round(10 + ratio * 85));
@@ -1650,7 +1912,7 @@ function App() {
               id: item.id,
               title: item.title || "Untitled",
               channel: item.channel?.trim() || "YouTube",
-              thumbnail: resolvedThumbnail ?? primaryThumbnail ?? fallbackThumbnail,
+              thumbnail: primaryThumbnail ?? fallbackThumbnail,
               sourceUrl: item.url || `https://www.youtube.com/watch?v=${item.id}`,
               ...metaFields,
               downloadStatus: "pending" as const,
@@ -2317,6 +2579,25 @@ function App() {
     }
   };
 
+  const relinkLibraryFolder = async () => {
+    setIntegrityMessage("");
+    try {
+      const selected = await openDialog({
+        directory: true,
+        multiple: false,
+        title: "再リンク先のライブラリフォルダを選択",
+      });
+      if (typeof selected !== "string" || !selected) return;
+      setDownloadDir(selected);
+      localStorage.setItem(DOWNLOAD_DIR_KEY, selected);
+      await persistSettings(selected);
+      await refreshThumbnailsForDir(selected);
+      await runIntegrityCheck(true, selected);
+    } catch {
+      setIntegrityMessage("再リンクに失敗しました。");
+    }
+  };
+
   const persistSettings = async (nextDownloadDir?: string) => {
     try {
       await invoke("save_state", {
@@ -2375,6 +2656,7 @@ function App() {
       });
       if (typeof selected !== "string" || !selected) return;
       await invoke("import_state", { inputPath: selected });
+      localStorage.setItem(INTEGRITY_CHECK_PENDING_KEY, "1");
       setBackupMessage("バックアップのインポートが完了しました。再起動してください。");
       setIsBackupNoticeOpen(true);
       setBackupRestartRequired(true);
@@ -3837,6 +4119,33 @@ function App() {
               </div>
               <div className="setting-row">
                 <div>
+                  <p className="setting-label">整合性チェック</p>
+                  <p className="setting-value">
+                    {integritySummary
+                      ? `欠損 ${integritySummary.total}件（動画:${integritySummary.videoMissing} / コメント:${integritySummary.commentsMissing} / メタデータ:${integritySummary.metadataMissing}）`
+                      : "ライブラリ内の欠損を検査"}
+                  </p>
+                </div>
+                <div className="action-row">
+                  <button
+                    className="ghost"
+                    onClick={() => void runIntegrityCheck(true)}
+                    disabled={integrityRunning}
+                  >
+                    {integrityRunning ? "チェック中..." : "チェック"}
+                  </button>
+                  {integritySummary && (
+                    <button
+                      className="ghost"
+                      onClick={() => setIsIntegrityOpen(true)}
+                    >
+                      結果
+                    </button>
+                  )}
+                </div>
+              </div>
+              <div className="setting-row">
+                <div>
                   <p className="setting-label">バックアップ</p>
                   <p className="setting-value">設定とインデックスをzipで保存/復元</p>
                 </div>
@@ -3850,6 +4159,76 @@ function App() {
                 </div>
               </div>
               {errorMessage && <p className="error">{errorMessage}</p>}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isIntegrityOpen && (
+        <div className="modal-backdrop" onClick={() => setIsIntegrityOpen(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>整合性チェック</h2>
+              <button
+                className="icon"
+                onClick={() => setIsIntegrityOpen(false)}
+              >
+                ×
+              </button>
+            </div>
+            <div className="modal-body">
+              {integrityMessage && <p className="error">{integrityMessage}</p>}
+              {integritySummary && (
+                <div className="integrity-summary">
+                  <p>
+                    欠損合計: {integritySummary.total}件（動画:
+                    {integritySummary.videoMissing} / コメント:
+                    {integritySummary.commentsMissing} / メタデータ:
+                    {integritySummary.metadataMissing}）
+                  </p>
+                </div>
+              )}
+              {!integrityMessage && integrityIssues.length === 0 && (
+                <p className="progress-line">欠損は見つかりませんでした。</p>
+              )}
+              {integrityIssues.length > 0 && (
+                <div className="integrity-list">
+                  {integrityIssues.map((item) => (
+                    <div key={item.id} className="integrity-item">
+                      <div className="integrity-title">{item.title}</div>
+                      <div className="integrity-badges">
+                        {item.videoMissing && (
+                          <span className="integrity-badge">動画欠損</span>
+                        )}
+                        {item.commentsMissing && (
+                          <span className="integrity-badge">コメント欠損</span>
+                        )}
+                        {item.metadataMissing && (
+                          <span className="integrity-badge">メタデータ欠損</span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="modal-footer">
+              <button
+                className="ghost"
+                onClick={() => void runIntegrityCheck(true)}
+                disabled={integrityRunning}
+              >
+                {integrityRunning ? "チェック中..." : "再チェック"}
+              </button>
+              <button className="ghost" onClick={relinkLibraryFolder}>
+                再リンク
+              </button>
+              <button
+                className="primary"
+                onClick={() => setIsIntegrityOpen(false)}
+              >
+                閉じる
+              </button>
             </div>
           </div>
         </div>

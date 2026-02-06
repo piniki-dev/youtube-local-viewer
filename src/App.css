@@ -984,6 +984,48 @@ body {
   word-break: break-all;
 }
 
+.integrity-summary {
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: #1c2230;
+}
+
+.integrity-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 260px;
+  overflow: auto;
+}
+
+.integrity-item {
+  border: 1px solid #e0e4ed;
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: #fff;
+}
+
+.integrity-title {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.integrity-badges {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.integrity-badge {
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fcd34d;
+}
+
 .select-wrap select {
   padding: 8px 10px;
   border-radius: 8px;
@@ -1039,6 +1081,21 @@ body {
 
   .setting-value {
     color: #e6e9ef;
+  }
+
+  .integrity-summary {
+    color: #e6e9ef;
+  }
+
+  .integrity-item {
+    background: #1f232b;
+    border-color: #3b4250;
+  }
+
+  .integrity-badge {
+    background: rgba(252, 211, 77, 0.2);
+    color: #facc15;
+    border-color: rgba(252, 211, 77, 0.35);
   }
 
   .filter-bar {
