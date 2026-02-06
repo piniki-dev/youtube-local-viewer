@@ -169,6 +169,20 @@ type FloatingErrorItem = {
   createdAt: number;
 };
 
+type FloatingNoticeItem = {
+  id: string;
+  kind: "success" | "error";
+  title: string;
+  details?: string;
+  createdAt: number;
+};
+
+type YtDlpUpdatePayload = {
+  status: "updated" | "failed" | "up-to-date" | "skipped";
+  stdout?: string;
+  stderr?: string;
+};
+
 type BulkDownloadState = {
   active: boolean;
   total: number;
@@ -258,6 +272,8 @@ function App() {
   const [commentsList, setCommentsList] = useState<CommentItem[]>([]);
   const [commentsError, setCommentsError] = useState("");
   const [downloadErrorItems, setDownloadErrorItems] = useState<FloatingErrorItem[]>([]);
+  const [ytDlpNotices, setYtDlpNotices] = useState<FloatingNoticeItem[]>([]);
+  const [ytDlpUpdateDone, setYtDlpUpdateDone] = useState(false);
   const [isStateReady, setIsStateReady] = useState(false);
   const [isPlayerOpen, setIsPlayerOpen] = useState(false);
   const [playerTitle, setPlayerTitle] = useState("");
@@ -344,6 +360,9 @@ function App() {
   const autoMetadataCheckRef = useRef(false);
   const autoMetadataStartupRef = useRef(false);
   const prevMetadataActiveRef = useRef(false);
+  const ytDlpNoticeRef = useRef<{ key: string; at: number } | null>(null);
+  const ytDlpUpdateRequestedRef = useRef(false);
+  const ytDlpUpdateDoneRef = useRef(false);
   const indexedVideosRef = useRef<IndexedVideo[]>([]);
   const sortedVideosRef = useRef<IndexedVideo[]>([]);
   const filteredVideosRef = useRef<IndexedVideo[]>([]);
@@ -522,6 +541,56 @@ function App() {
   useEffect(() => {
     downloadDirRef.current = downloadDir;
   }, [downloadDir]);
+
+  useEffect(() => {
+    ytDlpUpdateDoneRef.current = ytDlpUpdateDone;
+  }, [ytDlpUpdateDone]);
+
+  const addYtDlpNotice = useCallback(
+    (kind: "success" | "error", title: string, details?: string) => {
+      const id = `yt-dlp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const createdAt = Date.now();
+      setYtDlpNotices((prev) => {
+        const next: FloatingNoticeItem = { id, kind, title, details, createdAt };
+        return [next, ...prev].slice(0, 3);
+      });
+      window.setTimeout(() => {
+        setYtDlpNotices((prev) => prev.filter((item) => item.id !== id));
+      }, 8000);
+    },
+    []
+  );
+
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    const setup = async () => {
+      unlisten = await listen<YtDlpUpdatePayload>("yt-dlp-update", (event) => {
+        const status = event.payload?.status;
+        if (!status) return;
+        setYtDlpUpdateDone(true);
+        const stdout = (event.payload?.stdout ?? "").trim();
+        const stderr = (event.payload?.stderr ?? "").trim();
+        const key = `${status}|${stdout}|${stderr}`;
+        const now = Date.now();
+        const last = ytDlpNoticeRef.current;
+        if (last && last.key === key && now - last.at < 5000) {
+          return;
+        }
+        ytDlpNoticeRef.current = { key, at: now };
+        if (status === "updated") {
+          const details = stdout || stderr || "";
+          addYtDlpNotice("success", "yt-dlpを更新しました。", details.trim() || undefined);
+        } else if (status === "failed") {
+          const details = stderr || stdout || "不明なエラー";
+          addYtDlpNotice("error", "yt-dlpの更新に失敗しました。", details);
+        }
+      });
+    };
+    void setup();
+    return () => {
+      if (unlisten) unlisten();
+    };
+  }, [addYtDlpNotice]);
 
   useEffect(() => {
     if (!isPlayerWindow) return;
@@ -1000,6 +1069,19 @@ function App() {
     void verifyLocalFiles();
   }, [isStateReady, hasCheckedFiles, downloadDir, videos]);
 
+  const isDataCheckDone = useMemo(() => {
+    if (!isStateReady) return false;
+    if (!downloadDir || videos.length === 0) return true;
+    return hasCheckedFiles;
+  }, [isStateReady, downloadDir, videos.length, hasCheckedFiles]);
+
+  useEffect(() => {
+    if (!isStateReady || !isDataCheckDone) return;
+    if (ytDlpUpdateRequestedRef.current) return;
+    ytDlpUpdateRequestedRef.current = true;
+    void invoke("update_yt_dlp");
+  }, [isStateReady, isDataCheckDone]);
+
   const parseVideoId = (url: string) => {
     try {
       const u = new URL(url);
@@ -1265,6 +1347,7 @@ function App() {
   };
 
   const checkAndStartMetadataRecovery = useCallback(async () => {
+    if (!ytDlpUpdateDoneRef.current) return;
     if (autoMetadataCheckRef.current) return;
     if (metadataPausedRef.current) return;
     const outputDir = downloadDirRef.current.trim();
@@ -1315,9 +1398,10 @@ function App() {
 
   useEffect(() => {
     if (!isStateReady || autoMetadataStartupRef.current) return;
+    if (!isDataCheckDone || !ytDlpUpdateDone) return;
     autoMetadataStartupRef.current = true;
     void checkAndStartMetadataRecovery();
-  }, [isStateReady, checkAndStartMetadataRecovery]);
+  }, [isStateReady, isDataCheckDone, ytDlpUpdateDone, checkAndStartMetadataRecovery]);
 
   useEffect(() => {
     const wasActive = prevMetadataActiveRef.current;
@@ -3118,8 +3202,38 @@ function App() {
         </div>
       )}
 
-      {(bulkDownload.active || activeActivityItems.length > 0 || hasDownloadErrors || metadataFetch.active) && (
+      {(bulkDownload.active || activeActivityItems.length > 0 || hasDownloadErrors || metadataFetch.active || ytDlpNotices.length > 0) && (
         <div className="floating-stack">
+          {ytDlpNotices.map((notice) => (
+            <div
+              key={notice.id}
+              className={`floating-panel yt-dlp-update ${
+                notice.kind === "error" ? "is-error" : "is-success"
+              }`}
+            >
+              <div className="bulk-status-header">
+                <div className="bulk-status-title">
+                  <span>{notice.title}</span>
+                </div>
+                <button
+                  className="ghost tiny"
+                  type="button"
+                  onClick={() =>
+                    setYtDlpNotices((prev) =>
+                      prev.filter((item) => item.id !== notice.id)
+                    )
+                  }
+                >
+                  閉じる
+                </button>
+              </div>
+              {notice.details && (
+                <div className="bulk-status-body">
+                  <pre className="bulk-status-log">{notice.details}</pre>
+                </div>
+              )}
+            </div>
+          ))}
           {metadataFetch.active && (
             <div className="floating-panel bulk-status">
               <div className="bulk-status-header">

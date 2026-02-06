@@ -121,13 +121,27 @@ body {
   background: #b42318;
 }
 
+.floating-panel.is-success {
+  background: #1e7a33;
+}
+
 .floating-panel.is-error .ghost {
   border-color: rgba(255, 255, 255, 0.45);
   color: #fff;
   background: rgba(255, 255, 255, 0.08);
 }
 
+.floating-panel.is-success .ghost {
+  border-color: rgba(255, 255, 255, 0.45);
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
 .floating-panel.is-error .ghost:hover {
+  border-color: rgba(255, 255, 255, 0.6);
+}
+
+.floating-panel.is-success .ghost:hover {
   border-color: rgba(255, 255, 255, 0.6);
 }
 

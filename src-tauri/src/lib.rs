@@ -2571,6 +2571,103 @@ fn resolve_override(value: Option<String>) -> Option<String> {
     })
 }
 
+fn can_run_yt_dlp(yt_dlp: &str) -> bool {
+    Command::new(yt_dlp)
+        .arg("--version")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct YtDlpUpdateEvent {
+    status: String,
+    stdout: String,
+    stderr: String,
+}
+
+fn update_yt_dlp_if_available(app: &AppHandle, yt_dlp: String) {
+    if !can_run_yt_dlp(&yt_dlp) {
+        let _ = app.emit(
+            "yt-dlp-update",
+            YtDlpUpdateEvent {
+                status: "skipped".to_string(),
+                stdout: "".to_string(),
+                stderr: "".to_string(),
+            },
+        );
+        return;
+    }
+    let output = Command::new(&yt_dlp).arg("-U").output();
+    let output = match output {
+        Ok(output) => output,
+        Err(err) => {
+            let _ = app.emit(
+                "yt-dlp-update",
+                YtDlpUpdateEvent {
+                    status: "failed".to_string(),
+                    stdout: "".to_string(),
+                    stderr: format!("yt-dlpの更新に失敗しました: {}", err),
+                },
+            );
+            return;
+        }
+    };
+
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    let combined = format!("{}\n{}", stdout, stderr).to_lowercase();
+    if output.status.success() {
+        if combined.contains("up to date")
+            || combined.contains("up-to-date")
+            || combined.contains("already up to date")
+            || combined.contains("is up to date")
+        {
+            let _ = app.emit(
+                "yt-dlp-update",
+                YtDlpUpdateEvent {
+                    status: "up-to-date".to_string(),
+                    stdout,
+                    stderr,
+                },
+            );
+            return;
+        }
+        let _ = app.emit(
+            "yt-dlp-update",
+            YtDlpUpdateEvent {
+                status: "updated".to_string(),
+                stdout,
+                stderr,
+            },
+        );
+    } else {
+        let _ = app.emit(
+            "yt-dlp-update",
+            YtDlpUpdateEvent {
+                status: "failed".to_string(),
+                stdout,
+                stderr,
+            },
+        );
+    }
+}
+
+#[tauri::command]
+fn update_yt_dlp(app: AppHandle) -> Result<(), String> {
+    let app_handle = app.clone();
+    std::thread::spawn(move || {
+        let persisted = load_state(app_handle.clone()).ok();
+        let yt_dlp_override = persisted.and_then(|state| state.yt_dlp_path);
+        let yt_dlp = resolve_override(yt_dlp_override).unwrap_or_else(resolve_yt_dlp);
+        update_yt_dlp_if_available(&app_handle, yt_dlp);
+    });
+    Ok(())
+}
+
 fn resolve_yt_dlp() -> String {
     if let Ok(explicit) = env::var("YTDLP_PATH") {
         if Path::new(&explicit).exists() {
@@ -2870,7 +2967,8 @@ pub fn run() {
             probe_media,
             load_state,
             save_state,
-            save_thumbnail
+            save_thumbnail,
+            update_yt_dlp
         ])
         .setup(|app| {
             if let Some(window) = app.get_webview_window("main") {
