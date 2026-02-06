@@ -7,7 +7,7 @@ use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State, WindowEvent};
 use std::{fs, path::PathBuf};
 
 const YTDLP_TITLE_WARNING: &str =
@@ -17,6 +17,23 @@ const YTDLP_WARNING_RETRY_SLEEP_MS: u64 = 500;
 const YTDLP_NONE_DECODE_ERROR: &str = "NoneType";
 const YTDLP_NONE_DECODE_RETRY_MAX: usize = 2;
 const YTDLP_NONE_DECODE_RETRY_SLEEP_MS: u64 = 10_000;
+const WINDOW_MIN_WIDTH: u32 = 1280;
+const WINDOW_MIN_HEIGHT: u32 = 720;
+const WINDOW_SIZE_FILE_NAME: &str = "window_size.json";
+
+#[derive(Clone, Copy, Serialize, Deserialize)]
+struct WindowSizeConfig {
+    width: u32,
+    height: u32,
+    x: Option<i32>,
+    y: Option<i32>,
+}
+
+#[derive(Default)]
+struct WindowSizeState {
+    last_saved: Mutex<Option<(u32, u32)>>,
+    last_position: Mutex<Option<(i32, i32)>>,
+}
 
 fn apply_cookies_args(
     command: &mut Command,
@@ -236,6 +253,31 @@ fn write_error_log(
     );
     fs::write(&file_path, content)
         .map_err(|e| format!("ログの保存に失敗しました: {}", e))?;
+    Ok(())
+}
+
+fn window_size_file_path(app: &AppHandle) -> Result<PathBuf, String> {
+    let dir = app
+        .path()
+        .app_config_dir()
+        .map_err(|e| format!("保存先ディレクトリの取得に失敗しました: {}", e))?;
+    fs::create_dir_all(&dir)
+        .map_err(|e| format!("設定フォルダの作成に失敗しました: {}", e))?;
+    Ok(dir.join(WINDOW_SIZE_FILE_NAME))
+}
+
+fn read_window_size(app: &AppHandle) -> Option<WindowSizeConfig> {
+    let path = window_size_file_path(app).ok()?;
+    let content = fs::read_to_string(path).ok()?;
+    serde_json::from_str(&content).ok()
+}
+
+fn write_window_size(app: &AppHandle, size: WindowSizeConfig) -> Result<(), String> {
+    let path = window_size_file_path(app)?;
+    let content = serde_json::to_string(&size)
+        .map_err(|e| format!("ウィンドウサイズの保存に失敗しました: {}", e))?;
+    fs::write(&path, content)
+        .map_err(|e| format!("ウィンドウサイズの保存に失敗しました: {}", e))?;
     Ok(())
 }
 
@@ -2810,6 +2852,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .manage(DownloadProcessState::default())
+        .manage(WindowSizeState::default())
         .invoke_handler(tauri::generate_handler![
             start_download,
             stop_download,
@@ -2829,6 +2872,114 @@ pub fn run() {
             save_state,
             save_thumbnail
         ])
+        .setup(|app| {
+            if let Some(window) = app.get_webview_window("main") {
+                let screen_size = if let Ok(Some(monitor)) = window.current_monitor() {
+                    let size = monitor.size();
+                    Some((size.width as u32, size.height as u32))
+                } else {
+                    None
+                };
+
+                let (mut min_width, mut min_height) = (WINDOW_MIN_WIDTH, WINDOW_MIN_HEIGHT);
+                if let Some((screen_width, screen_height)) = screen_size {
+                    min_width = min_width.min(screen_width);
+                    min_height = min_height.min(screen_height);
+                }
+
+                let default_size = if let Some((screen_width, screen_height)) = screen_size {
+                    if screen_width >= 1920 && screen_height >= 1080 {
+                        (1920u32, 1080u32)
+                    } else {
+                        (1280u32, 720u32)
+                    }
+                } else {
+                    (1280u32, 720u32)
+                };
+
+                let saved_config = read_window_size(&app.handle());
+                let saved_size = saved_config.map(|s| (s.width, s.height));
+
+                let (mut window_width, mut window_height) = saved_size.unwrap_or(default_size);
+                window_width = window_width.max(min_width);
+                window_height = window_height.max(min_height);
+                if let Some((screen_width, screen_height)) = screen_size {
+                    window_width = window_width.min(screen_width);
+                    window_height = window_height.min(screen_height);
+                }
+
+                let _ = window.set_min_size(Some(tauri::LogicalSize {
+                    width: min_width as f64,
+                    height: min_height as f64,
+                }));
+
+                let _ = window.set_size(tauri::LogicalSize {
+                    width: window_width as f64,
+                    height: window_height as f64,
+                });
+
+                if let Some(config) = saved_config {
+                    if let (Some(x), Some(y)) = (config.x, config.y) {
+                        let _ = window.set_position(tauri::LogicalPosition {
+                            x: x as f64,
+                            y: y as f64,
+                        });
+                    }
+                }
+            }
+
+            Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let WindowEvent::Resized(size) = event {
+                if size.width == 0 || size.height == 0 {
+                    return;
+                }
+
+                let width = size.width as u32;
+                let height = size.height as u32;
+                let state = window.state::<WindowSizeState>();
+                let mut last_saved = state.last_saved.lock().unwrap();
+                if let Some((last_w, last_h)) = *last_saved {
+                    if last_w == width && last_h == height {
+                        return;
+                    }
+                }
+                *last_saved = Some((width, height));
+
+                let position = window.outer_position().ok();
+                let config = WindowSizeConfig {
+                    width,
+                    height,
+                    x: position.map(|p| p.x),
+                    y: position.map(|p| p.y),
+                };
+                let _ = write_window_size(&window.app_handle(), config);
+            }
+
+            if let WindowEvent::Moved(position) = event {
+                let x = position.x;
+                let y = position.y;
+                let state = window.state::<WindowSizeState>();
+                let mut last_position = state.last_position.lock().unwrap();
+                if let Some((last_x, last_y)) = *last_position {
+                    if last_x == x && last_y == y {
+                        return;
+                    }
+                }
+                *last_position = Some((x, y));
+
+                if let Ok(size) = window.outer_size() {
+                    let config = WindowSizeConfig {
+                        width: size.width as u32,
+                        height: size.height as u32,
+                        x: Some(x),
+                        y: Some(y),
+                    };
+                    let _ = write_window_size(&window.app_handle(), config);
+                }
+            }
+        })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
