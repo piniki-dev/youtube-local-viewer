@@ -2603,6 +2603,8 @@ function App() {
   }, []);
 
   const hasDownloadErrors = downloadErrorItems.length > 0;
+  const isCheckingFiles =
+    isStateReady && !hasCheckedFiles && !!downloadDir && videos.length > 0;
 
   const downloadErrorSlides = useMemo(() => {
     if (downloadErrorItems.length === 0) return [] as {
@@ -2805,6 +2807,14 @@ function App() {
 
   return (
     <main className="app">
+      {isCheckingFiles && (
+        <div className="loading-overlay" role="status" aria-live="polite">
+          <div className="loading-panel">
+            <span className="loading-spinner" aria-hidden="true" />
+            <p>データチェック中...</p>
+          </div>
+        </div>
+      )}
       <header className="app-header">
         <div>
           <h1>YouTube Local Viewer</h1>
