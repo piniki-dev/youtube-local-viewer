@@ -620,7 +620,14 @@ function App() {
               delete next[id];
               return next;
             });
-            maybeStartAutoCommentsDownload(id);
+            if (
+              bulkDownloadRef.current.active &&
+              bulkDownloadRef.current.currentId === id
+            ) {
+              handleBulkCompletion(id, false);
+            } else {
+              maybeStartAutoCommentsDownload(id);
+            }
           } else {
             setVideos((prev) =>
               prev.map((v) =>
@@ -1621,20 +1628,13 @@ function App() {
   };
 
   const maybeStartAutoCommentsDownload = (id: string) => {
+    if (bulkDownloadRef.current.active) return;
     const video = videosRef.current.find((item) => item.id === id);
     if (!video) return;
     if (video.commentsStatus === "downloaded") return;
     if (video.commentsStatus === "unavailable") return;
     if (commentsDownloadingIds.includes(id)) return;
     setPendingCommentIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
-    if (bulkDownloadRef.current.active && bulkDownloadRef.current.currentId === id) {
-      const nextState: BulkDownloadState = {
-        ...bulkDownloadRef.current,
-        phase: "comments",
-      };
-      setBulkDownload(nextState);
-      bulkDownloadRef.current = nextState;
-    }
     void startCommentsDownload(video);
   };
 
@@ -1747,14 +1747,6 @@ function App() {
       return;
     }
     setPendingCommentIds((prev) => prev.filter((id) => id !== video.id));
-    if (bulkDownloadRef.current.active && bulkDownloadRef.current.currentId === video.id) {
-      const nextState: BulkDownloadState = {
-        ...bulkDownloadRef.current,
-        phase: "comments",
-      };
-      setBulkDownload(nextState);
-      bulkDownloadRef.current = nextState;
-    }
     setCommentsDownloadingIds((prev) =>
       prev.includes(video.id) ? prev : [...prev, video.id]
     );
@@ -2550,6 +2542,7 @@ function App() {
   };
 
   const activeActivityItems = useMemo(() => {
+    if (bulkDownload.active) return [];
     const ids = new Set([
       ...downloadingIds,
       ...commentsDownloadingIds,
@@ -2581,6 +2574,7 @@ function App() {
     videos,
     progressLines,
     commentProgressLines,
+    bulkDownload.active,
   ]);
 
   const addDownloadErrorItem = useCallback(
