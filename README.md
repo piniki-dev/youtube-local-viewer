@@ -13,6 +13,32 @@ Tauri + React + TypeScript で作るデスクトップアプリのベースで�
 
 TauriのビルドにはRustとOS依存のライブラリが必要です。
 
+## Data storage
+
+アプリ設定やインデックスはユーザーデータ配下に保存されます。
+
+- settings/app.json
+- index/videos.json
+
+動画/コメント/メタ情報は、設定で選択した「保存先フォルダ」の直下に
+videos/comments/metadata を作成して保存します。
+
+例:
+
+```
+<保存先フォルダ>/
+	videos/
+		youtube_handle/
+			title [video_id].mp4
+	metadata/
+		youtube_handle/
+			title [video_id].info.json
+            title [video_id].live_chat.json
+	thumbnails/
+		youtube_handle/
+			title [video_id].png
+```
+
 ### Download tools
 
 ダウンロード機能には `yt-dlp` が必要です。

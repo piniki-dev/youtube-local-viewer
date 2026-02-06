@@ -11,6 +11,7 @@ import { emitTo, listen } from "@tauri-apps/api/event";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { join } from "@tauri-apps/api/path";
 import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
 import AutoSizer from "react-virtualized-auto-sizer";
 import { FixedSizeGrid as Grid, type GridChildComponentProps } from "react-window";
@@ -310,6 +311,10 @@ function App() {
   const [pendingSwitchVideo, setPendingSwitchVideo] = useState<VideoItem | null>(
     null
   );
+  const [backupMessage, setBackupMessage] = useState("");
+  const [isBackupNoticeOpen, setIsBackupNoticeOpen] = useState(false);
+  const [backupRestartRequired, setBackupRestartRequired] = useState(false);
+  const [backupRestartCountdown, setBackupRestartCountdown] = useState(0);
   const [mediaInfoById, setMediaInfoById] = useState<Record<string, MediaInfo | null>>({});
   const [mediaInfoErrors, setMediaInfoErrors] = useState<Record<string, string>>({});
   const [mediaInfoLoadingIds, setMediaInfoLoadingIds] = useState<string[]>([]);
@@ -1270,8 +1275,28 @@ function App() {
     return "jpg";
   };
 
+  const deriveUploaderHandle = (
+    uploaderId?: string | null,
+    uploaderUrl?: string | null,
+    channelUrl?: string | null
+  ) => {
+    const id = (uploaderId ?? "").trim();
+    if (id.startsWith("@")) return id;
+    const fromUrl = (value?: string | null) => {
+      const raw = (value ?? "").trim();
+      if (!raw) return null;
+      const match = raw.match(/\/(@[^/?#]+)/);
+      return match?.[1] ?? null;
+    };
+    return fromUrl(uploaderUrl) ?? fromUrl(channelUrl);
+  };
+
   const resolveThumbnailPath = async (
     videoId: string,
+    title: string,
+    uploaderId: string | null | undefined,
+    uploaderUrl: string | null | undefined,
+    channelUrl: string | null | undefined,
     thumbnailUrls: Array<string | null | undefined>
   ) => {
     const candidates = thumbnailUrls
@@ -1289,8 +1314,12 @@ function App() {
           const extension = guessThumbnailExtension(url, contentType);
           const buffer = await response.arrayBuffer();
           const data = Array.from(new Uint8Array(buffer));
+          const handle = deriveUploaderHandle(uploaderId, uploaderUrl, channelUrl);
           const savedPath = await invoke<string>("save_thumbnail", {
             videoId,
+            title,
+            uploaderId: handle ?? null,
+            outputDir: downloadDirRef.current || null,
             data,
             extension,
           });
@@ -1500,6 +1529,10 @@ function App() {
       const primaryThumbnail = data?.thumbnail_url ?? null;
       const resolvedThumbnail = await resolveThumbnailPath(
         id,
+        data?.title ?? "Untitled",
+        null,
+        data?.author_url ?? null,
+        data?.author_url ?? null,
         buildThumbnailCandidates(id, primaryThumbnail)
       );
       const newVideo: VideoItem = {
@@ -1600,6 +1633,10 @@ function App() {
             const fallbackThumbnail = `https://i.ytimg.com/vi/${item.id}/hqdefault.jpg`;
             const resolvedThumbnail = await resolveThumbnailPath(
               item.id,
+              item.title || "Untitled",
+              item.uploaderId ?? null,
+              item.uploaderUrl ?? null,
+              item.channelUrl ?? null,
               buildThumbnailCandidates(item.id, primaryThumbnail)
             );
             completed += 1;
@@ -2273,9 +2310,89 @@ function App() {
       if (typeof selected === "string" && selected) {
         setDownloadDir(selected);
         localStorage.setItem(DOWNLOAD_DIR_KEY, selected);
+        await persistSettings(selected);
       }
     } catch {
       setErrorMessage("保存先の設定に失敗しました。");
+    }
+  };
+
+  const persistSettings = async (nextDownloadDir?: string) => {
+    try {
+      await invoke("save_state", {
+        state: {
+          videos: videosRef.current,
+          downloadDir: (nextDownloadDir ?? downloadDir) || null,
+          cookiesFile: cookiesFile || null,
+          cookiesSource: cookiesSource || null,
+          cookiesBrowser: cookiesBrowser || null,
+          remoteComponents: remoteComponents || null,
+          ytDlpPath: ytDlpPath || null,
+          ffmpegPath: ffmpegPath || null,
+          ffprobePath: ffprobePath || null,
+        } satisfies PersistedState,
+      });
+    } catch {
+      // ignore store errors to avoid blocking UI
+    }
+  };
+
+  const closeSettings = async () => {
+    await persistSettings();
+    setIsSettingsOpen(false);
+  };
+
+  const exportBackup = async () => {
+    setErrorMessage("");
+    setBackupMessage("");
+    setBackupRestartRequired(false);
+    try {
+      await persistSettings();
+      const dir = await openDialog({
+        directory: true,
+        multiple: false,
+        title: "バックアップ保存先フォルダを選択",
+      });
+      if (typeof dir !== "string" || !dir) return;
+      const target = await join(dir, "ytlv-backup.zip");
+      await invoke("export_state", { outputPath: target });
+      setBackupMessage("バックアップのエクスポートが完了しました。");
+      setIsBackupNoticeOpen(true);
+    } catch {
+      setErrorMessage("バックアップの作成に失敗しました。");
+    }
+  };
+
+  const importBackup = async () => {
+    setErrorMessage("");
+    setBackupMessage("");
+    setBackupRestartRequired(false);
+    try {
+      const selected = await openDialog({
+        directory: false,
+        multiple: false,
+        title: "バックアップを選択",
+      });
+      if (typeof selected !== "string" || !selected) return;
+      await invoke("import_state", { inputPath: selected });
+      setBackupMessage("バックアップのインポートが完了しました。再起動してください。");
+      setIsBackupNoticeOpen(true);
+      setBackupRestartRequired(true);
+      setBackupRestartCountdown(10);
+      const intervalId = window.setInterval(() => {
+        setBackupRestartCountdown((prev) => {
+          if (prev <= 1) {
+            window.clearInterval(intervalId);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+      window.setTimeout(() => {
+        window.location.reload();
+      }, 10_000);
+    } catch {
+      setErrorMessage("バックアップの復元に失敗しました。");
     }
   };
 
@@ -3525,11 +3642,11 @@ function App() {
       )}
 
       {isSettingsOpen && (
-        <div className="modal-backdrop" onClick={() => setIsSettingsOpen(false)}>
+        <div className="modal-backdrop" onClick={() => void closeSettings()}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h2>設定</h2>
-              <button className="icon" onClick={() => setIsSettingsOpen(false)}>
+              <button className="icon" onClick={() => void closeSettings()}>
                 ×
               </button>
             </div>
@@ -3718,7 +3835,65 @@ function App() {
                   </select>
                 </div>
               </div>
+              <div className="setting-row">
+                <div>
+                  <p className="setting-label">バックアップ</p>
+                  <p className="setting-value">設定とインデックスをzipで保存/復元</p>
+                </div>
+                <div className="action-row">
+                  <button className="ghost" onClick={exportBackup}>
+                    エクスポート
+                  </button>
+                  <button className="ghost" onClick={importBackup}>
+                    インポート
+                  </button>
+                </div>
+              </div>
               {errorMessage && <p className="error">{errorMessage}</p>}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isBackupNoticeOpen && backupMessage && (
+        <div
+          className="modal-backdrop"
+          onClick={() => setIsBackupNoticeOpen(false)}
+        >
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>完了</h2>
+              <button
+                className="icon"
+                onClick={() => setIsBackupNoticeOpen(false)}
+              >
+                ×
+              </button>
+            </div>
+            <div className="modal-body">
+              <p>{backupMessage}</p>
+              {backupRestartRequired && backupRestartCountdown > 0 && (
+                <p className="progress-line backup-countdown">
+                  {backupRestartCountdown}秒後に自動で再起動します。
+                </p>
+              )}
+            </div>
+            <div className="modal-footer">
+              {backupRestartRequired ? (
+                <button
+                  className="primary"
+                  onClick={() => window.location.reload()}
+                >
+                  再起動
+                </button>
+              ) : (
+                <button
+                  className="primary"
+                  onClick={() => setIsBackupNoticeOpen(false)}
+                >
+                  閉じる
+                </button>
+              )}
             </div>
           </div>
         </div>

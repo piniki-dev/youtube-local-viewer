@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::env;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -9,6 +9,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager, State, WindowEvent};
 use std::{fs, path::PathBuf};
+use zip::write::FileOptions;
+use zip::{ZipArchive, ZipWriter};
 
 const YTDLP_TITLE_WARNING: &str =
     "No title found in player responses; falling back to title from initial data";
@@ -20,6 +22,14 @@ const YTDLP_NONE_DECODE_RETRY_SLEEP_MS: u64 = 10_000;
 const WINDOW_MIN_WIDTH: u32 = 1280;
 const WINDOW_MIN_HEIGHT: u32 = 720;
 const WINDOW_SIZE_FILE_NAME: &str = "window_size.json";
+const SETTINGS_DIR_NAME: &str = "settings";
+const INDEX_DIR_NAME: &str = "index";
+const SETTINGS_FILE_NAME: &str = "app.json";
+const VIDEOS_FILE_NAME: &str = "videos.json";
+const LIBRARY_VIDEOS_DIR_NAME: &str = "videos";
+const LIBRARY_COMMENTS_DIR_NAME: &str = "comments";
+const LIBRARY_METADATA_DIR_NAME: &str = "metadata";
+const LIBRARY_THUMBNAILS_DIR_NAME: &str = "thumbnails";
 
 #[derive(Clone, Copy, Serialize, Deserialize)]
 struct WindowSizeConfig {
@@ -190,6 +200,7 @@ struct VideoMetadata {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct PersistedState {
     videos: Vec<serde_json::Value>,
     download_dir: Option<String>,
@@ -200,6 +211,24 @@ struct PersistedState {
     yt_dlp_path: Option<String>,
     ffmpeg_path: Option<String>,
     ffprobe_path: Option<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct PersistedSettings {
+    download_dir: Option<String>,
+    cookies_file: Option<String>,
+    cookies_source: Option<String>,
+    cookies_browser: Option<String>,
+    remote_components: Option<String>,
+    yt_dlp_path: Option<String>,
+    ffmpeg_path: Option<String>,
+    ffprobe_path: Option<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+struct PersistedVideos {
+    videos: Vec<serde_json::Value>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -237,6 +266,35 @@ fn sanitize_filename_component(value: &str) -> String {
         "unknown".to_string()
     } else if normalized.len() > 60 {
         normalized.chars().take(60).collect()
+    } else {
+        normalized
+    }
+}
+
+fn sanitize_path_component(value: &str, max_len: usize) -> String {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return "unknown".to_string();
+    }
+    let mut out = String::with_capacity(trimmed.len());
+    for ch in trimmed.chars() {
+        let is_invalid = ch.is_control()
+            || matches!(ch, '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*');
+        if is_invalid {
+            out.push('_');
+        } else {
+            out.push(ch);
+        }
+    }
+    let mut normalized = out.trim().to_string();
+    while normalized.ends_with([' ', '.']) {
+        normalized.pop();
+    }
+    if normalized.is_empty() {
+        return "unknown".to_string();
+    }
+    if normalized.len() > max_len {
+        normalized.chars().take(max_len).collect()
     } else {
         normalized
     }
@@ -282,6 +340,93 @@ fn window_size_file_path(app: &AppHandle) -> Result<PathBuf, String> {
         .map_err(|e| format!("設定フォルダの作成に失敗しました: {}", e))?;
     Ok(dir.join(WINDOW_SIZE_FILE_NAME))
 }
+
+fn resolve_library_root_dir(output_dir: &str) -> PathBuf {
+    let base = PathBuf::from(output_dir);
+    let last = base
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(|name| name.to_lowercase());
+    let is_child = matches!(
+        last.as_deref(),
+        Some("videos") | Some("comments") | Some("metadata") | Some("contents")
+    );
+    if is_child {
+        return base.parent().unwrap_or(&base).to_path_buf();
+    }
+    base
+}
+
+fn library_videos_dir(output_dir: &str) -> PathBuf {
+    resolve_library_root_dir(output_dir).join(LIBRARY_VIDEOS_DIR_NAME)
+}
+
+fn library_comments_dir(output_dir: &str) -> PathBuf {
+    resolve_library_root_dir(output_dir).join(LIBRARY_COMMENTS_DIR_NAME)
+}
+
+fn library_metadata_dir(output_dir: &str) -> PathBuf {
+    resolve_library_root_dir(output_dir).join(LIBRARY_METADATA_DIR_NAME)
+}
+
+fn library_thumbnails_dir(output_dir: &str) -> PathBuf {
+    resolve_library_root_dir(output_dir).join(LIBRARY_THUMBNAILS_DIR_NAME)
+}
+
+fn settings_file_path(app: &AppHandle) -> Result<PathBuf, String> {
+    let dir = app
+        .path()
+        .app_config_dir()
+        .map_err(|e| format!("保存先ディレクトリの取得に失敗しました: {}", e))?;
+    Ok(dir.join(SETTINGS_DIR_NAME).join(SETTINGS_FILE_NAME))
+}
+
+fn videos_file_path(app: &AppHandle) -> Result<PathBuf, String> {
+    let dir = app
+        .path()
+        .app_config_dir()
+        .map_err(|e| format!("保存先ディレクトリの取得に失敗しました: {}", e))?;
+    Ok(dir.join(INDEX_DIR_NAME).join(VIDEOS_FILE_NAME))
+}
+
+fn read_settings(app: &AppHandle) -> PersistedSettings {
+    let settings_path = match settings_file_path(app) {
+        Ok(path) => path,
+        Err(_) => return PersistedSettings::default(),
+    };
+    if !settings_path.exists() {
+        return PersistedSettings::default();
+    }
+    let content = match fs::read_to_string(&settings_path) {
+        Ok(content) => content,
+        Err(_) => return PersistedSettings::default(),
+    };
+    serde_json::from_str::<PersistedSettings>(&content).unwrap_or_default()
+}
+
+fn collect_files_recursive(dir: &Path) -> Vec<PathBuf> {
+    if !dir.exists() {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(current) = stack.pop() {
+        let entries = match fs::read_dir(&current) {
+            Ok(entries) => entries,
+            Err(_) => continue,
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+            } else if path.is_file() {
+                out.push(path);
+            }
+        }
+    }
+    out
+}
+
 
 fn read_window_size(app: &AppHandle) -> Option<WindowSizeConfig> {
     let path = window_size_file_path(app).ok()?;
@@ -407,11 +552,9 @@ fn find_info_json(dir: &Path, id: &str) -> Option<PathBuf> {
         return None;
     }
     let id_lower = id.to_lowercase();
-    let entries = fs::read_dir(dir).ok()?;
     let mut candidates: Vec<PathBuf> = Vec::new();
 
-    for entry in entries.flatten() {
-        let path = entry.path();
+    for path in collect_files_recursive(dir) {
         if !path.is_file() {
             continue;
         }
@@ -468,7 +611,14 @@ fn start_download(
     yt_dlp_path: Option<String>,
     ffmpeg_path: Option<String>,
 ) -> Result<(), String> {
-    let output_path = format!("{}/%(title)s [%(id)s].%(ext)s", output_dir);
+    let output_dir_path = library_videos_dir(&output_dir);
+    let output_path = output_dir_path
+        .join("%(uploader_id)s/%(title)s [%(id)s].%(ext)s")
+        .to_string_lossy()
+        .to_string();
+    if let Err(err) = fs::create_dir_all(&output_dir_path) {
+        return Err(format!("保存先フォルダの作成に失敗しました: {}", err));
+    }
     let yt_dlp = resolve_override(yt_dlp_path).unwrap_or_else(resolve_yt_dlp);
     let ffmpeg_location = resolve_override(ffmpeg_path).or_else(|| Some(resolve_ffmpeg()));
     let state = state.inner().clone();
@@ -798,7 +948,14 @@ fn start_comments_download(
     yt_dlp_path: Option<String>,
     ffmpeg_path: Option<String>,
 ) -> Result<(), String> {
-    let output_path = format!("{}/%(title)s [%(id)s].%(ext)s", output_dir);
+    let output_dir_path = library_comments_dir(&output_dir);
+    let output_path = output_dir_path
+        .join("%(uploader_id)s/%(title)s [%(id)s].%(ext)s")
+        .to_string_lossy()
+        .to_string();
+    if let Err(err) = fs::create_dir_all(&output_dir_path) {
+        return Err(format!("保存先フォルダの作成に失敗しました: {}", err));
+    }
     let yt_dlp = resolve_override(yt_dlp_path).unwrap_or_else(resolve_yt_dlp);
     let ffmpeg_location = resolve_override(ffmpeg_path).or_else(|| Some(resolve_ffmpeg()));
 
@@ -815,12 +972,6 @@ fn start_comments_download(
                 .arg("--newline")
                 .arg("--progress")
                 .arg("--skip-download")
-                .arg("--write-comments")
-                .arg("--write-subs")
-                .arg("--sub-langs")
-                .arg("live_chat")
-                .arg("--sub-format")
-                .arg("json")
                 .arg("--write-info-json")
                 .arg("-o")
                 .arg(&output_path);
@@ -1014,7 +1165,11 @@ fn start_metadata_download(
     yt_dlp_path: Option<String>,
     ffmpeg_path: Option<String>,
 ) -> Result<(), String> {
-    let output_path = format!("{}/%(title)s [%(id)s].%(ext)s", output_dir);
+    let output_dir_path = library_metadata_dir(&output_dir);
+    let output_path = output_dir_path
+        .join("%(uploader_id)s/%(title)s [%(id)s].%(ext)s")
+        .to_string_lossy()
+        .to_string();
     let yt_dlp = resolve_override(yt_dlp_path).unwrap_or_else(resolve_yt_dlp);
     let ffmpeg_location = resolve_override(ffmpeg_path).or_else(|| Some(resolve_ffmpeg()));
 
@@ -1023,7 +1178,7 @@ fn start_metadata_download(
         let mut last_stderr = String::new();
         let mut last_success = false;
 
-        if let Err(err) = fs::create_dir_all(&output_dir) {
+        if let Err(err) = fs::create_dir_all(&output_dir_path) {
             let _ = app.emit(
                 "metadata-finished",
                 MetadataFinished {
@@ -1037,6 +1192,7 @@ fn start_metadata_download(
             );
             return;
         }
+
 
         for attempt in 1..=YTDLP_WARNING_RETRY_MAX {
             let warning_seen = Arc::new(AtomicBool::new(false));
@@ -1205,7 +1361,7 @@ fn start_metadata_download(
         let mut has_live_chat: Option<bool> = None;
 
         if last_success {
-            let dir = PathBuf::from(&output_dir);
+            let dir = library_metadata_dir(&output_dir);
             if let Some(info_path) = find_info_json(&dir, &id) {
                 if let Ok(content) = fs::read_to_string(&info_path) {
                     if let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) {
@@ -1762,8 +1918,12 @@ fn build_channel_section_urls(base_url: &str) -> Vec<String> {
 
 #[tauri::command]
 fn get_comments(id: String, output_dir: String) -> Result<Vec<CommentItem>, String> {
-    let dir = PathBuf::from(output_dir);
+    let dir = library_comments_dir(&output_dir);
     let file_path = find_comments_file(&dir, &id)
+        .or_else(|| {
+            let fallback_dir = library_metadata_dir(&output_dir);
+            find_comments_file(&fallback_dir, &id)
+        })
         .ok_or_else(|| "コメントファイルが見つかりません。".to_string())?;
     let content = fs::read_to_string(&file_path)
         .map_err(|e| format!("コメントファイルの読み込みに失敗しました: {}", e))?;
@@ -1781,7 +1941,7 @@ fn get_comments(id: String, output_dir: String) -> Result<Vec<CommentItem>, Stri
 
 #[tauri::command]
 fn resolve_video_file(id: String, title: String, output_dir: String) -> Result<Option<String>, String> {
-    let dir = PathBuf::from(output_dir);
+    let dir = library_videos_dir(&output_dir);
     if !dir.exists() {
         return Ok(None);
     }
@@ -1789,15 +1949,13 @@ fn resolve_video_file(id: String, title: String, output_dir: String) -> Result<O
     let id_lower = id.to_lowercase();
     let title_trimmed = title.trim().to_string();
     let title_lower = title_trimmed.to_lowercase();
-    let entries = fs::read_dir(&dir).map_err(|e| format!("保存先フォルダを読み込めません: {}", e))?;
+    let entries = collect_files_recursive(&dir);
 
     let mut info_stem: Option<String> = None;
-    if let Ok(info_entries) = fs::read_dir(&dir) {
-        for entry in info_entries.flatten() {
-            let path = entry.path();
-            if !path.is_file() {
-                continue;
-            }
+    for path in collect_files_recursive(&dir) {
+        if !path.is_file() {
+            continue;
+        }
             let name = match path.file_name().and_then(|n| n.to_str()) {
                 Some(name) => name.to_string(),
                 None => continue,
@@ -1820,7 +1978,6 @@ fn resolve_video_file(id: String, title: String, output_dir: String) -> Result<O
                     }
                 }
             }
-        }
     }
 
     let mut all_candidates: Vec<(PathBuf, SystemTime)> = Vec::new();
@@ -1828,8 +1985,7 @@ fn resolve_video_file(id: String, title: String, output_dir: String) -> Result<O
     let mut exact_title_matches: Vec<(PathBuf, SystemTime)> = Vec::new();
     let mut partial_title_matches: Vec<(PathBuf, SystemTime)> = Vec::new();
 
-    for entry in entries.flatten() {
-        let path = entry.path();
+    for path in entries {
         if !path.is_file() {
             continue;
         }
@@ -1905,11 +2061,19 @@ fn video_file_exists(id: String, title: String, output_dir: String) -> Result<bo
 
 #[tauri::command]
 fn comments_file_exists(id: String, output_dir: String) -> Result<bool, String> {
-    let dir = PathBuf::from(output_dir);
+    let dir = library_comments_dir(&output_dir);
     if !dir.exists() {
-        return Ok(false);
+        let fallback_dir = library_metadata_dir(&output_dir);
+        if !fallback_dir.exists() {
+            return Ok(false);
+        }
     }
-    let Some(path) = find_comments_file(&dir, &id) else {
+    let path = find_comments_file(&dir, &id)
+        .or_else(|| {
+            let fallback_dir = library_metadata_dir(&output_dir);
+            find_comments_file(&fallback_dir, &id)
+        });
+    let Some(path) = path else {
         return Ok(false);
     };
     let is_info = path
@@ -1925,8 +2089,10 @@ fn verify_local_files(
     output_dir: String,
     items: Vec<LocalFileCheckItem>,
 ) -> Result<Vec<LocalFileCheckResult>, String> {
-    let dir = PathBuf::from(output_dir);
-    if !dir.exists() {
+    let videos_dir = library_videos_dir(&output_dir);
+    let comments_dir = library_comments_dir(&output_dir);
+    let metadata_dir = library_metadata_dir(&output_dir);
+    if !videos_dir.exists() && !comments_dir.exists() && !metadata_dir.exists() {
         return Ok(items
             .into_iter()
             .map(|item| LocalFileCheckResult {
@@ -1937,7 +2103,9 @@ fn verify_local_files(
             .collect());
     }
 
-    let entries = fs::read_dir(&dir).map_err(|e| format!("保存先フォルダを読み込めません: {}", e))?;
+    let video_entries = collect_files_recursive(&videos_dir);
+    let comment_entries = collect_files_recursive(&comments_dir);
+    let metadata_entries = collect_files_recursive(&metadata_dir);
 
     let mut video_files: Vec<(String, String)> = Vec::new();
     let mut video_stems: HashSet<String> = HashSet::new();
@@ -1948,8 +2116,7 @@ fn verify_local_files(
     let mut comment_ids_from_name: HashSet<String> = HashSet::new();
     let mut comment_file_count = 0usize;
 
-    for entry in entries.flatten() {
-        let path = entry.path();
+    for path in video_entries {
         if !path.is_file() {
             continue;
         }
@@ -1964,9 +2131,6 @@ fn verify_local_files(
             .and_then(|e| e.to_str())
             .map(|e| e.to_lowercase());
         let is_video = matches!(ext.as_deref(), Some("mp4") | Some("webm") | Some("mkv") | Some("m4v"));
-        let is_info = name_lower.ends_with(".info.json");
-        let is_comment = name_lower.ends_with(".live_chat.json") || name_lower.ends_with(".comments.json");
-
         if is_video {
             video_file_count += 1;
             if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
@@ -1978,31 +2142,74 @@ fn verify_local_files(
                 video_ids_from_name.insert(id.to_lowercase());
             }
         }
+    }
 
-        if is_comment {
-            comment_file_count += 1;
-            if let Some(id) = extract_id_from_filename(&name) {
-                comment_ids_from_name.insert(id.to_lowercase());
-            }
+    for path in comment_entries {
+        if !path.is_file() {
+            continue;
         }
+        let name = match path.file_name().and_then(|n| n.to_str()) {
+            Some(name) => name.to_string(),
+            None => continue,
+        };
+        let name_lower = name.to_lowercase();
+        let is_comment = name_lower.ends_with(".live_chat.json") || name_lower.ends_with(".comments.json");
+        if !is_comment {
+            continue;
+        }
+        comment_file_count += 1;
+        if let Some(id) = extract_id_from_filename(&name) {
+            comment_ids_from_name.insert(id.to_lowercase());
+        }
+    }
 
-        if is_info {
-            if let Some(id) = extract_id_from_filename(&name) {
-                if let Some(base) = info_base_name(&path) {
-                    info_stem_by_id.entry(id.to_lowercase()).or_insert(base);
-                }
-            } else if let Ok(content) = fs::read_to_string(&path) {
-                if let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) {
-                    let id = value
-                        .get("video_id")
-                        .and_then(|v| v.as_str())
-                        .or_else(|| value.get("id").and_then(|v| v.as_str()))
-                        .or_else(|| value.get("display_id").and_then(|v| v.as_str()))
-                        .map(|s| s.to_string());
-                    if let Some(id) = id {
-                        if let Some(base) = info_base_name(&path) {
-                            info_stem_by_id.entry(id.to_lowercase()).or_insert(base);
-                        }
+    for path in metadata_entries.iter() {
+        if !path.is_file() {
+            continue;
+        }
+        let name = match path.file_name().and_then(|n| n.to_str()) {
+            Some(name) => name.to_string(),
+            None => continue,
+        };
+        let name_lower = name.to_lowercase();
+        let is_comment = name_lower.ends_with(".live_chat.json") || name_lower.ends_with(".comments.json");
+        if !is_comment {
+            continue;
+        }
+        comment_file_count += 1;
+        if let Some(id) = extract_id_from_filename(&name) {
+            comment_ids_from_name.insert(id.to_lowercase());
+        }
+    }
+
+    for path in metadata_entries {
+        if !path.is_file() {
+            continue;
+        }
+        let name = match path.file_name().and_then(|n| n.to_str()) {
+            Some(name) => name.to_string(),
+            None => continue,
+        };
+        let name_lower = name.to_lowercase();
+        let is_info = name_lower.ends_with(".info.json");
+        if !is_info {
+            continue;
+        }
+        if let Some(id) = extract_id_from_filename(&name) {
+            if let Some(base) = info_base_name(&path) {
+                info_stem_by_id.entry(id.to_lowercase()).or_insert(base);
+            }
+        } else if let Ok(content) = fs::read_to_string(&path) {
+            if let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) {
+                let id = value
+                    .get("video_id")
+                    .and_then(|v| v.as_str())
+                    .or_else(|| value.get("id").and_then(|v| v.as_str()))
+                    .or_else(|| value.get("display_id").and_then(|v| v.as_str()))
+                    .map(|s| s.to_string());
+                if let Some(id) = id {
+                    if let Some(base) = info_base_name(&path) {
+                        info_stem_by_id.entry(id.to_lowercase()).or_insert(base);
                     }
                 }
             }
@@ -2050,8 +2257,8 @@ fn verify_local_files(
             } else if comment_ids_from_name.contains(&id_lower) {
                 true
             } else if let Some(base) = info_stem_by_id.get(&id_lower) {
-                let live_chat = dir.join(format!("{}.live_chat.json", base));
-                let comments = dir.join(format!("{}.comments.json", base));
+                let live_chat = comments_dir.join(format!("{}.live_chat.json", base));
+                let comments = comments_dir.join(format!("{}.comments.json", base));
                 live_chat.exists() || comments.exists()
             } else if comment_file_count == 1 {
                 true
@@ -2072,7 +2279,7 @@ fn verify_local_files(
 
 #[tauri::command]
 fn info_json_exists(id: String, output_dir: String) -> Result<bool, String> {
-    let dir = PathBuf::from(output_dir);
+    let dir = library_metadata_dir(&output_dir);
     if !dir.exists() {
         return Ok(false);
     }
@@ -2081,8 +2288,9 @@ fn info_json_exists(id: String, output_dir: String) -> Result<bool, String> {
 
 #[tauri::command]
 fn get_metadata_index(output_dir: String) -> Result<MetadataIndex, String> {
-    let dir = PathBuf::from(output_dir);
-    if !dir.exists() {
+    let metadata_dir = library_metadata_dir(&output_dir);
+    let comments_dir = library_comments_dir(&output_dir);
+    if !metadata_dir.exists() && !comments_dir.exists() {
         return Ok(MetadataIndex {
             info_ids: Vec::new(),
             chat_ids: Vec::new(),
@@ -2092,9 +2300,7 @@ fn get_metadata_index(output_dir: String) -> Result<MetadataIndex, String> {
     let mut info_ids: HashSet<String> = HashSet::new();
     let mut chat_ids: HashSet<String> = HashSet::new();
 
-    let entries = fs::read_dir(&dir).map_err(|e| format!("保存先フォルダを読み込めません: {}", e))?;
-    for entry in entries.flatten() {
-        let path = entry.path();
+    for path in collect_files_recursive(&metadata_dir) {
         if !path.is_file() {
             continue;
         }
@@ -2140,6 +2346,45 @@ fn get_metadata_index(output_dir: String) -> Result<MetadataIndex, String> {
                     if is_chat {
                         chat_ids.insert(id);
                     }
+                }
+            }
+        }
+    }
+
+    for path in collect_files_recursive(&comments_dir) {
+        if !path.is_file() {
+            continue;
+        }
+        let name = match path.file_name().and_then(|n| n.to_str()) {
+            Some(name) => name.to_string(),
+            None => continue,
+        };
+        let name_lower = name.to_lowercase();
+        let is_chat = name_lower.ends_with(".live_chat.json") || name_lower.ends_with(".comments.json");
+        if !is_chat {
+            continue;
+        }
+
+        if let (Some(open_idx), Some(close_idx)) = (name.rfind('['), name.rfind(']')) {
+            if close_idx > open_idx + 1 {
+                let id = name[(open_idx + 1)..close_idx].trim().to_string();
+                if !id.is_empty() {
+                    chat_ids.insert(id);
+                    continue;
+                }
+            }
+        }
+
+        if let Ok(content) = fs::read_to_string(&path) {
+            if let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) {
+                let id = value
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .or_else(|| value.get("video_id").and_then(|v| v.as_str()))
+                    .or_else(|| value.get("display_id").and_then(|v| v.as_str()))
+                    .map(|s| s.to_string());
+                if let Some(id) = id {
+                    chat_ids.insert(id);
                 }
             }
         }
@@ -2258,44 +2503,165 @@ fn probe_media(file_path: String, ffprobe_path: Option<String>) -> Result<MediaI
 
 #[tauri::command]
 fn load_state(app: AppHandle) -> Result<PersistedState, String> {
-    let base = app
-        .path()
-        .app_config_dir()
-        .map_err(|e| format!("保存先ディレクトリの取得に失敗しました: {}", e))?;
-    let file_path = base.join("ytlv_state.json");
-    if !file_path.exists() {
-        return Ok(PersistedState {
-            videos: Vec::new(),
-            download_dir: None,
-            cookies_file: None,
-            cookies_source: None,
-            cookies_browser: None,
-            remote_components: None,
-            yt_dlp_path: None,
-            ffmpeg_path: None,
-            ffprobe_path: None,
-        });
-    }
-    let content = fs::read_to_string(&file_path)
-        .map_err(|e| format!("状態ファイルの読み込みに失敗しました: {}", e))?;
-    let state = serde_json::from_str::<PersistedState>(&content)
-        .map_err(|e| format!("状態ファイルの解析に失敗しました: {}", e))?;
-    Ok(state)
+    let settings_path = settings_file_path(&app)?;
+    let videos_path = videos_file_path(&app)?;
+
+    let settings = if settings_path.exists() {
+        let content = fs::read_to_string(&settings_path)
+            .map_err(|e| format!("設定ファイルの読み込みに失敗しました: {}", e))?;
+        serde_json::from_str::<PersistedSettings>(&content)
+            .map_err(|e| format!("設定ファイルの解析に失敗しました: {}", e))?
+    } else {
+        PersistedSettings::default()
+    };
+
+    let videos = if videos_path.exists() {
+        let content = fs::read_to_string(&videos_path)
+            .map_err(|e| format!("動画インデックスの読み込みに失敗しました: {}", e))?;
+        serde_json::from_str::<PersistedVideos>(&content)
+            .map_err(|e| format!("動画インデックスの解析に失敗しました: {}", e))?
+    } else {
+        PersistedVideos::default()
+    };
+
+    Ok(PersistedState {
+        videos: videos.videos,
+        download_dir: settings.download_dir,
+        cookies_file: settings.cookies_file,
+        cookies_source: settings.cookies_source,
+        cookies_browser: settings.cookies_browser,
+        remote_components: settings.remote_components,
+        yt_dlp_path: settings.yt_dlp_path,
+        ffmpeg_path: settings.ffmpeg_path,
+        ffprobe_path: settings.ffprobe_path,
+    })
 }
 
 #[tauri::command]
 fn save_state(app: AppHandle, state: PersistedState) -> Result<(), String> {
-    let base = app
-        .path()
-        .app_config_dir()
-        .map_err(|e| format!("保存先ディレクトリの取得に失敗しました: {}", e))?;
-    fs::create_dir_all(&base)
-        .map_err(|e| format!("保存先ディレクトリの作成に失敗しました: {}", e))?;
-    let file_path = base.join("ytlv_state.json");
-    let content = serde_json::to_string_pretty(&state)
-        .map_err(|e| format!("状態データの整形に失敗しました: {}", e))?;
-    fs::write(&file_path, content)
-        .map_err(|e| format!("状態ファイルの保存に失敗しました: {}", e))?;
+    let settings_path = settings_file_path(&app)?;
+    let videos_path = videos_file_path(&app)?;
+
+    if let Some(parent) = settings_path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|e| format!("設定フォルダの作成に失敗しました: {}", e))?;
+    }
+    if let Some(parent) = videos_path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|e| format!("インデックスフォルダの作成に失敗しました: {}", e))?;
+    }
+
+    let settings = PersistedSettings {
+        download_dir: state.download_dir,
+        cookies_file: state.cookies_file,
+        cookies_source: state.cookies_source,
+        cookies_browser: state.cookies_browser,
+        remote_components: state.remote_components,
+        yt_dlp_path: state.yt_dlp_path,
+        ffmpeg_path: state.ffmpeg_path,
+        ffprobe_path: state.ffprobe_path,
+    };
+    let settings_content = serde_json::to_string_pretty(&settings)
+        .map_err(|e| format!("設定データの整形に失敗しました: {}", e))?;
+    fs::write(&settings_path, settings_content)
+        .map_err(|e| format!("設定ファイルの保存に失敗しました: {}", e))?;
+
+    let videos = PersistedVideos { videos: state.videos };
+    let videos_content = serde_json::to_string_pretty(&videos)
+        .map_err(|e| format!("動画インデックスの整形に失敗しました: {}", e))?;
+    fs::write(&videos_path, videos_content)
+        .map_err(|e| format!("動画インデックスの保存に失敗しました: {}", e))?;
+    Ok(())
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ExportManifest {
+    version: u32,
+    created_at_ms: u128,
+}
+
+#[tauri::command]
+fn export_state(app: AppHandle, output_path: String) -> Result<(), String> {
+    let settings_path = settings_file_path(&app)?;
+    let videos_path = videos_file_path(&app)?;
+
+    let file = fs::File::create(&output_path)
+        .map_err(|e| format!("エクスポート先の作成に失敗しました: {}", e))?;
+    let mut zip = ZipWriter::new(file);
+    let options = FileOptions::default();
+
+    let manifest = ExportManifest {
+        version: 1,
+        created_at_ms: SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0),
+    };
+    let manifest_content = serde_json::to_string_pretty(&manifest)
+        .map_err(|e| format!("マニフェストの作成に失敗しました: {}", e))?;
+    zip.start_file("manifest.json", options)
+        .map_err(|e| format!("zipの作成に失敗しました: {}", e))?;
+    zip.write_all(manifest_content.as_bytes())
+        .map_err(|e| format!("zipの書き込みに失敗しました: {}", e))?;
+
+    if settings_path.exists() {
+        let content = fs::read_to_string(&settings_path)
+            .map_err(|e| format!("設定ファイルの読み込みに失敗しました: {}", e))?;
+        zip.start_file("settings/app.json", options)
+            .map_err(|e| format!("zipの作成に失敗しました: {}", e))?;
+        zip.write_all(content.as_bytes())
+            .map_err(|e| format!("zipの書き込みに失敗しました: {}", e))?;
+    }
+
+    if videos_path.exists() {
+        let content = fs::read_to_string(&videos_path)
+            .map_err(|e| format!("動画インデックスの読み込みに失敗しました: {}", e))?;
+        zip.start_file("index/videos.json", options)
+            .map_err(|e| format!("zipの作成に失敗しました: {}", e))?;
+        zip.write_all(content.as_bytes())
+            .map_err(|e| format!("zipの書き込みに失敗しました: {}", e))?;
+    }
+
+    zip.finish()
+        .map_err(|e| format!("zipの作成に失敗しました: {}", e))?;
+    Ok(())
+}
+
+#[tauri::command]
+fn import_state(app: AppHandle, input_path: String) -> Result<(), String> {
+    let file = fs::File::open(&input_path)
+        .map_err(|e| format!("インポート元の読み込みに失敗しました: {}", e))?;
+    let mut archive = ZipArchive::new(file)
+        .map_err(|e| format!("zipの読み込みに失敗しました: {}", e))?;
+
+    for i in 0..archive.len() {
+        let mut entry = archive
+            .by_index(i)
+            .map_err(|e| format!("zipの読み込みに失敗しました: {}", e))?;
+        let name = entry.name().to_string();
+        let target = match name.as_str() {
+            "settings/app.json" => Some(settings_file_path(&app)?),
+            "index/videos.json" => Some(videos_file_path(&app)?),
+            _ => None,
+        };
+        let Some(target_path) = target else {
+            continue;
+        };
+
+        if let Some(parent) = target_path.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|e| format!("保存先フォルダの作成に失敗しました: {}", e))?;
+        }
+
+        let mut buffer = Vec::new();
+        entry
+            .read_to_end(&mut buffer)
+            .map_err(|e| format!("zipの読み込みに失敗しました: {}", e))?;
+        fs::write(&target_path, buffer)
+            .map_err(|e| format!("ファイルの保存に失敗しました: {}", e))?;
+    }
+
     Ok(())
 }
 
@@ -2315,11 +2681,29 @@ fn normalize_thumbnail_extension(value: Option<String>) -> String {
 }
 
 fn find_existing_thumbnail(dir: &Path, video_id: &str) -> Option<PathBuf> {
-    let extensions = ["jpg", "jpeg", "png", "webp", "gif"];
-    for ext in extensions {
-        let candidate = dir.join(format!("{}.{}", video_id, ext));
-        if candidate.exists() {
-            return Some(candidate);
+    if !dir.exists() {
+        return None;
+    }
+    let id_marker = format!("[{}]", video_id);
+    for path in collect_files_recursive(dir) {
+        if !path.is_file() {
+            continue;
+        }
+        let name = match path.file_name().and_then(|n| n.to_str()) {
+            Some(name) => name.to_string(),
+            None => continue,
+        };
+        let name_lower = name.to_lowercase();
+        if !name_lower.contains(&id_marker.to_lowercase()) {
+            continue;
+        }
+        if name_lower.ends_with(".jpg")
+            || name_lower.ends_with(".jpeg")
+            || name_lower.ends_with(".png")
+            || name_lower.ends_with(".webp")
+            || name_lower.ends_with(".gif")
+        {
+            return Some(path);
         }
     }
     None
@@ -2329,6 +2713,9 @@ fn find_existing_thumbnail(dir: &Path, video_id: &str) -> Option<PathBuf> {
 fn save_thumbnail(
     app: AppHandle,
     video_id: String,
+    title: Option<String>,
+    uploader_id: Option<String>,
+    output_dir: Option<String>,
     data: Vec<u8>,
     extension: Option<String>,
 ) -> Result<String, String> {
@@ -2337,11 +2724,18 @@ fn save_thumbnail(
         return Err("サムネイルの保存に必要な情報が不足しています。".to_string());
     }
 
-    let base = app
-        .path()
-        .app_config_dir()
-        .map_err(|e| format!("保存先ディレクトリの取得に失敗しました: {}", e))?;
-    let dir = base.join("thumbnails");
+    let resolved_output = output_dir.as_deref().map(|s| s.trim()).filter(|s| !s.is_empty());
+    let settings = if resolved_output.is_none() { read_settings(&app) } else { PersistedSettings::default() };
+    let dir = if let Some(download_dir) = resolved_output.or(settings.download_dir.as_deref()) {
+        let handle = sanitize_path_component(uploader_id.as_deref().unwrap_or("unknown"), 64);
+        library_thumbnails_dir(download_dir).join(handle)
+    } else {
+        let base = app
+            .path()
+            .app_config_dir()
+            .map_err(|e| format!("保存先ディレクトリの取得に失敗しました: {}", e))?;
+        base.join("thumbnails")
+    };
     fs::create_dir_all(&dir)
         .map_err(|e| format!("サムネイル保存先フォルダの作成に失敗しました: {}", e))?;
 
@@ -2350,7 +2744,8 @@ fn save_thumbnail(
     }
 
     let extension = normalize_thumbnail_extension(extension);
-    let file_path = dir.join(format!("{}.{}", trimmed_id, extension));
+    let safe_title = sanitize_path_component(title.as_deref().unwrap_or("thumbnail"), 120);
+    let file_path = dir.join(format!("{} [{}].{}", safe_title, trimmed_id, extension));
     fs::write(&file_path, &data)
         .map_err(|e| format!("サムネイルの保存に失敗しました: {}", e))?;
 
@@ -2358,14 +2753,12 @@ fn save_thumbnail(
 }
 
 fn find_comments_file(dir: &Path, id: &str) -> Option<PathBuf> {
-    let entries = fs::read_dir(dir).ok()?;
     let mut candidates: Vec<PathBuf> = Vec::new();
     let mut info_match: Option<PathBuf> = None;
     let mut name_live_match: Option<PathBuf> = None;
     let mut name_comments_match: Option<PathBuf> = None;
     let mut name_info_match: Option<PathBuf> = None;
-    for entry in entries.flatten() {
-        let path = entry.path();
+    for path in collect_files_recursive(dir) {
         if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
             let name_lower = name.to_lowercase();
             if name_lower.contains(&id.to_lowercase())
@@ -3147,6 +3540,8 @@ pub fn run() {
             probe_media,
             load_state,
             save_state,
+            export_state,
+            import_state,
             save_thumbnail,
             update_yt_dlp
         ])

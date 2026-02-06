@@ -145,6 +145,12 @@ body {
   border-color: rgba(255, 255, 255, 0.6);
 }
 
+.backup-countdown {
+  font-size: 16px;
+  font-weight: 400;
+  color: inherit;
+}
+
 .floating-panel.open {
   padding-bottom: 10px;
 }
