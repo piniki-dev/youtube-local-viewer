@@ -202,6 +202,23 @@ struct PersistedState {
     ffprobe_path: Option<String>,
 }
 
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LocalFileCheckItem {
+    id: String,
+    title: String,
+    check_video: bool,
+    check_comments: bool,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LocalFileCheckResult {
+    id: String,
+    video_ok: bool,
+    comments_ok: bool,
+}
+
 fn sanitize_filename_component(value: &str) -> String {
     let trimmed = value.trim();
     if trimmed.is_empty() {
@@ -371,6 +388,18 @@ fn parse_video_metadata_value(value: &serde_json::Value) -> VideoMetadata {
             .map(|s| s.to_string()),
         age_limit: value.get("age_limit").and_then(|v| v.as_u64()),
     }
+}
+
+fn extract_id_from_filename(name: &str) -> Option<String> {
+    if let (Some(open_idx), Some(close_idx)) = (name.rfind('['), name.rfind(']')) {
+        if close_idx > open_idx + 1 {
+            let id = name[(open_idx + 1)..close_idx].trim();
+            if !id.is_empty() {
+                return Some(id.to_string());
+            }
+        }
+    }
+    None
 }
 
 fn find_info_json(dir: &Path, id: &str) -> Option<PathBuf> {
@@ -1892,6 +1921,156 @@ fn comments_file_exists(id: String, output_dir: String) -> Result<bool, String> 
 }
 
 #[tauri::command]
+fn verify_local_files(
+    output_dir: String,
+    items: Vec<LocalFileCheckItem>,
+) -> Result<Vec<LocalFileCheckResult>, String> {
+    let dir = PathBuf::from(output_dir);
+    if !dir.exists() {
+        return Ok(items
+            .into_iter()
+            .map(|item| LocalFileCheckResult {
+                id: item.id,
+                video_ok: !item.check_video,
+                comments_ok: !item.check_comments,
+            })
+            .collect());
+    }
+
+    let entries = fs::read_dir(&dir).map_err(|e| format!("保存先フォルダを読み込めません: {}", e))?;
+
+    let mut video_files: Vec<(String, String)> = Vec::new();
+    let mut video_stems: HashSet<String> = HashSet::new();
+    let mut video_ids_from_name: HashSet<String> = HashSet::new();
+    let mut video_file_count = 0usize;
+
+    let mut info_stem_by_id: HashMap<String, String> = HashMap::new();
+    let mut comment_ids_from_name: HashSet<String> = HashSet::new();
+    let mut comment_file_count = 0usize;
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let name = match path.file_name().and_then(|n| n.to_str()) {
+            Some(name) => name.to_string(),
+            None => continue,
+        };
+        let name_lower = name.to_lowercase();
+
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_lowercase());
+        let is_video = matches!(ext.as_deref(), Some("mp4") | Some("webm") | Some("mkv") | Some("m4v"));
+        let is_info = name_lower.ends_with(".info.json");
+        let is_comment = name_lower.ends_with(".live_chat.json") || name_lower.ends_with(".comments.json");
+
+        if is_video {
+            video_file_count += 1;
+            if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                let stem_lower = stem.to_lowercase();
+                video_stems.insert(stem_lower.clone());
+                video_files.push((name_lower.clone(), stem_lower));
+            }
+            if let Some(id) = extract_id_from_filename(&name) {
+                video_ids_from_name.insert(id.to_lowercase());
+            }
+        }
+
+        if is_comment {
+            comment_file_count += 1;
+            if let Some(id) = extract_id_from_filename(&name) {
+                comment_ids_from_name.insert(id.to_lowercase());
+            }
+        }
+
+        if is_info {
+            if let Some(id) = extract_id_from_filename(&name) {
+                if let Some(base) = info_base_name(&path) {
+                    info_stem_by_id.entry(id.to_lowercase()).or_insert(base);
+                }
+            } else if let Ok(content) = fs::read_to_string(&path) {
+                if let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) {
+                    let id = value
+                        .get("video_id")
+                        .and_then(|v| v.as_str())
+                        .or_else(|| value.get("id").and_then(|v| v.as_str()))
+                        .or_else(|| value.get("display_id").and_then(|v| v.as_str()))
+                        .map(|s| s.to_string());
+                    if let Some(id) = id {
+                        if let Some(base) = info_base_name(&path) {
+                            info_stem_by_id.entry(id.to_lowercase()).or_insert(base);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let results = items
+        .into_iter()
+        .map(|item| {
+            let id_lower = item.id.to_lowercase();
+            let title_lower = item.title.trim().to_lowercase();
+
+            let video_ok = if !item.check_video {
+                true
+            } else if video_file_count == 0 {
+                false
+            } else {
+                let mut matched = false;
+                if let Some(info_stem) = info_stem_by_id.get(&id_lower) {
+                    matched = video_stems.contains(&info_stem.to_lowercase());
+                }
+                if !matched && video_ids_from_name.contains(&id_lower) {
+                    matched = true;
+                }
+                if !matched {
+                    matched = video_files.iter().any(|(name_lower, _)| name_lower.contains(&id_lower));
+                }
+                if !matched && !title_lower.is_empty() {
+                    matched = video_stems.contains(&title_lower)
+                        || video_files
+                            .iter()
+                            .any(|(_, stem_lower)| stem_lower.contains(&title_lower) || title_lower.contains(stem_lower));
+                }
+                if matched {
+                    true
+                } else {
+                    video_file_count > 0
+                }
+            };
+
+            let comments_ok = if !item.check_comments {
+                true
+            } else if comment_file_count == 0 {
+                false
+            } else if comment_ids_from_name.contains(&id_lower) {
+                true
+            } else if let Some(base) = info_stem_by_id.get(&id_lower) {
+                let live_chat = dir.join(format!("{}.live_chat.json", base));
+                let comments = dir.join(format!("{}.comments.json", base));
+                live_chat.exists() || comments.exists()
+            } else if comment_file_count == 1 {
+                true
+            } else {
+                false
+            };
+
+            LocalFileCheckResult {
+                id: item.id,
+                video_ok,
+                comments_ok,
+            }
+        })
+        .collect();
+
+    Ok(results)
+}
+
+#[tauri::command]
 fn info_json_exists(id: String, output_dir: String) -> Result<bool, String> {
     let dir = PathBuf::from(output_dir);
     if !dir.exists() {
@@ -2962,6 +3141,7 @@ pub fn run() {
             resolve_video_file,
             video_file_exists,
             comments_file_exists,
+            verify_local_files,
             info_json_exists,
             get_metadata_index,
             probe_media,

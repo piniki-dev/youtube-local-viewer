@@ -236,6 +236,19 @@ type PersistedState = {
   ffprobePath?: string | null;
 };
 
+type LocalFileCheckItem = {
+  id: string;
+  title: string;
+  checkVideo: boolean;
+  checkComments: boolean;
+};
+
+type LocalFileCheckResult = {
+  id: string;
+  videoOk: boolean;
+  commentsOk: boolean;
+};
+
 function App() {
   const [videos, setVideos] = useState<VideoItem[]>([]);
   const [isAddOpen, setIsAddOpen] = useState(false);
@@ -990,37 +1003,52 @@ function App() {
     if (!downloadDir || videos.length === 0) return;
 
     const verifyLocalFiles = async () => {
-      const checks = await Promise.all(
-        videos.map(async (video) => {
-          let videoOk = true;
-          let commentsOk = true;
+      const items: LocalFileCheckItem[] = videos.map((video) => ({
+        id: video.id,
+        title: video.title,
+        checkVideo: video.downloadStatus === "downloaded",
+        checkComments: video.commentsStatus === "downloaded",
+      }));
 
-          if (video.downloadStatus === "downloaded") {
-            try {
-              videoOk = await invoke<boolean>("video_file_exists", {
-                id: video.id,
-                title: video.title,
-                outputDir: downloadDir,
-              });
-            } catch {
-              videoOk = false;
+      let checks: LocalFileCheckResult[] = [];
+      try {
+        checks = await invoke<LocalFileCheckResult[]>("verify_local_files", {
+          outputDir: downloadDir,
+          items,
+        });
+      } catch {
+        checks = await Promise.all(
+          items.map(async (item) => {
+            let videoOk = !item.checkVideo;
+            let commentsOk = !item.checkComments;
+
+            if (item.checkVideo) {
+              try {
+                videoOk = await invoke<boolean>("video_file_exists", {
+                  id: item.id,
+                  title: item.title,
+                  outputDir: downloadDir,
+                });
+              } catch {
+                videoOk = false;
+              }
             }
-          }
 
-          if (video.commentsStatus === "downloaded") {
-            try {
-              commentsOk = await invoke<boolean>("comments_file_exists", {
-                id: video.id,
-                outputDir: downloadDir,
-              });
-            } catch {
-              commentsOk = false;
+            if (item.checkComments) {
+              try {
+                commentsOk = await invoke<boolean>("comments_file_exists", {
+                  id: item.id,
+                  outputDir: downloadDir,
+                });
+              } catch {
+                commentsOk = false;
+              }
             }
-          }
 
-          return { id: video.id, videoOk, commentsOk };
-        })
-      );
+            return { id: item.id, videoOk, commentsOk };
+          })
+        );
+      }
 
       const checkMap = new Map(checks.map((item) => [item.id, item]));
 
