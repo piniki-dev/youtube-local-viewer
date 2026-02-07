@@ -266,8 +266,6 @@ body {
   display: flex;
   flex-direction: column;
   box-shadow: 0 6px 18px rgba(15, 20, 30, 0.08);
-  content-visibility: auto;
-  contain-intrinsic-size: 320px 360px;
 }
 
 .video-card.skeleton-card {
@@ -321,11 +319,8 @@ body {
   width: 100%;
 }
 
-.thumbnail-button.is-disabled {
-  cursor: not-allowed;
-}
-
 .thumbnail-button:disabled {
+  cursor: not-allowed;
   opacity: 0.85;
 }
 
@@ -357,8 +352,9 @@ body {
   pointer-events: none;
 }
 
-.thumbnail-button.is-playable:hover .play-overlay,
-.thumbnail-button.is-playable:focus-visible .play-overlay {
+.thumbnail-button:not(:disabled):hover .play-overlay,
+.thumbnail-button:not(:disabled):focus-visible .play-overlay,
+.video-card:hover .thumbnail-button:not(:disabled) .play-overlay {
   opacity: 0.85;
 }
 

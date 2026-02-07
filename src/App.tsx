@@ -6,15 +6,41 @@ import {
   useRef,
   useState,
 } from "react";
-import { convertFileSrc, invoke } from "@tauri-apps/api/core";
-import { emitTo, listen } from "@tauri-apps/api/event";
-import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { getCurrentWindow } from "@tauri-apps/api/window";
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { join } from "@tauri-apps/api/path";
-import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
-import AutoSizer from "react-virtualized-auto-sizer";
-import { FixedSizeGrid as Grid, type GridChildComponentProps } from "react-window";
+import { AppHeader } from "./components/AppHeader";
+import { VideoListSection } from "./components/VideoListSection";
+import { AppModals } from "./components/AppModals";
+import { FloatingStatusStack } from "./components/FloatingStatusStack";
+import { PlayerContent } from "./components/PlayerContent";
+import { VideoCardItem } from "./components/VideoCardItem";
+import { VideoSkeletonCard } from "./components/VideoSkeletonCard";
+import { LoadingOverlay } from "./components/LoadingOverlay";
+import { PlayerWindow } from "./components/PlayerWindow";
+import { useMetadataFetch } from "./hooks/useMetadataFetch";
+import { useDownloadEvents } from "./hooks/useDownloadEvents";
+import { usePlayerState } from "./hooks/usePlayerState";
+import { useIntegrityCheck } from "./hooks/useIntegrityCheck";
+import { usePlayerWindowManager } from "./hooks/usePlayerWindowManager";
+import { useSettingsActions } from "./hooks/useSettingsActions";
+import { useBackupActions } from "./hooks/useBackupActions";
+import { useDownloadErrorSlides } from "./hooks/useDownloadErrorSlides";
+import { useBulkDownloadManager } from "./hooks/useBulkDownloadManager";
+import { useVideoFiltering } from "./hooks/useVideoFiltering";
+import { useActiveActivityItems } from "./hooks/useActiveActivityItems";
+import { useThumbnailManager } from "./hooks/useThumbnailManager";
+import { useAddVideoActions } from "./hooks/useAddVideoActions";
+import { useDownloadActions } from "./hooks/useDownloadActions";
+import { usePersistedState } from "./hooks/usePersistedState";
+import { useYtDlpUpdateNotices } from "./hooks/useYtDlpUpdateNotices";
+import {
+  formatClock,
+  formatDuration,
+  formatPublishedAt,
+  getVideoSortTime,
+} from "./utils/formatters";
+import {
+  buildMetadataFields,
+  buildThumbnailCandidates,
+} from "./utils/metadataHelpers";
 import "./App.css";
 
 type DownloadStatus = "pending" | "downloading" | "downloaded" | "failed";
@@ -62,127 +88,12 @@ type IndexedVideo = VideoItem & {
   sortTime: number;
 };
 
-type ChannelFeedItem = {
-  id: string;
-  title: string;
-  channel?: string | null;
-  thumbnail?: string | null;
-  url: string;
-  webpageUrl?: string | null;
-  durationSec?: number | null;
-  uploadDate?: string | null;
-  releaseTimestamp?: number | null;
-  timestamp?: number | null;
-  liveStatus?: string | null;
-  isLive?: boolean | null;
-  wasLive?: boolean | null;
-  viewCount?: number | null;
-  likeCount?: number | null;
-  commentCount?: number | null;
-  tags?: string[] | null;
-  categories?: string[] | null;
-  description?: string | null;
-  channelId?: string | null;
-  uploaderId?: string | null;
-  channelUrl?: string | null;
-  uploaderUrl?: string | null;
-  availability?: string | null;
-  language?: string | null;
-  audioLanguage?: string | null;
-  ageLimit?: number | null;
-};
-
-type VideoMetadata = {
-  id?: string | null;
-  title?: string | null;
-  channel?: string | null;
-  thumbnail?: string | null;
-  url?: string | null;
-  webpageUrl?: string | null;
-  durationSec?: number | null;
-  uploadDate?: string | null;
-  releaseTimestamp?: number | null;
-  timestamp?: number | null;
-  liveStatus?: string | null;
-  isLive?: boolean | null;
-  wasLive?: boolean | null;
-  viewCount?: number | null;
-  likeCount?: number | null;
-  commentCount?: number | null;
-  tags?: string[] | null;
-  categories?: string[] | null;
-  description?: string | null;
-  channelId?: string | null;
-  uploaderId?: string | null;
-  channelUrl?: string | null;
-  uploaderUrl?: string | null;
-  availability?: string | null;
-  language?: string | null;
-  audioLanguage?: string | null;
-  ageLimit?: number | null;
-};
-
-type DownloadFinished = {
-  id: string;
-  success: boolean;
-  stdout: string;
-  stderr: string;
-  cancelled?: boolean;
-};
-
-type CommentFinished = {
-  id: string;
-  success: boolean;
-  stdout: string;
-  stderr: string;
-};
-
-type MetadataFinished = {
-  id: string;
-  success: boolean;
-  stdout: string;
-  stderr: string;
-  metadata?: VideoMetadata | null;
-  hasLiveChat?: boolean | null;
-};
-
-type CommentItem = {
-  author: string;
-  text: string;
-  likeCount?: number;
-  publishedAt?: string;
-  offsetMs?: number;
-};
-
-type MediaInfo = {
-  videoCodec?: string | null;
-  audioCodec?: string | null;
-  width?: number | null;
-  height?: number | null;
-  duration?: number | null;
-  container?: string | null;
-};
-
 type FloatingErrorItem = {
   id: string;
   title: string;
   phase: "video" | "comments" | "metadata";
   details: string;
   createdAt: number;
-};
-
-type FloatingNoticeItem = {
-  id: string;
-  kind: "success" | "error";
-  title: string;
-  details?: string;
-  createdAt: number;
-};
-
-type YtDlpUpdatePayload = {
-  status: "updated" | "failed" | "up-to-date" | "skipped";
-  stdout?: string;
-  stderr?: string;
 };
 
 type BulkDownloadState = {
@@ -194,12 +105,6 @@ type BulkDownloadState = {
   queue: string[];
   stopRequested: boolean;
   phase: "video" | "comments" | null;
-};
-
-type MetadataFetchState = {
-  active: boolean;
-  total: number;
-  completed: number;
 };
 
 const COOKIE_BROWSER_OPTIONS = [
@@ -227,39 +132,6 @@ const GRID_CARD_WIDTH = 240;
 const GRID_GAP = 16;
 const GRID_ROW_HEIGHT = 420;
 
-type PersistedState = {
-  videos: VideoItem[];
-  downloadDir?: string | null;
-  cookiesFile?: string | null;
-  cookiesSource?: string | null;
-  cookiesBrowser?: string | null;
-  remoteComponents?: string | null;
-  ytDlpPath?: string | null;
-  ffmpegPath?: string | null;
-  ffprobePath?: string | null;
-};
-
-type LocalFileCheckItem = {
-  id: string;
-  title: string;
-  checkVideo: boolean;
-  checkComments: boolean;
-};
-
-type LocalFileCheckResult = {
-  id: string;
-  videoOk: boolean;
-  commentsOk: boolean;
-};
-
-type IntegrityIssue = {
-  id: string;
-  title: string;
-  videoMissing: boolean;
-  commentsMissing: boolean;
-  metadataMissing: boolean;
-};
-
 function App() {
   const [videos, setVideos] = useState<VideoItem[]>([]);
   const [isAddOpen, setIsAddOpen] = useState(false);
@@ -278,65 +150,48 @@ function App() {
   const [videoErrors, setVideoErrors] = useState<Record<string, string>>({});
   const [isErrorOpen, setIsErrorOpen] = useState(false);
   const [errorTargetId, setErrorTargetId] = useState<string | null>(null);
-  const [cookiesFile, setCookiesFile] = useState<string>("");
-  const [cookiesSource, setCookiesSource] = useState<"none" | "file" | "browser">(
-    "none"
+  const storageKeys = useMemo(
+    () => ({
+      videoStorageKey: VIDEO_STORAGE_KEY,
+      downloadDirKey: DOWNLOAD_DIR_KEY,
+      cookiesFileKey: COOKIES_FILE_KEY,
+      cookiesSourceKey: COOKIES_SOURCE_KEY,
+      cookiesBrowserKey: COOKIES_BROWSER_KEY,
+      remoteComponentsKey: REMOTE_COMPONENTS_KEY,
+      ytDlpPathKey: YTDLP_PATH_KEY,
+      ffmpegPathKey: FFMPEG_PATH_KEY,
+      ffprobePathKey: FFPROBE_PATH_KEY,
+    }),
+    []
   );
+  const [cookiesFile, setCookiesFile] = useState<string>("");
+  const [cookiesSource, setCookiesSource] = useState<
+    "none" | "file" | "browser"
+  >("none");
   const [cookiesBrowser, setCookiesBrowser] = useState<string>("");
   const [ytDlpPath, setYtDlpPath] = useState<string>("");
   const [ffmpegPath, setFfmpegPath] = useState<string>("");
   const [ffprobePath, setFfprobePath] = useState<string>("");
   const [progressLines, setProgressLines] = useState<Record<string, string>>({});
-  const [commentsDownloadingIds, setCommentsDownloadingIds] = useState<string[]>([]);
+  const [commentsDownloadingIds, setCommentsDownloadingIds] = useState<string[]>(
+    []
+  );
   const [commentErrors, setCommentErrors] = useState<Record<string, string>>({});
-  const [commentProgressLines, setCommentProgressLines] = useState<Record<string, string>>({});
-  
-  const [downloadErrorItems, setDownloadErrorItems] = useState<FloatingErrorItem[]>([]);
-  const [ytDlpNotices, setYtDlpNotices] = useState<FloatingNoticeItem[]>([]);
-  const [ytDlpUpdateDone, setYtDlpUpdateDone] = useState(false);
+  const [commentProgressLines, setCommentProgressLines] = useState<
+    Record<string, string>
+  >({});
+  const [downloadErrorItems, setDownloadErrorItems] = useState<
+    FloatingErrorItem[]
+  >([]);
   const [isStateReady, setIsStateReady] = useState(false);
-  const [isPlayerOpen, setIsPlayerOpen] = useState(false);
-  const [playerTitle, setPlayerTitle] = useState("");
-  const [playerSrc, setPlayerSrc] = useState<string | null>(null);
-  const [playerError, setPlayerError] = useState("");
-  const [playerLoading, setPlayerLoading] = useState(false);
-  const [playerVideoId, setPlayerVideoId] = useState<string | null>(null);
-  const [playerDebug, setPlayerDebug] = useState<string>("");
-  const [playerFilePath, setPlayerFilePath] = useState<string | null>(null);
-  const [playerComments, setPlayerComments] = useState<CommentItem[]>([]);
-  const [playerCommentsLoading, setPlayerCommentsLoading] = useState(false);
-  const [playerCommentsError, setPlayerCommentsError] = useState("");
-  const [playerTimeMs, setPlayerTimeMs] = useState(0);
-  const [isChatAutoScroll, setIsChatAutoScroll] = useState(true);
-  const [playerWindowActiveId, setPlayerWindowActiveId] = useState<string | null>(
-    null
-  );
-  const [playerWindowActiveTitle, setPlayerWindowActiveTitle] = useState("");
-  const [isSwitchConfirmOpen, setIsSwitchConfirmOpen] = useState(false);
-  const [switchConfirmMessage, setSwitchConfirmMessage] = useState("");
-  const [pendingSwitchVideo, setPendingSwitchVideo] = useState<VideoItem | null>(
-    null
-  );
   const [backupMessage, setBackupMessage] = useState("");
   const [isBackupNoticeOpen, setIsBackupNoticeOpen] = useState(false);
   const [backupRestartRequired, setBackupRestartRequired] = useState(false);
   const [backupRestartCountdown, setBackupRestartCountdown] = useState(0);
-  const [mediaInfoById, setMediaInfoById] = useState<Record<string, MediaInfo | null>>({});
-  const [hasCheckedFiles, setHasCheckedFiles] = useState(false);
   const [isIntegrityOpen, setIsIntegrityOpen] = useState(false);
-  const [integrityIssues, setIntegrityIssues] = useState<IntegrityIssue[]>([]);
-  const [integritySummary, setIntegritySummary] = useState<{
-    total: number;
-    videoMissing: number;
-    commentsMissing: number;
-    metadataMissing: number;
-  } | null>(null);
-  const [integrityRunning, setIntegrityRunning] = useState(false);
-  const [integrityMessage, setIntegrityMessage] = useState("");
   const [remoteComponents, setRemoteComponents] = useState<
     "none" | "ejs:github" | "ejs:npm"
   >("none");
-  const [pendingPlayerId, setPendingPlayerId] = useState<string | null>(null);
   const [bulkDownload, setBulkDownload] = useState<BulkDownloadState>({
     active: false,
     total: 0,
@@ -355,13 +210,6 @@ function App() {
   const [downloadFilter, setDownloadFilter] = useState<
     "all" | "downloaded" | "undownloaded"
   >("all");
-  const [metadataFetch, setMetadataFetch] = useState<MetadataFetchState>({
-    active: false,
-    total: 0,
-    completed: 0,
-  });
-  const [metadataPaused, setMetadataPaused] = useState(false);
-  const [metadataPauseReason, setMetadataPauseReason] = useState("");
   const [typeFilter, setTypeFilter] = useState<
     "all" | "video" | "live" | "shorts"
   >("all");
@@ -370,181 +218,80 @@ function App() {
   >("published-desc");
   const [searchQuery, setSearchQuery] = useState("");
   const deferredSearchQuery = useDeferredValue(searchQuery);
-  const playerVideoRef = useRef<HTMLVideoElement | null>(null);
-  const playerChatEndRef = useRef<HTMLDivElement | null>(null);
+
   const videosRef = useRef<VideoItem[]>([]);
   const bulkDownloadRef = useRef<BulkDownloadState>(bulkDownload);
+  const onStartFailedRef = useRef<(id: string) => void>(() => {});
   const downloadDirRef = useRef<string>("");
-  const metadataFetchRef = useRef<MetadataFetchState>(metadataFetch);
-  const pendingMetadataIdsRef = useRef<Set<string>>(new Set());
-  const pendingMetadataUpdatesRef = useRef<Map<string, Partial<VideoItem>>>(
-    new Map()
+  const checkAndStartMetadataRecoveryRef = useRef<(force?: boolean) => void>(
+    () => {}
   );
-  const metadataFlushTimerRef = useRef<number | null>(null);
-  const metadataQueueRef = useRef<Array<{ id: string; sourceUrl?: string | null }>>(
-    []
-  );
-  const metadataActiveIdRef = useRef<string | null>(null);
-  const metadataActiveItemRef = useRef<
-    { id: string; sourceUrl?: string | null } | null
-  >(null);
-  const metadataPausedRef = useRef(false);
-  const autoMetadataCheckRef = useRef(false);
-  const autoMetadataStartupRef = useRef(false);
-  const prevMetadataActiveRef = useRef(false);
-  const ytDlpNoticeRef = useRef<{ key: string; at: number } | null>(null);
-  const ytDlpUpdateRequestedRef = useRef(false);
-  const ytDlpUpdateDoneRef = useRef(false);
   const indexedVideosRef = useRef<IndexedVideo[]>([]);
   const sortedVideosRef = useRef<IndexedVideo[]>([]);
   const filteredVideosRef = useRef<IndexedVideo[]>([]);
+
   const isPlayerWindow = useMemo(() => {
     if (typeof window === "undefined") return false;
     return new URLSearchParams(window.location.search).get("player") === "1";
   }, []);
-  const requestAutoPlay = useCallback(() => {
-    if (!isPlayerWindow) return;
-    const video = playerVideoRef.current;
-    if (!video || !playerSrc || playerError) return;
-    if (Number.isFinite(video.currentTime) && video.currentTime > 0) {
-      try {
-        video.currentTime = 0;
-      } catch {
-        // ignore seek errors
-      }
-    }
-    const result = video.play();
-    if (result && typeof result.catch === "function") {
-      result.catch(() => {
-        // ignore autoplay errors
-      });
-    }
-  }, [isPlayerWindow, playerSrc, playerError]);
 
-  useEffect(() => {
-    const load = async () => {
-      let loadedVideos: VideoItem[] = [];
-      let loadedDownloadDir: string | null = null;
-      let loadedCookiesFile: string | null = null;
-      let loadedCookiesSource: string | null = null;
-      let loadedCookiesBrowser: string | null = null;
-      let loadedRemote: string | null = null;
-      let loadedYtDlpPath: string | null = null;
-      let loadedFfmpegPath: string | null = null;
-      let loadedFfprobePath: string | null = null;
-      try {
-        const state = await invoke<PersistedState>("load_state");
-        if (Array.isArray(state?.videos) && state.videos.length > 0) {
-          loadedVideos = state.videos;
-        }
-        loadedDownloadDir = state?.downloadDir ?? null;
-        loadedCookiesFile = state?.cookiesFile ?? null;
-        loadedCookiesSource = state?.cookiesSource ?? null;
-        loadedCookiesBrowser = state?.cookiesBrowser ?? null;
-        loadedRemote = state?.remoteComponents ?? null;
-        loadedYtDlpPath = state?.ytDlpPath ?? null;
-        loadedFfmpegPath = state?.ffmpegPath ?? null;
-        loadedFfprobePath = state?.ffprobePath ?? null;
-      } catch {
-        loadedVideos = [];
-      }
+  const {
+    isPlayerOpen,
+    setIsPlayerOpen,
+    playerTitle,
+    setPlayerTitle,
+    playerSrc,
+    playerError,
+    setPlayerError,
+    playerLoading,
+    playerDebug,
+    playerFilePath,
+    playerCommentsLoading,
+    playerCommentsError,
+    playerTimeMs,
+    setPlayerTimeMs,
+    isChatAutoScroll,
+    setIsChatAutoScroll,
+    playerVideoRef,
+    playerChatEndRef,
+    mediaInfoById,
+    sortedPlayerComments,
+    playerVisibleComments,
+    openPlayerInWindow,
+    closePlayer,
+    handlePlayerError,
+    openExternalPlayer,
+    revealInFolder,
+  } = usePlayerState({
+    isPlayerWindow,
+    downloadDir,
+    ffprobePath,
+    downloadDirRef,
+  });
 
-      if (loadedVideos.length === 0) {
-        const raw = localStorage.getItem(VIDEO_STORAGE_KEY);
-        if (raw) {
-          try {
-            const parsed = JSON.parse(raw) as VideoItem[];
-            if (Array.isArray(parsed)) {
-              loadedVideos = parsed;
-            }
-          } catch {
-            loadedVideos = [];
-          }
-        }
-      }
-
-      const normalizedVideos = loadedVideos.map((item) => ({
-        ...item,
-        commentsStatus: item.commentsStatus ?? "pending",
-      }));
-      setVideos(normalizedVideos);
-
-      if (!loadedDownloadDir) {
-        const legacyDir = localStorage.getItem(DOWNLOAD_DIR_KEY);
-        if (legacyDir) loadedDownloadDir = legacyDir;
-      }
-      if (!loadedCookiesFile) {
-        const legacyCookies = localStorage.getItem(COOKIES_FILE_KEY);
-        if (legacyCookies) loadedCookiesFile = legacyCookies;
-      }
-      if (!loadedCookiesSource) {
-        const legacySource = localStorage.getItem(COOKIES_SOURCE_KEY);
-        if (legacySource) loadedCookiesSource = legacySource;
-      }
-      if (!loadedCookiesBrowser) {
-        const legacyBrowser = localStorage.getItem(COOKIES_BROWSER_KEY);
-        if (legacyBrowser) loadedCookiesBrowser = legacyBrowser;
-      }
-      if (!loadedRemote) {
-        const legacyRemote = localStorage.getItem(REMOTE_COMPONENTS_KEY);
-        if (legacyRemote) loadedRemote = legacyRemote;
-      }
-      if (!loadedYtDlpPath) {
-        const legacyYtDlp = localStorage.getItem(YTDLP_PATH_KEY);
-        if (legacyYtDlp) loadedYtDlpPath = legacyYtDlp;
-      }
-      if (!loadedFfmpegPath) {
-        const legacyFfmpeg = localStorage.getItem(FFMPEG_PATH_KEY);
-        if (legacyFfmpeg) loadedFfmpegPath = legacyFfmpeg;
-      }
-      if (!loadedFfprobePath) {
-        const legacyFfprobe = localStorage.getItem(FFPROBE_PATH_KEY);
-        if (legacyFfprobe) loadedFfprobePath = legacyFfprobe;
-      }
-
-      if (loadedDownloadDir) setDownloadDir(loadedDownloadDir);
-      if (loadedCookiesFile) setCookiesFile(loadedCookiesFile);
-      if (!loadedCookiesSource && loadedCookiesFile) {
-        loadedCookiesSource = "file";
-      }
-      if (loadedCookiesSource === "file" || loadedCookiesSource === "browser") {
-        setCookiesSource(loadedCookiesSource as "file" | "browser");
-      }
-      if (loadedCookiesBrowser) {
-        setCookiesBrowser(loadedCookiesBrowser);
-      } else if (loadedCookiesSource === "browser") {
-        setCookiesBrowser("chrome");
-      }
-      if (loadedRemote === "ejs:github" || loadedRemote === "ejs:npm") {
-        setRemoteComponents(loadedRemote);
-      }
-      if (loadedYtDlpPath) setYtDlpPath(loadedYtDlpPath);
-      if (loadedFfmpegPath) setFfmpegPath(loadedFfmpegPath);
-      if (loadedFfprobePath) setFfprobePath(loadedFfprobePath);
-
-      try {
-        await invoke("save_state", {
-          state: {
-            videos: normalizedVideos,
-            downloadDir: loadedDownloadDir,
-            cookiesFile: loadedCookiesFile,
-            cookiesSource: loadedCookiesSource,
-            cookiesBrowser: loadedCookiesBrowser,
-            remoteComponents: loadedRemote,
-            ytDlpPath: loadedYtDlpPath,
-            ffmpegPath: loadedFfmpegPath,
-            ffprobePath: loadedFfprobePath,
-          } satisfies PersistedState,
-        });
-      } catch {
-        // ignore migration errors
-      }
-
-      setIsStateReady(true);
-    };
-
-    void load();
-  }, []);
+  usePersistedState({
+    setVideos,
+    setDownloadDir,
+    setCookiesFile,
+    setCookiesSource,
+    setCookiesBrowser,
+    setRemoteComponents,
+    setYtDlpPath,
+    setFfmpegPath,
+    setFfprobePath,
+    setIsStateReady,
+    isStateReady,
+    videos,
+    downloadDir,
+    cookiesFile,
+    cookiesSource,
+    cookiesBrowser,
+    remoteComponents,
+    ytDlpPath,
+    ffmpegPath,
+    ffprobePath,
+    storageKeys,
+  });
 
   useEffect(() => {
     videosRef.current = videos;
@@ -556,2426 +303,8 @@ function App() {
 
 
   useEffect(() => {
-    metadataFetchRef.current = metadataFetch;
-  }, [metadataFetch]);
-
-  useEffect(() => {
-    metadataPausedRef.current = metadataPaused;
-  }, [metadataPaused]);
-
-  useEffect(() => {
-    if (!metadataFetch.active) {
-    }
-  }, [metadataFetch.active]);
-
-  // moved below scheduleBackgroundMetadataFetch
-
-  useEffect(() => {
     downloadDirRef.current = downloadDir;
   }, [downloadDir]);
-
-  useEffect(() => {
-    ytDlpUpdateDoneRef.current = ytDlpUpdateDone;
-  }, [ytDlpUpdateDone]);
-
-  const addYtDlpNotice = useCallback(
-    (kind: "success" | "error", title: string, details?: string) => {
-      const id = `yt-dlp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      const createdAt = Date.now();
-      setYtDlpNotices((prev) => {
-        const next: FloatingNoticeItem = { id, kind, title, details, createdAt };
-        return [next, ...prev].slice(0, 3);
-      });
-      window.setTimeout(() => {
-        setYtDlpNotices((prev) => prev.filter((item) => item.id !== id));
-      }, 8000);
-    },
-    []
-  );
-
-  useEffect(() => {
-    let unlisten: (() => void) | null = null;
-    const setup = async () => {
-      unlisten = await listen<YtDlpUpdatePayload>("yt-dlp-update", (event) => {
-        const status = event.payload?.status;
-        if (!status) return;
-        setYtDlpUpdateDone(true);
-        const stdout = (event.payload?.stdout ?? "").trim();
-        const stderr = (event.payload?.stderr ?? "").trim();
-        const key = `${status}|${stdout}|${stderr}`;
-        const now = Date.now();
-        const last = ytDlpNoticeRef.current;
-        if (last && last.key === key && now - last.at < 5000) {
-          return;
-        }
-        ytDlpNoticeRef.current = { key, at: now };
-        if (status === "updated") {
-          const details = stdout || stderr || "";
-          addYtDlpNotice("success", "yt-dlpを更新しました。", details.trim() || undefined);
-        } else if (status === "failed") {
-          const details = stderr || stdout || "不明なエラー";
-          addYtDlpNotice("error", "yt-dlpの更新に失敗しました。", details);
-        }
-      });
-    };
-    void setup();
-    return () => {
-      if (unlisten) unlisten();
-    };
-  }, [addYtDlpNotice]);
-
-  useEffect(() => {
-    if (!isPlayerWindow) return;
-    let unlisten: (() => void) | null = null;
-    const setup = async () => {
-      unlisten = await listen<{ id: string }>("player-open", (event) => {
-        setPendingPlayerId(event.payload.id);
-      });
-    };
-    void setup();
-    return () => {
-      if (unlisten) unlisten();
-    };
-  }, [isPlayerWindow]);
-
-  useEffect(() => {
-    if (isPlayerWindow) return;
-    let unlisten: (() => void) | null = null;
-    const setup = async () => {
-      unlisten = await listen<{ id: string; title: string }>(
-        "player-active",
-        (event) => {
-          setPlayerWindowActiveId(event.payload.id);
-          setPlayerWindowActiveTitle(event.payload.title);
-        }
-      );
-    };
-    void setup();
-    return () => {
-      if (unlisten) unlisten();
-    };
-  }, [isPlayerWindow]);
-
-  useEffect(() => {
-    if (!isPlayerWindow) return;
-    const params = new URLSearchParams(window.location.search);
-    const initialId = params.get("videoId");
-    if (initialId) setPendingPlayerId(initialId);
-  }, [isPlayerWindow]);
-
-  useEffect(() => {
-    let unlisten: (() => void) | null = null;
-    const setup = async () => {
-      unlisten = await listen<{ id: string; line: string }>(
-        "download-progress",
-        (event) => {
-          const { id, line } = event.payload;
-          setProgressLines((prev) => ({ ...prev, [id]: line }));
-        }
-      );
-    };
-    void setup();
-    return () => {
-      if (unlisten) unlisten();
-    };
-  }, []);
-
-  useEffect(() => {
-    let unlisten: (() => void) | null = null;
-    const setup = async () => {
-      unlisten = await listen<DownloadFinished>(
-        "download-finished",
-        (event) => {
-          const { id, success, stderr, stdout, cancelled } = event.payload;
-          const wasCancelled = Boolean(cancelled);
-          setDownloadingIds((prev) => prev.filter((item) => item !== id));
-          if (wasCancelled) {
-            setVideos((prev) =>
-              prev.map((v) =>
-                v.id === id ? { ...v, downloadStatus: "pending" } : v
-              )
-            );
-            setVideoErrors((prev) => {
-              const next = { ...prev };
-              delete next[id];
-              return next;
-            });
-            setProgressLines((prev) => {
-              const next = { ...prev };
-              delete next[id];
-              return next;
-            });
-          } else if (success) {
-            setVideos((prev) =>
-              prev.map((v) =>
-                v.id === id ? { ...v, downloadStatus: "downloaded" } : v
-              )
-            );
-            setVideoErrors((prev) => {
-              const next = { ...prev };
-              delete next[id];
-              return next;
-            });
-            setProgressLines((prev) => {
-              const next = { ...prev };
-              delete next[id];
-              return next;
-            });
-            if (
-              bulkDownloadRef.current.active &&
-              bulkDownloadRef.current.currentId === id
-            ) {
-              handleBulkCompletion(id, false);
-            } else {
-              maybeStartAutoCommentsDownload(id);
-            }
-          } else {
-            setVideos((prev) =>
-              prev.map((v) =>
-                v.id === id ? { ...v, downloadStatus: "failed" } : v
-              )
-            );
-            const details = stderr || stdout || "不明なエラー";
-            setVideoErrors((prev) => ({ ...prev, [id]: details }));
-            addDownloadErrorItem(id, "video", details);
-            setErrorMessage("ダウンロードに失敗しました。詳細を確認してください。");
-          }
-          if (bulkDownloadRef.current.active && bulkDownloadRef.current.currentId === id) {
-            if (wasCancelled || !success) {
-              handleBulkCompletion(id, wasCancelled);
-            }
-          } else {
-            if (wasCancelled) return;
-          }
-        }
-      );
-    };
-    void setup();
-    return () => {
-      if (unlisten) unlisten();
-    };
-  }, []);
-
-  useEffect(() => {
-    let unlisten: (() => void) | null = null;
-    const setup = async () => {
-      unlisten = await listen<{ id: string; line: string }>(
-        "comments-progress",
-        (event) => {
-          const { id, line } = event.payload;
-          setCommentProgressLines((prev) => ({ ...prev, [id]: line }));
-        }
-      );
-    };
-    void setup();
-    return () => {
-      if (unlisten) unlisten();
-    };
-  }, []);
-
-  useEffect(() => {
-    let unlisten: (() => void) | null = null;
-    const setup = async () => {
-      unlisten = await listen<CommentFinished>(
-        "comments-finished",
-        (event) => {
-          void (async () => {
-            const { id, success, stderr, stdout } = event.payload;
-            setCommentsDownloadingIds((prev) => prev.filter((item) => item !== id));
-            if (success) {
-              let hasComments = true;
-              const outputDir = downloadDirRef.current.trim();
-              if (outputDir) {
-                try {
-                  hasComments = await invoke<boolean>("comments_file_exists", {
-                    id,
-                    outputDir,
-                  });
-                } catch {
-                  hasComments = true;
-                }
-              }
-              setVideos((prev) =>
-                prev.map((v) =>
-                  v.id === id
-                    ? {
-                        ...v,
-                        commentsStatus: hasComments ? "downloaded" : "unavailable",
-                      }
-                    : v
-                )
-              );
-              setCommentErrors((prev) => {
-                const next = { ...prev };
-                delete next[id];
-                return next;
-              });
-              setCommentProgressLines((prev) => {
-                const next = { ...prev };
-                delete next[id];
-                return next;
-              });
-            } else {
-              setVideos((prev) =>
-                prev.map((v) =>
-                  v.id === id ? { ...v, commentsStatus: "failed" } : v
-                )
-              );
-              const details = stderr || stdout || "不明なエラー";
-              setCommentErrors((prev) => ({ ...prev, [id]: details }));
-              addDownloadErrorItem(id, "comments", details);
-              setErrorMessage("ライブチャット取得に失敗しました。詳細を確認してください。");
-            }
-            setPendingCommentIds((prev) => prev.filter((item) => item !== id));
-            if (
-              bulkDownloadRef.current.active &&
-              bulkDownloadRef.current.currentId === id &&
-              bulkDownloadRef.current.phase === "comments"
-            ) {
-              handleBulkCompletion(id, false);
-            }
-          })();
-        }
-      );
-    };
-    void setup();
-    return () => {
-      if (unlisten) unlisten();
-    };
-  }, []);
-
-  const startNextMetadataDownload = useCallback(async () => {
-    if (metadataActiveIdRef.current) return;
-    if (metadataPausedRef.current) return;
-    const next = metadataQueueRef.current.shift();
-    if (!next) return;
-
-    const outputDir = downloadDirRef.current.trim();
-    if (!outputDir) {
-      pendingMetadataIdsRef.current.delete(next.id);
-      setMetadataFetch((prev) => {
-        const completed = prev.completed + 1;
-        const active = completed < prev.total;
-        return { ...prev, completed, active };
-      });
-      if (metadataQueueRef.current.length > 0) {
-        window.setTimeout(startNextMetadataDownload, 0);
-      }
-      return;
-    }
-
-    const detailUrl =
-      next.sourceUrl?.trim() || `https://www.youtube.com/watch?v=${next.id}`;
-    metadataActiveIdRef.current = next.id;
-    metadataActiveItemRef.current = next;
-    try {
-      await invoke("start_metadata_download", {
-        id: next.id,
-        url: detailUrl,
-        outputDir,
-        cookiesFile: cookiesFile || null,
-        cookiesSource: cookiesSource || null,
-        cookiesBrowser: cookiesSource === "browser" ? cookiesBrowser || null : null,
-        remoteComponents: remoteComponents === "none" ? null : remoteComponents,
-        ytDlpPath: ytDlpPath || null,
-        ffmpegPath: ffmpegPath || null,
-      });
-    } catch {
-      pendingMetadataIdsRef.current.delete(next.id);
-      metadataActiveIdRef.current = null;
-      setMetadataFetch((prev) => {
-        const completed = prev.completed + 1;
-        const active = completed < prev.total;
-        return { ...prev, completed, active };
-      });
-      if (metadataQueueRef.current.length > 0) {
-        window.setTimeout(startNextMetadataDownload, 0);
-      }
-    }
-  }, [cookiesFile, cookiesSource, cookiesBrowser, remoteComponents, ytDlpPath, ffmpegPath]);
-
-  useEffect(() => {
-    let unlisten: (() => void) | null = null;
-    const setup = async () => {
-      unlisten = await listen<MetadataFinished>(
-        "metadata-finished",
-        (event) => {
-          const { id, success, metadata, hasLiveChat, stderr, stdout } = event.payload;
-          metadataActiveIdRef.current = null;
-          pendingMetadataIdsRef.current.delete(id);
-
-          if (success) {
-            metadataActiveItemRef.current = null;
-            const currentVideo = videosRef.current.find((item) => item.id === id);
-            const patch: Partial<VideoItem> = {};
-
-            if (metadata) {
-              const metaFields = buildMetadataFields({
-                webpageUrl: metadata.webpageUrl ?? null,
-                durationSec: metadata.durationSec ?? null,
-                uploadDate: metadata.uploadDate ?? null,
-                releaseTimestamp: metadata.releaseTimestamp ?? null,
-                timestamp: metadata.timestamp ?? null,
-                liveStatus: metadata.liveStatus ?? null,
-                isLive: metadata.isLive ?? null,
-                wasLive: metadata.wasLive ?? null,
-                viewCount: metadata.viewCount ?? null,
-                likeCount: metadata.likeCount ?? null,
-                commentCount: metadata.commentCount ?? null,
-                tags: metadata.tags ?? null,
-                categories: metadata.categories ?? null,
-                description: metadata.description ?? null,
-                channelId: metadata.channelId ?? null,
-                uploaderId: metadata.uploaderId ?? null,
-                channelUrl: metadata.channelUrl ?? null,
-                uploaderUrl: metadata.uploaderUrl ?? null,
-                availability: metadata.availability ?? null,
-                language: metadata.language ?? null,
-                audioLanguage: metadata.audioLanguage ?? null,
-                ageLimit: metadata.ageLimit ?? null,
-              });
-              patch.title = (metadata.title ?? currentVideo?.title) || "Untitled";
-              patch.channel = (metadata.channel ?? currentVideo?.channel) || "YouTube";
-              patch.sourceUrl =
-                metadata.webpageUrl ?? metadata.url ?? currentVideo?.sourceUrl ?? "";
-              patch.thumbnail =
-                currentVideo?.thumbnail ?? metadata.thumbnail ?? currentVideo?.thumbnail;
-              Object.assign(patch, metaFields);
-            }
-
-            if (metadata) {
-              const thumbnailCandidates = buildThumbnailCandidates(
-                id,
-                metadata.thumbnail ?? currentVideo?.thumbnail ?? null
-              );
-              void (async () => {
-                const savedThumbnail = await resolveThumbnailPath(
-                  id,
-                  metadata.title ?? currentVideo?.title ?? "Untitled",
-                  metadata.uploaderId ?? null,
-                  metadata.uploaderUrl ?? null,
-                  metadata.channelUrl ?? null,
-                  thumbnailCandidates
-                );
-                if (savedThumbnail) {
-                  pendingMetadataUpdatesRef.current.set(id, {
-                    thumbnail: savedThumbnail,
-                  });
-                  scheduleMetadataFlush();
-                }
-              })();
-            }
-
-            patch.metadataFetched = true;
-
-            if (typeof hasLiveChat === "boolean") {
-              if (hasLiveChat) {
-                if (currentVideo?.commentsStatus !== "downloaded") {
-                  patch.commentsStatus = "downloaded";
-                }
-              } else if (currentVideo?.commentsStatus === "pending") {
-                patch.commentsStatus = "unavailable";
-              }
-            }
-
-            if (Object.keys(patch).length > 0) {
-              pendingMetadataUpdatesRef.current.set(id, patch);
-              scheduleMetadataFlush();
-            }
-          } else {
-            const details = stderr || stdout || "不明なエラー";
-            addDownloadErrorItem(id, "metadata", details);
-            const activeItem = metadataActiveItemRef.current;
-            if (activeItem) {
-              metadataQueueRef.current.unshift(activeItem);
-              metadataActiveItemRef.current = null;
-            }
-            setMetadataPauseReason(details);
-            setMetadataPaused(true);
-          }
-
-          setMetadataFetch((prev) => {
-            const completed = prev.completed + 1;
-            const active = completed < prev.total;
-            return { ...prev, completed, active };
-          });
-
-          if (!metadataPausedRef.current && metadataQueueRef.current.length > 0) {
-            window.setTimeout(startNextMetadataDownload, 250);
-          }
-        }
-      );
-    };
-    void setup();
-    return () => {
-      if (unlisten) unlisten();
-    };
-  }, [startNextMetadataDownload]);
-
-  useEffect(() => {
-    if (!isStateReady) return;
-    localStorage.setItem(VIDEO_STORAGE_KEY, JSON.stringify(videos));
-    const persist = async () => {
-      try {
-        await invoke("save_state", {
-          state: {
-            videos,
-            downloadDir: downloadDir || null,
-            cookiesFile: cookiesFile || null,
-            cookiesSource: cookiesSource || null,
-            cookiesBrowser: cookiesBrowser || null,
-            remoteComponents: remoteComponents || null,
-            ytDlpPath: ytDlpPath || null,
-            ffmpegPath: ffmpegPath || null,
-            ffprobePath: ffprobePath || null,
-          } satisfies PersistedState,
-        });
-      } catch {
-        // ignore store errors to avoid blocking UI
-      }
-    };
-    void persist();
-  }, [videos, downloadDir, cookiesFile, cookiesSource, cookiesBrowser, remoteComponents, ytDlpPath, ffmpegPath, ffprobePath, isStateReady]);
-
-  useEffect(() => {
-    if (!isStateReady) return;
-    setHasCheckedFiles(false);
-  }, [downloadDir, isStateReady]);
-
-  const runLocalFileChecks = async (
-    outputDir: string,
-    items: LocalFileCheckItem[]
-  ) => {
-    let checks: LocalFileCheckResult[] = [];
-    try {
-      checks = await invoke<LocalFileCheckResult[]>("verify_local_files", {
-        outputDir,
-        items,
-      });
-    } catch {
-      checks = await Promise.all(
-        items.map(async (item) => {
-          let videoOk = !item.checkVideo;
-          let commentsOk = !item.checkComments;
-
-          if (item.checkVideo) {
-            try {
-              videoOk = await invoke<boolean>("video_file_exists", {
-                id: item.id,
-                title: item.title,
-                outputDir,
-              });
-            } catch {
-              videoOk = false;
-            }
-          }
-
-          if (item.checkComments) {
-            try {
-              commentsOk = await invoke<boolean>("comments_file_exists", {
-                id: item.id,
-                outputDir,
-              });
-            } catch {
-              commentsOk = false;
-            }
-          }
-
-          return { id: item.id, videoOk, commentsOk };
-        })
-      );
-    }
-    return checks;
-  };
-
-  const runStrictFileChecks = async (
-    outputDir: string,
-    items: LocalFileCheckItem[]
-  ) => {
-    return Promise.all(
-      items.map(async (item) => {
-        let videoOk = !item.checkVideo;
-        let commentsOk = !item.checkComments;
-
-        if (item.checkVideo) {
-          try {
-            videoOk = await invoke<boolean>("video_file_exists", {
-              id: item.id,
-              title: item.title,
-              outputDir,
-            });
-          } catch {
-            videoOk = false;
-          }
-        }
-
-        if (item.checkComments) {
-          try {
-            commentsOk = await invoke<boolean>("comments_file_exists", {
-              id: item.id,
-              outputDir,
-            });
-          } catch {
-            commentsOk = false;
-          }
-        }
-
-        return { id: item.id, videoOk, commentsOk };
-      })
-    );
-  };
-
-  const applyLocalFileCheckResults = (checks: LocalFileCheckResult[]) => {
-    const checkMap = new Map(checks.map((item) => [item.id, item]));
-
-    setVideos((prev) =>
-      prev.map((video) => {
-        const result = checkMap.get(video.id);
-        if (!result) return video;
-        return video;
-      })
-    );
-
-    setVideoErrors((prev) => {
-      const next = { ...prev };
-      for (const item of checks) {
-        if (!item.videoOk) {
-          next[item.id] = "動画ファイルが見つかりません。再ダウンロードしてください。";
-        } else if (next[item.id]?.includes("動画ファイルが見つかりません")) {
-          delete next[item.id];
-        }
-      }
-      return next;
-    });
-
-    setCommentErrors((prev) => {
-      const next = { ...prev };
-      for (const item of checks) {
-        if (!item.commentsOk) {
-          next[item.id] = "コメントファイルが見つかりません。再取得してください。";
-        } else if (next[item.id]?.includes("コメントファイルが見つかりません")) {
-          delete next[item.id];
-        }
-      }
-      return next;
-    });
-  };
-
-  const buildIntegrityReport = (
-    checks: LocalFileCheckResult[],
-    metadataIds?: Set<string>
-  ) => {
-    const titleMap = new Map(
-      videosRef.current.map((video) => [video.id, video.title])
-    );
-    const metadataExpectedMap = new Map(
-      videosRef.current.map((video) => [video.id, video.metadataFetched === true])
-    );
-    const issues = checks
-      .map((item) => {
-        const hasInfo = metadataIds ? metadataIds.has(item.id) : true;
-        const expectsMetadata = metadataExpectedMap.get(item.id) ?? false;
-        return {
-          id: item.id,
-          title: titleMap.get(item.id) ?? item.id,
-          videoMissing: !item.videoOk,
-          commentsMissing: !item.commentsOk,
-          metadataMissing: expectsMetadata && !hasInfo,
-        };
-      })
-      .filter(
-        (item) =>
-          item.videoMissing || item.commentsMissing || item.metadataMissing
-      );
-    const videoMissing = issues.filter((item) => item.videoMissing).length;
-    const commentsMissing = issues.filter((item) => item.commentsMissing).length;
-    const metadataMissing = issues.filter((item) => item.metadataMissing).length;
-    setIntegrityIssues(issues);
-    setIntegritySummary({
-      total: issues.length,
-      videoMissing,
-      commentsMissing,
-      metadataMissing,
-    });
-    return issues;
-  };
-
-  const hasMissingVideoError = (id: string) =>
-    videoErrors[id]?.includes("動画ファイルが見つかりません") ?? false;
-
-  const hasMissingCommentError = (id: string) =>
-    commentErrors[id]?.includes("コメントファイルが見つかりません") ?? false;
-
-  const shouldCheckComments = (video: VideoItem) => {
-    if (video.commentsStatus === "unavailable") return false;
-    if (video.commentsStatus === "downloaded") return true;
-    if (video.commentsStatus === "failed") return true;
-    return hasMissingCommentError(video.id);
-  };
-
-  const scheduleBackgroundMetadataFetch = (
-    items: Array<{ id: string; sourceUrl?: string | null }>
-  ) => {
-    const outputDir = downloadDirRef.current.trim();
-    if (!outputDir || items.length === 0) return;
-    const normalizedItems = items
-      .map((item) => ({
-        id: item.id,
-        sourceUrl:
-          item.sourceUrl?.trim() || `https://www.youtube.com/watch?v=${item.id}`,
-      }))
-      .filter((item) => item.id);
-    const uniqueItems = normalizedItems.filter(
-      (item) => !pendingMetadataIdsRef.current.has(item.id)
-    );
-    if (uniqueItems.length === 0) return;
-
-    uniqueItems.forEach((item) => {
-      pendingMetadataIdsRef.current.add(item.id);
-      metadataQueueRef.current.push(item);
-    });
-
-    setMetadataFetch((prev) => ({
-      active: true,
-      total: prev.total + uniqueItems.length,
-      completed: prev.completed,
-    }));
-
-    const start = () => startNextMetadataDownload();
-    if (typeof window.requestIdleCallback === "function") {
-      window.requestIdleCallback(() => start(), { timeout: 1500 });
-      return;
-    }
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        window.setTimeout(start, 0);
-      });
-    });
-  };
-
-  const checkAndStartMetadataRecovery = useCallback(
-    async (force = false) => {
-      if (!ytDlpUpdateDoneRef.current) return;
-      if (autoMetadataCheckRef.current) return;
-      if (metadataPausedRef.current) return;
-      if (!force && ((integritySummary?.total ?? 0) > 0 || integrityIssues.length > 0)) return;
-      const outputDir = downloadDirRef.current.trim();
-      if (!outputDir) return;
-
-      autoMetadataCheckRef.current = true;
-      try {
-        const snapshot = videosRef.current;
-        const candidates: Array<{ id: string; sourceUrl?: string | null }> = [];
-
-        let infoIds = new Set<string>();
-        let chatIds = new Set<string>();
-        try {
-          const index = await invoke<{ infoIds: string[]; chatIds: string[] }>(
-            "get_metadata_index",
-            { outputDir }
-          );
-          infoIds = new Set(index?.infoIds ?? []);
-          chatIds = new Set(index?.chatIds ?? []);
-        } catch {
-          infoIds = new Set();
-          chatIds = new Set();
-        }
-
-        for (const video of snapshot) {
-          if (!video?.id) continue;
-          if (pendingMetadataIdsRef.current.has(video.id)) continue;
-          if (metadataActiveIdRef.current === video.id) continue;
-
-          const needsLiveChatRetry =
-            video.commentsStatus === "pending" || video.commentsStatus === "failed";
-
-          const hasInfo = infoIds.has(video.id);
-          const hasChat = chatIds.has(video.id);
-
-          if (!hasInfo || (needsLiveChatRetry && !hasChat)) {
-            candidates.push({ id: video.id, sourceUrl: video.sourceUrl });
-          }
-        }
-
-        if (candidates.length > 0) {
-          scheduleBackgroundMetadataFetch(candidates);
-        }
-      } finally {
-        autoMetadataCheckRef.current = false;
-      }
-    },
-    [scheduleBackgroundMetadataFetch, integritySummary, integrityIssues.length]
-  );
-
-  const runIntegrityCheck = useCallback(
-    async (openModal = true, overrideDir?: string) => {
-      setIntegrityMessage("");
-      const targetDir = overrideDir ?? downloadDir;
-      if (!targetDir) {
-        setIntegrityIssues([]);
-        setIntegritySummary(null);
-        setIntegrityMessage("保存先フォルダが未設定です。設定から選択してください。");
-        if (openModal) setIsIntegrityOpen(true);
-        return;
-      }
-
-      const items: LocalFileCheckItem[] = videosRef.current.map((video) => ({
-        id: video.id,
-        title: video.title,
-        checkVideo:
-          video.downloadStatus === "downloaded" || hasMissingVideoError(video.id),
-        checkComments: shouldCheckComments(video),
-      }));
-
-      if (items.length === 0) {
-        setIntegrityIssues([]);
-        setIntegritySummary({
-          total: 0,
-          videoMissing: 0,
-          commentsMissing: 0,
-          metadataMissing: 0,
-        });
-        if (openModal) setIsIntegrityOpen(true);
-        return;
-      }
-
-      setIntegrityRunning(true);
-      try {
-        const checks = await runStrictFileChecks(targetDir, items);
-        let infoIds: Set<string> | undefined;
-        try {
-          const index = await invoke<{ infoIds: string[] }>("get_metadata_index", {
-            outputDir: targetDir,
-          });
-          infoIds = new Set(index?.infoIds ?? []);
-        } catch {
-          infoIds = undefined;
-        }
-        applyLocalFileCheckResults(checks);
-        const issues = buildIntegrityReport(checks, infoIds);
-        setHasCheckedFiles(true);
-        if (issues.length === 0) {
-          void checkAndStartMetadataRecovery(true);
-        }
-      } catch {
-        setIntegrityMessage("整合性チェックに失敗しました。");
-      } finally {
-        setIntegrityRunning(false);
-        if (openModal) setIsIntegrityOpen(true);
-      }
-    },
-    [downloadDir, checkAndStartMetadataRecovery]
-  );
-
-  useEffect(() => {
-    if (!isStateReady || hasCheckedFiles) return;
-    if (!downloadDir || videos.length === 0) return;
-
-    const verifyLocalFiles = async () => {
-      const items: LocalFileCheckItem[] = videos.map((video) => ({
-        id: video.id,
-        title: video.title,
-        checkVideo:
-          video.downloadStatus === "downloaded" || hasMissingVideoError(video.id),
-        checkComments: shouldCheckComments(video),
-      }));
-
-      try {
-        const checks = await runLocalFileChecks(downloadDir, items);
-        applyLocalFileCheckResults(checks);
-        buildIntegrityReport(checks);
-        setHasCheckedFiles(true);
-      } catch {
-        setHasCheckedFiles(true);
-      }
-    };
-
-    void verifyLocalFiles();
-  }, [isStateReady, hasCheckedFiles, downloadDir, videos]);
-
-  const isDataCheckDone = useMemo(() => {
-    if (!isStateReady) return false;
-    if (!downloadDir || videos.length === 0) return true;
-    return hasCheckedFiles;
-  }, [isStateReady, downloadDir, videos.length, hasCheckedFiles]);
-
-  useEffect(() => {
-    if (!isStateReady) return;
-    const pending = localStorage.getItem(INTEGRITY_CHECK_PENDING_KEY);
-    if (pending !== "1") return;
-    localStorage.removeItem(INTEGRITY_CHECK_PENDING_KEY);
-    void runIntegrityCheck(true);
-  }, [isStateReady, runIntegrityCheck]);
-
-  useEffect(() => {
-    if (!isStateReady || !isDataCheckDone) return;
-    if (ytDlpUpdateRequestedRef.current) return;
-    ytDlpUpdateRequestedRef.current = true;
-    void invoke("update_yt_dlp");
-  }, [isStateReady, isDataCheckDone]);
-
-  const parseVideoId = (url: string) => {
-    try {
-      const u = new URL(url);
-      if (u.hostname.includes("youtu.be")) {
-        return u.pathname.replace("/", "");
-      }
-      if (u.pathname.startsWith("/shorts/")) {
-        return u.pathname.split("/shorts/")[1]?.split("/")[0] ?? null;
-      }
-      if (u.pathname.startsWith("/embed/")) {
-        return u.pathname.split("/embed/")[1]?.split("/")[0] ?? null;
-      }
-      return u.searchParams.get("v");
-    } catch {
-      return null;
-    }
-  };
-
-  const parseUploadDate = (value?: string | null) => {
-    if (!value) return undefined;
-    const trimmed = value.trim();
-    if (!trimmed) return undefined;
-    if (/^\d{8}$/.test(trimmed)) {
-      const y = trimmed.slice(0, 4);
-      const m = trimmed.slice(4, 6);
-      const d = trimmed.slice(6, 8);
-      const iso = new Date(`${y}-${m}-${d}T00:00:00Z`);
-      if (!Number.isNaN(iso.getTime())) return iso.toISOString();
-    }
-    return undefined;
-  };
-
-  const parseTimestamp = (value?: number | null) => {
-    if (typeof value === "number" && Number.isFinite(value)) {
-      return new Date(value * 1000).toISOString();
-    }
-    return undefined;
-  };
-
-  const deriveContentType = (input: {
-    webpageUrl?: string | null;
-    durationSec?: number | null;
-    liveStatus?: string | null;
-    isLive?: boolean | null;
-  }) => {
-    const liveStatus = input.liveStatus?.toLowerCase();
-    if (input.isLive || liveStatus === "is_live" || liveStatus === "upcoming") {
-      return "live" as const;
-    }
-    if (liveStatus === "post_live" || liveStatus === "was_live") {
-      return "live" as const;
-    }
-    if (input.webpageUrl?.includes("/shorts/")) {
-      return "shorts" as const;
-    }
-    if (typeof input.durationSec === "number" && input.durationSec <= 60) {
-      return "shorts" as const;
-    }
-    return "video" as const;
-  };
-
-  const buildMetadataFields = (input: {
-    webpageUrl?: string | null;
-    durationSec?: number | null;
-    uploadDate?: string | null;
-    releaseTimestamp?: number | null;
-    timestamp?: number | null;
-    liveStatus?: string | null;
-    isLive?: boolean | null;
-    wasLive?: boolean | null;
-    viewCount?: number | null;
-    likeCount?: number | null;
-    commentCount?: number | null;
-    tags?: string[] | null;
-    categories?: string[] | null;
-    description?: string | null;
-    channelId?: string | null;
-    uploaderId?: string | null;
-    channelUrl?: string | null;
-    uploaderUrl?: string | null;
-    availability?: string | null;
-    language?: string | null;
-    audioLanguage?: string | null;
-    ageLimit?: number | null;
-  }) => {
-    const publishedAt =
-      parseTimestamp(input.releaseTimestamp) ??
-      parseTimestamp(input.timestamp) ??
-      parseUploadDate(input.uploadDate);
-    return {
-      publishedAt,
-      contentType: deriveContentType(input),
-      durationSec:
-        typeof input.durationSec === "number" ? input.durationSec : undefined,
-      liveStatus: input.liveStatus ?? undefined,
-      isLive: input.isLive ?? undefined,
-      wasLive: input.wasLive ?? undefined,
-      viewCount:
-        typeof input.viewCount === "number" ? input.viewCount : undefined,
-      likeCount:
-        typeof input.likeCount === "number" ? input.likeCount : undefined,
-      commentCount:
-        typeof input.commentCount === "number" ? input.commentCount : undefined,
-      tags: Array.isArray(input.tags) ? input.tags : undefined,
-      categories: Array.isArray(input.categories) ? input.categories : undefined,
-      description: input.description ?? undefined,
-      channelId: input.channelId ?? undefined,
-      uploaderId: input.uploaderId ?? undefined,
-      channelUrl: input.channelUrl ?? undefined,
-      uploaderUrl: input.uploaderUrl ?? undefined,
-      availability: input.availability ?? undefined,
-      language: input.language ?? undefined,
-      audioLanguage: input.audioLanguage ?? undefined,
-      ageLimit:
-        typeof input.ageLimit === "number" ? input.ageLimit : undefined,
-    } satisfies Pick<
-      VideoItem,
-      | "publishedAt"
-      | "contentType"
-      | "durationSec"
-      | "liveStatus"
-      | "isLive"
-      | "wasLive"
-      | "viewCount"
-      | "likeCount"
-      | "commentCount"
-      | "tags"
-      | "categories"
-      | "description"
-      | "channelId"
-      | "uploaderId"
-      | "channelUrl"
-      | "uploaderUrl"
-      | "availability"
-      | "language"
-      | "audioLanguage"
-      | "ageLimit"
-    >;
-  };
-
-  const guessThumbnailExtension = (
-    url: string,
-    contentType: string | null
-  ) => {
-    const normalized = contentType?.toLowerCase() || "";
-    if (normalized.includes("image/jpeg") || normalized.includes("image/jpg")) return "jpg";
-    if (normalized.includes("image/png")) return "png";
-    if (normalized.includes("image/webp")) return "webp";
-    if (normalized.includes("image/gif")) return "gif";
-
-    const match = url.toLowerCase().match(/\.([a-z0-9]+)(?:\?|#|$)/);
-    if (match?.[1]) {
-      const ext = match[1];
-      if (["jpg", "jpeg", "png", "webp", "gif"].includes(ext)) {
-        return ext === "jpeg" ? "jpg" : ext;
-      }
-    }
-    return "jpg";
-  };
-
-  const convertImageToPng = async (buffer: ArrayBuffer) => {
-    try {
-      const blob = new Blob([buffer]);
-      const bitmap = await createImageBitmap(blob).catch(() => null);
-      if (!bitmap) return null;
-      const canvas = document.createElement("canvas");
-      canvas.width = bitmap.width;
-      canvas.height = bitmap.height;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return null;
-      ctx.drawImage(bitmap, 0, 0);
-      if (typeof bitmap.close === "function") {
-        bitmap.close();
-      }
-      const pngBlob = await new Promise<Blob | null>((resolve) =>
-        canvas.toBlob(resolve, "image/png")
-      );
-      if (!pngBlob) return null;
-      const pngBuffer = await pngBlob.arrayBuffer();
-      return new Uint8Array(pngBuffer);
-    } catch {
-      return null;
-    }
-  };
-
-  const deriveUploaderHandle = (
-    uploaderId?: string | null,
-    uploaderUrl?: string | null,
-    channelUrl?: string | null
-  ) => {
-    const id = (uploaderId ?? "").trim();
-    if (id.startsWith("@")) return id;
-    const fromUrl = (value?: string | null) => {
-      const raw = (value ?? "").trim();
-      if (!raw) return null;
-      const match = raw.match(/\/(@[^/?#]+)/);
-      return match?.[1] ?? null;
-    };
-    return fromUrl(uploaderUrl) ?? fromUrl(channelUrl);
-  };
-
-  const resolveThumbnailPath = async (
-    videoId: string,
-    title: string,
-    uploaderId: string | null | undefined,
-    uploaderUrl: string | null | undefined,
-    channelUrl: string | null | undefined,
-    thumbnailUrls: Array<string | null | undefined>
-  ) => {
-    const candidates = thumbnailUrls
-      .map((item) => (typeof item === "string" ? item.trim() : ""))
-      .filter((item) => item.length > 0);
-    if (candidates.length === 0) return undefined;
-    try {
-      for (const url of candidates) {
-        try {
-          const response = await fetch(url);
-          if (!response.ok) {
-            continue;
-          }
-          const contentType = response.headers.get("content-type");
-          const buffer = await response.arrayBuffer();
-          const converted = await convertImageToPng(buffer);
-          const extension = converted ? "png" : guessThumbnailExtension(url, contentType);
-          const data = Array.from(converted ?? new Uint8Array(buffer));
-          const handle = deriveUploaderHandle(uploaderId, uploaderUrl, channelUrl);
-          const savedPath = await invoke<string>("save_thumbnail", {
-            videoId,
-            title,
-            uploaderId: handle ?? null,
-            outputDir: downloadDirRef.current || null,
-            data,
-            extension,
-          });
-          return savedPath || url;
-        } catch {
-          // try next candidate
-        }
-      }
-      return candidates[0];
-    } catch {
-      return candidates[0];
-    }
-  };
-
-  const isRemoteThumbnail = (value?: string | null) => {
-    if (!value) return false;
-    return (
-      value.startsWith("http://") ||
-      value.startsWith("https://") ||
-      value.startsWith("asset://") ||
-      value.startsWith("data:")
-    );
-  };
-
-  const refreshThumbnailsForDir = async (outputDir: string) => {
-    const snapshot = videosRef.current;
-    if (!outputDir || snapshot.length === 0) return;
-    const updates = new Map<string, string>();
-    for (const video of snapshot) {
-      if (!video.thumbnail || isRemoteThumbnail(video.thumbnail)) continue;
-      try {
-        const resolved = await invoke<string | null>("resolve_thumbnail_path", {
-          outputDir,
-          id: video.id,
-        });
-        if (resolved && resolved !== video.thumbnail) {
-          updates.set(video.id, resolved);
-        }
-      } catch {
-        // ignore lookup failures
-      }
-    }
-    if (updates.size === 0) return;
-    setVideos((prev) =>
-      prev.map((item) => {
-        const next = updates.get(item.id);
-        return next ? { ...item, thumbnail: next } : item;
-      })
-    );
-  };
-
-  const buildThumbnailCandidates = (id: string, primary?: string | null) => [
-    `https://i.ytimg.com/vi/${id}/maxresdefault.jpg`,
-    `https://i.ytimg.com/vi/${id}/sddefault.jpg`,
-    primary,
-    `https://i.ytimg.com/vi/${id}/hqdefault.jpg`,
-  ];
-
-  const flushMetadataUpdates = () => {
-    if (metadataFlushTimerRef.current !== null) {
-      window.clearTimeout(metadataFlushTimerRef.current);
-      metadataFlushTimerRef.current = null;
-    }
-    const updates = new Map(pendingMetadataUpdatesRef.current);
-    pendingMetadataUpdatesRef.current.clear();
-    if (updates.size === 0) return;
-    setVideos((prev) =>
-      prev.map((item) => {
-        const patch = updates.get(item.id);
-        return patch ? ({ ...item, ...patch } satisfies VideoItem) : item;
-      })
-    );
-  };
-
-  const scheduleMetadataFlush = () => {
-    if (metadataFlushTimerRef.current !== null) return;
-    metadataFlushTimerRef.current = window.setTimeout(() => {
-      flushMetadataUpdates();
-    }, 300);
-  };
-
-
-  useEffect(() => {
-    if (!isStateReady || autoMetadataStartupRef.current) return;
-    if (!isDataCheckDone || !ytDlpUpdateDone) return;
-    autoMetadataStartupRef.current = true;
-    void checkAndStartMetadataRecovery();
-  }, [isStateReady, isDataCheckDone, ytDlpUpdateDone, checkAndStartMetadataRecovery]);
-
-  useEffect(() => {
-    const wasActive = prevMetadataActiveRef.current;
-    if (wasActive && !metadataFetch.active) {
-      void checkAndStartMetadataRecovery();
-    }
-    prevMetadataActiveRef.current = metadataFetch.active;
-  }, [metadataFetch.active, checkAndStartMetadataRecovery]);
-
-  const toThumbnailSrc = (thumbnail?: string) => {
-    if (!thumbnail) return undefined;
-    if (
-      thumbnail.startsWith("http://") ||
-      thumbnail.startsWith("https://") ||
-      thumbnail.startsWith("asset://") ||
-      thumbnail.startsWith("data:")
-    ) {
-      return thumbnail;
-    }
-    return convertFileSrc(thumbnail);
-  };
-
-
-  const addVideo = async () => {
-    setErrorMessage("");
-    const trimmed = videoUrl.trim();
-    const id = parseVideoId(trimmed);
-    if (!id) {
-      setErrorMessage("YouTubeの動画URLを正しく入力してください。");
-      return;
-    }
-
-    if (videos.some((v) => v.id === id)) {
-      setErrorMessage("同じ動画がすでに追加されています。");
-      return;
-    }
-
-    setIsAdding(true);
-    setIsAddOpen(false);
-    try {
-      const oembedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${id}&format=json`;
-      const oembedRes = await fetch(oembedUrl);
-      const data = oembedRes.ok ? await oembedRes.json() : null;
-      const metaFields = buildMetadataFields({
-        webpageUrl: null,
-        durationSec: null,
-        uploadDate: null,
-        releaseTimestamp: null,
-        timestamp: null,
-        liveStatus: null,
-        isLive: null,
-        wasLive: null,
-        viewCount: null,
-        likeCount: null,
-        commentCount: null,
-        tags: null,
-        categories: null,
-        description: null,
-        channelId: null,
-        uploaderId: null,
-        channelUrl: null,
-        uploaderUrl: null,
-        availability: null,
-        language: null,
-        audioLanguage: null,
-        ageLimit: null,
-      });
-      const primaryThumbnail = data?.thumbnail_url ?? null;
-      const newVideo: VideoItem = {
-        id,
-        title: data?.title ?? "Untitled",
-        channel: data?.author_name ?? "YouTube",
-        thumbnail:
-          primaryThumbnail ?? `https://i.ytimg.com/vi/${id}/hqdefault.jpg`,
-        sourceUrl: trimmed,
-        ...metaFields,
-        downloadStatus: "pending",
-        commentsStatus: "pending",
-        addedAt: new Date().toISOString(),
-      };
-      setVideos((prev) => [newVideo, ...prev]);
-      scheduleBackgroundMetadataFetch([{ id, sourceUrl: trimmed }]);
-      if (downloadOnAdd) {
-        void startDownload(newVideo);
-      }
-      setVideoUrl("");
-      setIsAddOpen(false);
-    } catch {
-      setErrorMessage("動画情報の取得に失敗しました。");
-      setIsAddOpen(true);
-    } finally {
-      setIsAdding(false);
-    }
-  };
-
-  const addChannelVideos = async () => {
-    setErrorMessage("");
-    const trimmed = channelUrl.trim();
-    if (!trimmed) {
-      setErrorMessage("チャンネルURLを入力してください。");
-      return;
-    }
-
-    setIsAdding(true);
-    setIsChannelFetchOpen(true);
-    setChannelFetchProgress(0);
-    setChannelFetchMessage("チャンネル情報を取得中...");
-    try {
-      setChannelFetchProgress(5);
-      setChannelFetchMessage("動画一覧を取得中...");
-      const result = await invoke<ChannelFeedItem[]>("list_channel_videos", {
-        url: trimmed,
-        cookiesFile: cookiesFile || null,
-        cookiesSource: cookiesSource || null,
-        cookiesBrowser: cookiesSource === "browser" ? cookiesBrowser || null : null,
-        remoteComponents: remoteComponents === "none" ? null : remoteComponents,
-        ytDlpPath: ytDlpPath || null,
-        limit: null,
-      });
-      setChannelFetchProgress(10);
-
-      const existingIds = new Set(videos.map((v) => v.id));
-      const candidates = (result ?? []).filter(
-        (item) => item?.id && !existingIds.has(item.id)
-      );
-      const totalCandidates = candidates.length;
-      setChannelFetchMessage(
-        `動画リストを整理中... (0/${Math.max(totalCandidates, 0)})`
-      );
-
-      const baseTime = Date.now();
-      const total = result?.length ?? 0;
-      let completed = 0;
-      const newItems = await Promise.all(
-        candidates.map(async (item, index) => {
-            const addedAt = new Date(baseTime + (total - index)).toISOString();
-            const metaFields = buildMetadataFields({
-              webpageUrl: item.webpageUrl ?? item.url ?? null,
-              durationSec: item.durationSec ?? null,
-              uploadDate: item.uploadDate ?? null,
-              releaseTimestamp: item.releaseTimestamp ?? null,
-              timestamp: item.timestamp ?? null,
-              liveStatus: item.liveStatus ?? null,
-              isLive: item.isLive ?? null,
-              wasLive: item.wasLive ?? null,
-              viewCount: item.viewCount ?? null,
-              likeCount: item.likeCount ?? null,
-              commentCount: item.commentCount ?? null,
-              tags: item.tags ?? null,
-              categories: item.categories ?? null,
-              description: item.description ?? null,
-              channelId: item.channelId ?? null,
-              uploaderId: item.uploaderId ?? null,
-              channelUrl: item.channelUrl ?? null,
-              uploaderUrl: item.uploaderUrl ?? null,
-              availability: item.availability ?? null,
-              language: item.language ?? null,
-              audioLanguage: item.audioLanguage ?? null,
-              ageLimit: item.ageLimit ?? null,
-            });
-            const primaryThumbnail = item.thumbnail ?? null;
-            const fallbackThumbnail = `https://i.ytimg.com/vi/${item.id}/hqdefault.jpg`;
-            completed += 1;
-            const ratio = totalCandidates > 0 ? completed / totalCandidates : 1;
-            const progress = Math.min(95, Math.round(10 + ratio * 85));
-            setChannelFetchProgress(progress);
-            setChannelFetchMessage(
-              `動画リストを整理中... (${completed}/${totalCandidates})`
-            );
-            return {
-              id: item.id,
-              title: item.title || "Untitled",
-              channel: item.channel?.trim() || "YouTube",
-              thumbnail: primaryThumbnail ?? fallbackThumbnail,
-              sourceUrl: item.url || `https://www.youtube.com/watch?v=${item.id}`,
-              ...metaFields,
-              downloadStatus: "pending" as const,
-              commentsStatus: "pending" as const,
-              addedAt,
-            } satisfies VideoItem;
-          })
-      );
-
-      if (newItems.length === 0) {
-        setErrorMessage("追加できる新しい動画が見つかりませんでした。");
-        return;
-      }
-
-      setChannelFetchMessage(`追加中... (${newItems.length}件)`);
-      setVideos((prev) => [...newItems, ...prev]);
-      scheduleBackgroundMetadataFetch(
-        newItems.map((item) => ({ id: item.id, sourceUrl: item.sourceUrl }))
-      );
-      setChannelUrl("");
-      setIsAddOpen(false);
-      setChannelFetchProgress(100);
-      setChannelFetchMessage("完了しました");
-    } catch (err) {
-      const detail =
-        err instanceof Error
-          ? err.message
-          : typeof err === "string"
-            ? err
-            : "";
-      setErrorMessage(
-        detail
-          ? `チャンネルの動画取得に失敗しました。${detail}`
-          : "チャンネルの動画取得に失敗しました。"
-      );
-    } finally {
-      setIsAdding(false);
-      setTimeout(() => {
-        setIsChannelFetchOpen(false);
-        setChannelFetchProgress(0);
-        setChannelFetchMessage("");
-      }, 400);
-    }
-  };
-
-  const startNextBulkDownload = (stateOverride?: BulkDownloadState) => {
-    const state = stateOverride ?? bulkDownloadRef.current;
-    if (!state.active) return;
-
-    const queue = [...state.queue];
-    let completed = state.completed;
-    let nextVideo: VideoItem | undefined;
-    let nextId: string | undefined;
-
-    while (queue.length > 0) {
-      const candidateId = queue.shift();
-      if (!candidateId) continue;
-      const candidate = videosRef.current.find((v) => v.id === candidateId);
-      if (!candidate || candidate.downloadStatus === "downloaded") {
-        completed += 1;
-        continue;
-      }
-      nextVideo = candidate;
-      nextId = candidateId;
-      break;
-    }
-
-    if (!nextVideo || !nextId) {
-      const doneState: BulkDownloadState = {
-        ...state,
-        active: false,
-        queue: [],
-        completed,
-        currentId: null,
-        currentTitle: "",
-        stopRequested: false,
-      };
-      setBulkDownload(doneState);
-      bulkDownloadRef.current = doneState;
-      return;
-    }
-
-    const nextState: BulkDownloadState = {
-      ...state,
-      queue,
-      completed,
-      currentId: nextId,
-      currentTitle: nextVideo.title,
-      phase: "video",
-    };
-    setBulkDownload(nextState);
-    bulkDownloadRef.current = nextState;
-    void startDownload(nextVideo);
-  };
-
-  const handleBulkCompletion = (id: string, cancelled: boolean) => {
-    const state = bulkDownloadRef.current;
-    if (!state.active || state.currentId !== id) return;
-    setPendingCommentIds((prev) => prev.filter((item) => item !== id));
-
-    const nextState: BulkDownloadState = {
-      ...state,
-      completed: state.completed + 1,
-      currentId: null,
-      currentTitle: "",
-      phase: null,
-    };
-
-    if (state.stopRequested || cancelled) {
-      const finalState: BulkDownloadState = {
-        ...nextState,
-        active: false,
-        queue: [],
-        stopRequested: false,
-      };
-      setBulkDownload(finalState);
-      bulkDownloadRef.current = finalState;
-      return;
-    }
-
-    setBulkDownload(nextState);
-    bulkDownloadRef.current = nextState;
-    startNextBulkDownload(nextState);
-  };
-
-  const maybeStartAutoCommentsDownload = (id: string) => {
-    if (bulkDownloadRef.current.active) return;
-    const video = videosRef.current.find((item) => item.id === id);
-    if (!video) return;
-    if (video.commentsStatus === "downloaded") return;
-    if (video.commentsStatus === "unavailable") return;
-    if (commentsDownloadingIds.includes(id)) return;
-    setPendingCommentIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
-    void startCommentsDownload(video);
-  };
-
-  const startBulkDownload = () => {
-    const outputDir = downloadDirRef.current.trim();
-    if (!outputDir) {
-      setErrorMessage("保存先フォルダが未設定です。設定から選択してください。");
-      setIsSettingsOpen(true);
-      return;
-    }
-    if (bulkDownloadRef.current.active) return;
-    if (downloadingIds.length > 0) {
-      setErrorMessage("他のダウンロードが進行中です。完了後に一括ダウンロードしてください。");
-      return;
-    }
-    const targets = videosRef.current.filter(
-      (video) => video.downloadStatus !== "downloaded"
-    );
-    if (targets.length === 0) {
-      setErrorMessage("未ダウンロードの動画がありません。");
-      return;
-    }
-
-    const nextState: BulkDownloadState = {
-      active: true,
-      total: targets.length,
-      completed: 0,
-      currentId: null,
-      currentTitle: "",
-      queue: targets.map((video) => video.id),
-      stopRequested: false,
-      phase: null,
-    };
-    setBulkDownload(nextState);
-    bulkDownloadRef.current = nextState;
-    startNextBulkDownload(nextState);
-  };
-
-  const stopBulkDownload = async () => {
-    const state = bulkDownloadRef.current;
-    if (!state.active || !state.currentId) return;
-
-    const nextState: BulkDownloadState = { ...state, stopRequested: true };
-    setBulkDownload(nextState);
-    bulkDownloadRef.current = nextState;
-
-    try {
-      await invoke("stop_download", { id: state.currentId });
-    } catch {
-      setErrorMessage("ダウンロード停止に失敗しました。");
-      const recoverState = { ...nextState, stopRequested: false };
-      setBulkDownload(recoverState);
-      bulkDownloadRef.current = recoverState;
-    }
-  };
-
-  const startDownload = async (video: VideoItem) => {
-    const outputDir = downloadDirRef.current.trim();
-    if (!outputDir) {
-      setErrorMessage("保存先フォルダが未設定です。設定から選択してください。");
-      setIsSettingsOpen(true);
-      return;
-    }
-    setDownloadingIds((prev) => (prev.includes(video.id) ? prev : [...prev, video.id]));
-    setVideos((prev) =>
-      prev.map((v) =>
-        v.id === video.id ? { ...v, downloadStatus: "downloading" } : v
-      )
-    );
-    try {
-      await invoke("start_download", {
-        id: video.id,
-        url: video.sourceUrl,
-        outputDir,
-        cookiesFile: cookiesFile || null,
-        cookiesSource: cookiesSource || null,
-        cookiesBrowser: cookiesSource === "browser" ? cookiesBrowser || null : null,
-        remoteComponents: remoteComponents === "none" ? null : remoteComponents,
-        ytDlpPath: ytDlpPath || null,
-        ffmpegPath: ffmpegPath || null,
-      });
-    } catch {
-      setVideos((prev) =>
-        prev.map((v) =>
-          v.id === video.id ? { ...v, downloadStatus: "failed" } : v
-        )
-      );
-      setVideoErrors((prev) => ({
-        ...prev,
-        [video.id]: "yt-dlpの実行に失敗しました。",
-      }));
-      setProgressLines((prev) => ({
-        ...prev,
-        [video.id]: "yt-dlpの実行に失敗しました。",
-      }));
-      setErrorMessage("ダウンロードに失敗しました。詳細を確認してください。");
-      setDownloadingIds((prev) => prev.filter((id) => id !== video.id));
-      handleBulkCompletion(video.id, false);
-    }
-  };
-
-  const startCommentsDownload = async (video: VideoItem) => {
-    if (video.commentsStatus === "unavailable") {
-      return;
-    }
-    const outputDir = downloadDirRef.current.trim();
-    if (!outputDir) {
-      setErrorMessage("保存先フォルダが未設定です。設定から選択してください。");
-      setIsSettingsOpen(true);
-      return;
-    }
-    setPendingCommentIds((prev) => prev.filter((id) => id !== video.id));
-    setCommentsDownloadingIds((prev) =>
-      prev.includes(video.id) ? prev : [...prev, video.id]
-    );
-    setVideos((prev) =>
-      prev.map((v) =>
-        v.id === video.id ? { ...v, commentsStatus: "downloading" } : v
-      )
-    );
-    try {
-      await invoke("start_comments_download", {
-        id: video.id,
-        url: video.sourceUrl,
-        outputDir,
-        cookiesFile: cookiesFile || null,
-        cookiesSource: cookiesSource || null,
-        cookiesBrowser: cookiesSource === "browser" ? cookiesBrowser || null : null,
-        remoteComponents: remoteComponents === "none" ? null : remoteComponents,
-        ytDlpPath: ytDlpPath || null,
-        ffmpegPath: ffmpegPath || null,
-      });
-    } catch {
-      setVideos((prev) =>
-        prev.map((v) =>
-          v.id === video.id ? { ...v, commentsStatus: "failed" } : v
-        )
-      );
-      setCommentErrors((prev) => ({
-        ...prev,
-        [video.id]: "yt-dlpの実行に失敗しました。",
-      }));
-      setCommentProgressLines((prev) => ({
-        ...prev,
-        [video.id]: "yt-dlpの実行に失敗しました。",
-      }));
-      setErrorMessage("ライブチャット取得に失敗しました。詳細を確認してください。");
-      setCommentsDownloadingIds((prev) => prev.filter((id) => id !== video.id));
-    }
-  };
-
-  const loadPlayerComments = async (video: VideoItem) => {
-    setPlayerCommentsLoading(true);
-    setPlayerCommentsError("");
-    setPlayerComments([]);
-    if (video.commentsStatus !== "downloaded") {
-      setPlayerCommentsLoading(false);
-      setPlayerCommentsError("ライブチャット未取得のため同期表示できません。");
-      return;
-    }
-    try {
-      const result = await invoke<CommentItem[]>("get_comments", {
-        id: video.id,
-        outputDir: downloadDir,
-      });
-      setPlayerComments(result ?? []);
-    } catch {
-      setPlayerCommentsError("ライブチャットの読み込みに失敗しました。");
-    } finally {
-      setPlayerCommentsLoading(false);
-    }
-  };
-
-  const openPlayerWindow = async (
-    video: VideoItem,
-    options?: { skipConfirm?: boolean }
-  ) => {
-    const label = "player";
-    const existing = await WebviewWindow.getByLabel(label);
-    if (existing) {
-      try {
-        const isDifferentVideo =
-          playerWindowActiveId !== null
-            ? playerWindowActiveId !== video.id
-            : true;
-        if (isDifferentVideo && !options?.skipConfirm) {
-          const currentTitle = playerWindowActiveTitle || "再生中の動画";
-          setSwitchConfirmMessage(
-            `${currentTitle}を再生中ですが切り替えますか？`
-          );
-          setPendingSwitchVideo(video);
-          setIsSwitchConfirmOpen(true);
-          return;
-        }
-        await emitTo(label, "player-open", { id: video.id });
-        try {
-          await existing.setTitle(video.title);
-        } catch {
-          // ignore title errors
-        }
-        await existing.setFocus();
-        existing.once("tauri://destroyed", () => {
-          setPlayerWindowActiveId(null);
-          setPlayerWindowActiveTitle("");
-        });
-        setPlayerWindowActiveId(video.id);
-        setPlayerWindowActiveTitle(video.title);
-      } catch {
-        setErrorMessage("プレイヤーウィンドウの起動に失敗しました。");
-      }
-      return;
-    }
-
-    const url = `index.html?player=1&videoId=${encodeURIComponent(video.id)}`;
-    const playerWindow = new WebviewWindow(label, {
-      title: video.title,
-      url,
-      width: 1200,
-      height: 800,
-      resizable: true,
-    });
-    playerWindow.once("tauri://created", () => {
-      void emitTo(label, "player-open", { id: video.id });
-    });
-    playerWindow.once("tauri://error", () => {
-      setErrorMessage("プレイヤーウィンドウの作成に失敗しました。");
-    });
-    playerWindow.once("tauri://destroyed", () => {
-      setPlayerWindowActiveId(null);
-      setPlayerWindowActiveTitle("");
-    });
-    setPlayerWindowActiveId(video.id);
-    setPlayerWindowActiveTitle(video.title);
-  };
-
-  const closeSwitchConfirm = () => {
-    setIsSwitchConfirmOpen(false);
-    setSwitchConfirmMessage("");
-    setPendingSwitchVideo(null);
-  };
-
-  const confirmSwitch = async () => {
-    const target = pendingSwitchVideo;
-    closeSwitchConfirm();
-    if (!target) return;
-    await openPlayerWindow(target, { skipConfirm: true });
-  };
-
-  const openPlayer = async (video: VideoItem) => {
-    if (!isPlayerWindow) {
-      if (!downloadDir) {
-        setErrorMessage("保存先フォルダが未設定です。設定から選択してください。");
-        setIsSettingsOpen(true);
-        return;
-      }
-      await openPlayerWindow(video);
-      return;
-    }
-
-    if (!downloadDir) {
-      setPlayerError("保存先フォルダが未設定のため再生できません。");
-      setIsPlayerOpen(true);
-      return;
-    }
-
-    setPlayerLoading(true);
-    setPlayerError("");
-    setPlayerTitle(video.title);
-    try {
-      await getCurrentWindow().setTitle(video.title);
-    } catch {
-      // ignore title errors
-    }
-    if (isPlayerWindow) {
-      try {
-        await emitTo("main", "player-active", {
-          id: video.id,
-          title: video.title,
-        });
-      } catch {
-        // ignore event errors
-      }
-    }
-    setPlayerSrc(null);
-    setPlayerVideoId(video.id);
-    setPlayerDebug("");
-    setPlayerFilePath(null);
-    setPlayerTimeMs(0);
-    setIsChatAutoScroll(true);
-    setIsPlayerOpen(true);
-    void loadPlayerComments(video);
-
-    try {
-      const filePath = await invoke<string | null>("resolve_video_file", {
-        id: video.id,
-        title: video.title,
-        outputDir: downloadDir,
-      });
-      if (!filePath) {
-        setPlayerError("動画ファイルが見つかりませんでした。");
-        return;
-      }
-      setPlayerFilePath(filePath);
-      try {
-        const info = await invoke<{
-          videoCodec?: string | null;
-          audioCodec?: string | null;
-          width?: number | null;
-          height?: number | null;
-          duration?: number | null;
-          container?: string | null;
-        }>("probe_media", { filePath, ffprobePath: ffprobePath || null });
-        setMediaInfoById((prev) => ({ ...prev, [video.id]: info }));
-      } catch {
-        // ignore probe errors here; user can run manual check
-      }
-      const src = convertFileSrc(filePath);
-      setPlayerSrc(src);
-    } catch {
-      setPlayerError("動画ファイルの読み込みに失敗しました。");
-    } finally {
-      setPlayerLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    if (!isPlayerWindow || !isStateReady || !pendingPlayerId) return;
-    const target = videosRef.current.find((item) => item.id === pendingPlayerId);
-    if (!target) {
-      setPlayerTitle("動画が見つかりませんでした。");
-      setPlayerError("ライブラリに該当する動画が見つかりませんでした。");
-      setIsPlayerOpen(true);
-      return;
-    }
-    void openPlayer(target);
-  }, [isPlayerWindow, isStateReady, pendingPlayerId]);
-
-  useEffect(() => {
-    if (!isPlayerWindow || !isPlayerOpen) return;
-    const video = playerVideoRef.current;
-    if (!video || !playerSrc || playerError) return;
-    if (video.readyState >= 2) {
-      requestAutoPlay();
-      return;
-    }
-    const handleCanPlay = () => {
-      requestAutoPlay();
-    };
-    video.addEventListener("canplay", handleCanPlay, { once: true });
-    return () => {
-      video.removeEventListener("canplay", handleCanPlay);
-    };
-  }, [isPlayerWindow, isPlayerOpen, playerSrc, playerError, requestAutoPlay]);
-
-  const closePlayer = () => {
-    setIsPlayerOpen(false);
-    setPlayerSrc(null);
-    setPlayerError("");
-    setPlayerTitle("");
-    setPlayerVideoId(null);
-    setPlayerDebug("");
-    setPlayerFilePath(null);
-    setPlayerComments([]);
-    setPlayerCommentsError("");
-    setPlayerCommentsLoading(false);
-    setPlayerTimeMs(0);
-    setIsChatAutoScroll(true);
-  };
-
-  const openExternalPlayer = async () => {
-    if (!playerFilePath) return;
-    try {
-      await openPath(playerFilePath);
-    } catch {
-      setPlayerError("外部プレイヤーの起動に失敗しました。");
-    }
-  };
-
-  const revealInFolder = async () => {
-    if (!playerFilePath) return;
-    try {
-      await revealItemInDir(playerFilePath);
-    } catch {
-      setPlayerError("フォルダの表示に失敗しました。");
-    }
-  };
-
-  const formatDuration = (value?: number | null) => {
-    if (!value || Number.isNaN(value)) return "";
-    const total = Math.floor(value);
-    const hours = Math.floor(total / 3600);
-    const minutes = Math.floor((total % 3600) / 60);
-    const seconds = total % 60;
-    if (hours > 0) {
-      return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
-    }
-    return `${minutes}:${String(seconds).padStart(2, "0")}`;
-  };
-
-  const formatClock = (ms?: number | null) => {
-    if (ms === undefined || ms === null || Number.isNaN(ms)) return "";
-    const total = Math.max(0, Math.floor(ms / 1000));
-    const minutes = Math.floor(total / 60);
-    const seconds = total % 60;
-    return `${minutes}:${String(seconds).padStart(2, "0")}`;
-  };
-
-  const sortedPlayerComments = useMemo(() => {
-    return [...playerComments]
-      .filter((item) => typeof item.offsetMs === "number")
-      .sort((a, b) => (a.offsetMs ?? 0) - (b.offsetMs ?? 0));
-  }, [playerComments]);
-
-  const findLastCommentIndex = (list: CommentItem[], timeMs: number) => {
-    let lo = 0;
-    let hi = list.length - 1;
-    let ans = -1;
-    while (lo <= hi) {
-      const mid = Math.floor((lo + hi) / 2);
-      const value = list[mid].offsetMs ?? 0;
-      if (value <= timeMs) {
-        ans = mid;
-        lo = mid + 1;
-      } else {
-        hi = mid - 1;
-      }
-    }
-    return ans;
-  };
-
-  const playerVisibleComments = useMemo(() => {
-    if (sortedPlayerComments.length === 0) return [];
-    const idx = findLastCommentIndex(sortedPlayerComments, playerTimeMs);
-    if (idx < 0) return [];
-    const start = Math.max(0, idx - 49);
-    return sortedPlayerComments.slice(start, idx + 1);
-  }, [sortedPlayerComments, playerTimeMs]);
-
-  useEffect(() => {
-    if (!isChatAutoScroll) return;
-    playerChatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [playerVisibleComments, isChatAutoScroll]);
-
-  const pickDownloadDir = async () => {
-    setErrorMessage("");
-    try {
-      const selected = await openDialog({
-        directory: true,
-        multiple: false,
-        title: "保存先フォルダを選択",
-      });
-      if (typeof selected === "string" && selected) {
-        setDownloadDir(selected);
-        localStorage.setItem(DOWNLOAD_DIR_KEY, selected);
-        await persistSettings(selected);
-      }
-    } catch {
-      setErrorMessage("保存先の設定に失敗しました。");
-    }
-  };
-
-  const relinkLibraryFolder = async () => {
-    setIntegrityMessage("");
-    try {
-      const selected = await openDialog({
-        directory: true,
-        multiple: false,
-        title: "再リンク先のライブラリフォルダを選択",
-      });
-      if (typeof selected !== "string" || !selected) return;
-      setDownloadDir(selected);
-      localStorage.setItem(DOWNLOAD_DIR_KEY, selected);
-      await persistSettings(selected);
-      await refreshThumbnailsForDir(selected);
-      await runIntegrityCheck(true, selected);
-    } catch {
-      setIntegrityMessage("再リンクに失敗しました。");
-    }
-  };
-
-  const persistSettings = async (nextDownloadDir?: string) => {
-    try {
-      await invoke("save_state", {
-        state: {
-          videos: videosRef.current,
-          downloadDir: (nextDownloadDir ?? downloadDir) || null,
-          cookiesFile: cookiesFile || null,
-          cookiesSource: cookiesSource || null,
-          cookiesBrowser: cookiesBrowser || null,
-          remoteComponents: remoteComponents || null,
-          ytDlpPath: ytDlpPath || null,
-          ffmpegPath: ffmpegPath || null,
-          ffprobePath: ffprobePath || null,
-        } satisfies PersistedState,
-      });
-    } catch {
-      // ignore store errors to avoid blocking UI
-    }
-  };
-
-  const closeSettings = async () => {
-    await persistSettings();
-    setIsSettingsOpen(false);
-  };
-
-  const exportBackup = async () => {
-    setErrorMessage("");
-    setBackupMessage("");
-    setBackupRestartRequired(false);
-    try {
-      await persistSettings();
-      const dir = await openDialog({
-        directory: true,
-        multiple: false,
-        title: "バックアップ保存先フォルダを選択",
-      });
-      if (typeof dir !== "string" || !dir) return;
-      const target = await join(dir, "ytlv-backup.zip");
-      await invoke("export_state", { outputPath: target });
-      setBackupMessage("バックアップのエクスポートが完了しました。");
-      setIsBackupNoticeOpen(true);
-    } catch {
-      setErrorMessage("バックアップの作成に失敗しました。");
-    }
-  };
-
-  const importBackup = async () => {
-    setErrorMessage("");
-    setBackupMessage("");
-    setBackupRestartRequired(false);
-    try {
-      const selected = await openDialog({
-        directory: false,
-        multiple: false,
-        title: "バックアップを選択",
-      });
-      if (typeof selected !== "string" || !selected) return;
-      await invoke("import_state", { inputPath: selected });
-      localStorage.setItem(INTEGRITY_CHECK_PENDING_KEY, "1");
-      setBackupMessage("バックアップのインポートが完了しました。再起動してください。");
-      setIsBackupNoticeOpen(true);
-      setBackupRestartRequired(true);
-      setBackupRestartCountdown(10);
-      const intervalId = window.setInterval(() => {
-        setBackupRestartCountdown((prev) => {
-          if (prev <= 1) {
-            window.clearInterval(intervalId);
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-      window.setTimeout(() => {
-        window.location.reload();
-      }, 10_000);
-    } catch {
-      setErrorMessage("バックアップの復元に失敗しました。");
-    }
-  };
-
-  const pickCookiesFile = async () => {
-    setErrorMessage("");
-    try {
-      const selected = await openDialog({
-        directory: false,
-        multiple: false,
-        title: "Cookieファイルを選択",
-      });
-      if (typeof selected === "string" && selected) {
-        setCookiesFile(selected);
-        localStorage.setItem(COOKIES_FILE_KEY, selected);
-        setCookiesSource("file");
-        localStorage.setItem(COOKIES_SOURCE_KEY, "file");
-      }
-    } catch {
-      setErrorMessage("Cookieファイルの設定に失敗しました。");
-    }
-  };
-
-  const pickYtDlpPath = async () => {
-    setErrorMessage("");
-    try {
-      const selected = await openDialog({
-        directory: false,
-        multiple: false,
-        title: "yt-dlpの実行ファイルを選択",
-      });
-      if (typeof selected === "string" && selected) {
-        setYtDlpPath(selected);
-        localStorage.setItem(YTDLP_PATH_KEY, selected);
-      }
-    } catch {
-      setErrorMessage("yt-dlpの設定に失敗しました。");
-    }
-  };
-
-  const pickFfmpegPath = async () => {
-    setErrorMessage("");
-    try {
-      const selected = await openDialog({
-        directory: false,
-        multiple: false,
-        title: "ffmpegの実行ファイルを選択",
-      });
-      if (typeof selected === "string" && selected) {
-        setFfmpegPath(selected);
-        localStorage.setItem(FFMPEG_PATH_KEY, selected);
-      }
-    } catch {
-      setErrorMessage("ffmpegの設定に失敗しました。");
-    }
-  };
-
-  const pickFfprobePath = async () => {
-    setErrorMessage("");
-    try {
-      const selected = await openDialog({
-        directory: false,
-        multiple: false,
-        title: "ffprobeの実行ファイルを選択",
-      });
-      if (typeof selected === "string" && selected) {
-        setFfprobePath(selected);
-        localStorage.setItem(FFPROBE_PATH_KEY, selected);
-      }
-    } catch {
-      setErrorMessage("ffprobeの設定に失敗しました。");
-    }
-  };
-
-  const updateRemoteComponents = (value: "none" | "ejs:github" | "ejs:npm") => {
-    setRemoteComponents(value);
-    if (value === "none") {
-      localStorage.removeItem(REMOTE_COMPONENTS_KEY);
-    } else {
-      localStorage.setItem(REMOTE_COMPONENTS_KEY, value);
-    }
-  };
-
-  const updateCookiesSource = (value: "none" | "file" | "browser") => {
-    setCookiesSource(value);
-    if (value === "none") {
-      localStorage.removeItem(COOKIES_SOURCE_KEY);
-      return;
-    }
-    localStorage.setItem(COOKIES_SOURCE_KEY, value);
-    if (value === "browser" && !cookiesBrowser) {
-      const fallback = "chrome";
-      setCookiesBrowser(fallback);
-      localStorage.setItem(COOKIES_BROWSER_KEY, fallback);
-    }
-  };
-
-  const updateCookiesBrowser = (value: string) => {
-    setCookiesBrowser(value);
-    if (!value) {
-      localStorage.removeItem(COOKIES_BROWSER_KEY);
-    } else {
-      localStorage.setItem(COOKIES_BROWSER_KEY, value);
-    }
-  };
-
-  const parseDateValue = (value?: string) => {
-    if (!value) return null;
-    const trimmed = value.trim();
-    if (!trimmed) return null;
-    if (/^\d{10,13}$/.test(trimmed)) {
-      const num = Number(trimmed);
-      if (!Number.isNaN(num)) {
-        return trimmed.length === 13 ? num : num * 1000;
-      }
-    }
-    const parsed = new Date(trimmed);
-    if (!Number.isNaN(parsed.getTime())) {
-      return parsed.getTime();
-    }
-    return null;
-  };
-
-  const getVideoSortTime = (video: VideoItem) => {
-    const published = parseDateValue(video.publishedAt);
-    if (published !== null) return published;
-    const added = parseDateValue(video.addedAt);
-    return added ?? 0;
-  };
-
-  const indexedVideos = useMemo<IndexedVideo[]>(() => {
-    const next = videos.map((video) => {
-      const searchText = [
-        video.title,
-        video.channel,
-        video.description,
-        video.id,
-        video.tags?.join(" "),
-        video.categories?.join(" "),
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      return {
-        ...video,
-        searchText,
-        sortTime: getVideoSortTime(video),
-      };
-    });
-    indexedVideosRef.current = next;
-    return next;
-  }, [videos]);
-
-  const sortedVideos = useMemo(() => {
-    const sorted = [...indexedVideos].sort((a, b) => {
-      const timeA = a.sortTime;
-      const timeB = b.sortTime;
-      if (timeA === timeB) {
-        return b.addedAt.localeCompare(a.addedAt);
-      }
-      return publishedSort === "published-desc"
-        ? timeB - timeA
-        : timeA - timeB;
-    });
-    sortedVideosRef.current = sorted;
-    return sorted;
-  }, [indexedVideos, publishedSort]);
-
-  const filteredVideos = useMemo(() => {
-    const normalizedQuery = deferredSearchQuery.trim().toLowerCase();
-    const tokens = normalizedQuery ? normalizedQuery.split(/\s+/) : [];
-    const next = sortedVideos.filter((video) => {
-      const matchesDownload =
-        downloadFilter === "all"
-          ? true
-          : downloadFilter === "downloaded"
-            ? video.downloadStatus === "downloaded"
-            : video.downloadStatus !== "downloaded";
-      const type = video.contentType ?? "video";
-      const matchesType = typeFilter === "all" ? true : type === typeFilter;
-      const matchesQuery =
-        tokens.length === 0
-          ? true
-          : tokens.every((token) => video.searchText.includes(token));
-      return matchesDownload && matchesType && matchesQuery;
-    });
-    filteredVideosRef.current = next;
-    return next;
-  }, [sortedVideos, downloadFilter, typeFilter, deferredSearchQuery]);
-
-  const hasUndownloaded = useMemo(
-    () => videos.some((video) => video.downloadStatus !== "downloaded"),
-    [videos]
-  );
-
-  const showAddSkeleton = isAdding && addMode === "video";
-
-  const renderSkeletonCard = () => (
-    <article className="video-card skeleton-card" aria-live="polite">
-      <div className="thumbnail skeleton thumbnail-skeleton" aria-hidden="true" />
-      <div className="video-info">
-        <div className="skeleton-line title skeleton" />
-        <div className="skeleton-line skeleton" />
-        <div className="skeleton-line small skeleton" />
-        <div className="skeleton-pill skeleton" />
-        <p className="skeleton-text" role="status">
-          読み込み中...
-        </p>
-      </div>
-    </article>
-  );
-
-  const renderVideoCard = (video: VideoItem) => {
-    const thumbnailSrc = toThumbnailSrc(video.thumbnail);
-    const isPlayable = video.downloadStatus === "downloaded";
-    return (
-      <article key={video.id} className="video-card">
-        <button
-          className={`thumbnail-button ${
-            isPlayable ? "is-playable" : "is-disabled"
-          }`}
-          type="button"
-          onClick={() => {
-            if (isPlayable) {
-              void openPlayer(video);
-            }
-          }}
-          disabled={!isPlayable}
-          aria-label={
-            isPlayable
-              ? `再生: ${video.title}`
-              : `未ダウンロードのため再生不可: ${video.title}`
-          }
-        >
-          <div className="thumbnail">
-            {thumbnailSrc && <img src={thumbnailSrc} alt={video.title} />}
-            <span className="play-overlay" aria-hidden="true">
-              ▶
-            </span>
-          </div>
-        </button>
-        <div className="video-info">
-          {(() => {
-            const isDownloading = downloadingIds.includes(video.id);
-            const isCommentsDownloading = commentsDownloadingIds.includes(video.id);
-            const displayStatus = isDownloading
-              ? "downloading"
-              : video.downloadStatus;
-            return (
-              <>
-                <h3>{video.title}</h3>
-                <p>{video.channel}</p>
-                {video.publishedAt && (
-                  <p>配信日: {formatPublishedAt(video.publishedAt)}</p>
-                )}
-                <span
-                  className={`badge ${
-                    displayStatus === "downloaded"
-                      ? "badge-success"
-                      : displayStatus === "downloading"
-                        ? "badge-pending"
-                        : displayStatus === "pending"
-                          ? "badge-pending"
-                          : "badge-muted"
-                  }`}
-                >
-                  {displayStatus === "downloaded"
-                    ? "ダウンロード済"
-                    : displayStatus === "downloading"
-                      ? "ダウンロード中"
-                      : displayStatus === "pending"
-                        ? "未ダウンロード"
-                        : "失敗"}
-                </span>
-                {displayStatus !== "downloaded" && (
-                  <button
-                    className="ghost small"
-                    onClick={() => startDownload(video)}
-                    disabled={isDownloading}
-                  >
-                    {isDownloading ? "ダウンロード中..." : "ダウンロード"}
-                  </button>
-                )}
-                {videoErrors[video.id] && (
-                  <button
-                    className="ghost tiny"
-                    onClick={() => {
-                      setErrorTargetId(video.id);
-                      setIsErrorOpen(true);
-                    }}
-                  >
-                    エラー詳細
-                  </button>
-                )}
-                {mediaInfoById[video.id] && (
-                  <p className="progress-line codec-line">
-                    動画: {mediaInfoById[video.id]?.videoCodec ?? "不明"}
-                    {mediaInfoById[video.id]?.width &&
-                    mediaInfoById[video.id]?.height
-                      ? ` ${mediaInfoById[video.id]?.width}x${
-                          mediaInfoById[video.id]?.height
-                        }`
-                      : ""}
-                    {mediaInfoById[video.id]?.duration
-                      ? ` / ${formatDuration(mediaInfoById[video.id]?.duration)}`
-                      : ""}
-                    {mediaInfoById[video.id]?.container
-                      ? ` / 容器: ${mediaInfoById[video.id]?.container}`
-                      : ""}
-                    {mediaInfoById[video.id]?.audioCodec
-                      ? ` / 音声: ${mediaInfoById[video.id]?.audioCodec}`
-                      : ""}
-                  </p>
-                )}
-                {video.commentsStatus !== "unavailable" && (
-                  <div className="comment-row">
-                    <span
-                      className={`badge ${
-                        isCommentsDownloading
-                          ? "badge-pending"
-                          : video.commentsStatus === "downloaded"
-                            ? "badge-success"
-                            : video.commentsStatus === "pending"
-                              ? "badge-pending"
-                              : "badge-muted"
-                      }`}
-                    >
-                      {isCommentsDownloading
-                        ? "ライブチャット取得中"
-                        : video.commentsStatus === "downloaded"
-                          ? "ライブチャット取得済"
-                          : video.commentsStatus === "pending"
-                            ? "ライブチャット未取得"
-                            : "ライブチャット失敗"}
-                    </span>
-                  </div>
-                )}
-              </>
-            );
-          })()}
-        </div>
-      </article>
-    );
-  };
-
-  const activeActivityItems = useMemo(() => {
-    if (bulkDownload.active) return [];
-    const ids = new Set([
-      ...downloadingIds,
-      ...commentsDownloadingIds,
-      ...pendingCommentIds,
-    ]);
-    return Array.from(ids).map((id) => {
-      const video = videos.find((item) => item.id === id);
-      const isVideo = downloadingIds.includes(id);
-      const isComment = commentsDownloadingIds.includes(id);
-      const status = isComment
-        ? "ライブチャット取得中"
-        : isVideo
-          ? "動画ダウンロード中"
-          : "ライブチャット準備中";
-      const line = isComment
-        ? commentProgressLines[id] ?? ""
-        : progressLines[id] ?? "";
-      return {
-        id,
-        title: video?.title ?? id,
-        status,
-        line,
-      };
-    });
-  }, [
-    downloadingIds,
-    commentsDownloadingIds,
-    pendingCommentIds,
-    videos,
-    progressLines,
-    commentProgressLines,
-    bulkDownload.active,
-  ]);
 
   const addDownloadErrorItem = useCallback(
     (id: string, phase: "video" | "comments" | "metadata", details: string) => {
@@ -2997,1267 +326,491 @@ function App() {
     []
   );
 
+  const {
+    hasCheckedFiles,
+    integrityIssues,
+    integritySummary,
+    integrityRunning,
+    integrityMessage,
+    runIntegrityCheck,
+    isDataCheckDone,
+    setIntegrityMessage,
+  } = useIntegrityCheck({
+    videos,
+    videosRef,
+    downloadDir,
+    isStateReady,
+    setVideos,
+    setVideoErrors,
+    setCommentErrors,
+    videoErrors,
+    commentErrors,
+    onMetadataRecovery: (force) =>
+      checkAndStartMetadataRecoveryRef.current(force),
+    setIsIntegrityOpen,
+  });
+
+  const { ytDlpNotices, dismissYtDlpNotice, ytDlpUpdateDone } =
+    useYtDlpUpdateNotices({
+      isStateReady,
+      isDataCheckDone,
+    });
+
+  const { resolveThumbnailPath, refreshThumbnailsForDir } =
+    useThumbnailManager({
+      videosRef,
+      downloadDirRef,
+      setVideos,
+    });
+
+  const {
+    persistSettings,
+    pickDownloadDir,
+    relinkLibraryFolder,
+    closeSettings,
+    updateRemoteComponents,
+    updateCookiesSource,
+    updateCookiesBrowser,
+    pickCookiesFile,
+    pickYtDlpPath,
+    pickFfmpegPath,
+    pickFfprobePath,
+    clearCookiesFile,
+    clearYtDlpPath,
+    clearFfmpegPath,
+    clearFfprobePath,
+  } = useSettingsActions({
+    videosRef,
+    downloadDir,
+    cookiesFile,
+    cookiesSource,
+    cookiesBrowser,
+    remoteComponents,
+    ytDlpPath,
+    ffmpegPath,
+    ffprobePath,
+    setDownloadDir,
+    setErrorMessage,
+    setIntegrityMessage,
+    setIsSettingsOpen,
+    setCookiesFile,
+    setCookiesSource,
+    setCookiesBrowser,
+    setRemoteComponents,
+    setYtDlpPath,
+    setFfmpegPath,
+    setFfprobePath,
+    refreshThumbnailsForDir,
+    runIntegrityCheck,
+    storageKeys,
+  });
+
+  const { exportBackup, importBackup } = useBackupActions({
+    persistSettings,
+    setErrorMessage,
+    setBackupMessage,
+    setBackupRestartRequired,
+    setIsBackupNoticeOpen,
+    setBackupRestartCountdown,
+    integrityCheckPendingKey: INTEGRITY_CHECK_PENDING_KEY,
+  });
+
+  const {
+    metadataFetch,
+    metadataPaused,
+    metadataPauseReason,
+    scheduleBackgroundMetadataFetch,
+    checkAndStartMetadataRecovery,
+    retryMetadataFetch,
+  } = useMetadataFetch({
+    videosRef,
+    downloadDirRef,
+    cookiesFile,
+    cookiesSource,
+    cookiesBrowser,
+    remoteComponents,
+    ytDlpPath,
+    ffmpegPath,
+    addDownloadErrorItem,
+    buildMetadataFields,
+    buildThumbnailCandidates,
+    resolveThumbnailPath,
+    setVideos,
+    isStateReady,
+    isDataCheckDone,
+    ytDlpUpdateDone,
+    integritySummaryTotal: integritySummary?.total ?? 0,
+    integrityIssuesLength: integrityIssues.length,
+  });
+
+  useEffect(() => {
+    checkAndStartMetadataRecoveryRef.current = checkAndStartMetadataRecovery;
+  }, [checkAndStartMetadataRecovery]);
+
+  useEffect(() => {
+    if (!isStateReady) return;
+    const pending = localStorage.getItem(INTEGRITY_CHECK_PENDING_KEY);
+    if (pending !== "1") return;
+    localStorage.removeItem(INTEGRITY_CHECK_PENDING_KEY);
+    void runIntegrityCheck(true);
+  }, [isStateReady, runIntegrityCheck]);
+
+  const { startDownload, startCommentsDownload } = useDownloadActions({
+    downloadDirRef,
+    cookiesFile,
+    cookiesSource,
+    cookiesBrowser,
+    remoteComponents,
+    ytDlpPath,
+    ffmpegPath,
+    setErrorMessage,
+    setIsSettingsOpen,
+    setDownloadingIds,
+    setCommentsDownloadingIds,
+    setPendingCommentIds,
+    setVideos,
+    setVideoErrors,
+    setCommentErrors,
+    setProgressLines,
+    setCommentProgressLines,
+    onStartFailedRef,
+  });
+
+  const { addVideo, addChannelVideos } = useAddVideoActions({
+    videos,
+    setVideos,
+    videoUrl,
+    setVideoUrl,
+    channelUrl,
+    setChannelUrl,
+    downloadOnAdd,
+    setErrorMessage,
+    setIsAdding,
+    setIsAddOpen,
+    setIsChannelFetchOpen,
+    setChannelFetchProgress,
+    setChannelFetchMessage,
+    scheduleBackgroundMetadataFetch,
+    startDownload,
+    cookiesFile,
+    cookiesSource,
+    cookiesBrowser,
+    remoteComponents,
+    ytDlpPath,
+  });
+
+  const {
+    startBulkDownload,
+    stopBulkDownload,
+    handleBulkCompletion,
+    maybeStartAutoCommentsDownload,
+  } = useBulkDownloadManager({
+    bulkDownload,
+    setBulkDownload,
+    bulkDownloadRef,
+    videosRef,
+    downloadDirRef,
+    downloadingIds,
+    commentsDownloadingIds,
+    setPendingCommentIds,
+    setErrorMessage,
+    setIsSettingsOpen,
+    startDownload,
+    startCommentsDownload,
+  });
+
+  useEffect(() => {
+    onStartFailedRef.current = (id: string) => handleBulkCompletion(id, false);
+  }, [handleBulkCompletion]);
+
+  useDownloadEvents({
+    downloadDirRef,
+    setDownloadingIds,
+    setCommentsDownloadingIds,
+    setProgressLines,
+    setCommentProgressLines,
+    setVideos,
+    setVideoErrors,
+    setCommentErrors,
+    setPendingCommentIds,
+    bulkDownloadRef,
+    handleBulkCompletion,
+    maybeStartAutoCommentsDownload,
+    addDownloadErrorItem,
+    setErrorMessage,
+  });
+
+  const {
+    isSwitchConfirmOpen,
+    switchConfirmMessage,
+    closeSwitchConfirm,
+    confirmSwitch,
+    openPlayer,
+  } = usePlayerWindowManager({
+    isPlayerWindow,
+    isStateReady,
+    videosRef,
+    downloadDir,
+    setErrorMessage,
+    setIsSettingsOpen,
+    openPlayerInWindow,
+    setPlayerTitle,
+    setPlayerError,
+    setIsPlayerOpen,
+  });
+
+
+  const { sortedVideos, filteredVideos, hasUndownloaded } = useVideoFiltering({
+    videos,
+    downloadFilter,
+    typeFilter,
+    publishedSort,
+    deferredSearchQuery,
+    indexedVideosRef,
+    sortedVideosRef,
+    filteredVideosRef,
+    getVideoSortTime,
+  });
+
+  const showAddSkeleton = isAdding && addMode === "video";
+
+  const renderSkeletonCard = () => (
+    <VideoSkeletonCard />
+  );
+
+  const renderVideoCard = (video: VideoItem) => {
+    return (
+      <VideoCardItem
+        video={video}
+        downloadingIds={downloadingIds}
+        commentsDownloadingIds={commentsDownloadingIds}
+        onPlay={(target) => {
+          if (target.downloadStatus === "downloaded") {
+            void openPlayer(target);
+          }
+        }}
+        onDownload={startDownload}
+        hasError={!!videoErrors[video.id]}
+        onOpenErrorDetails={() => {
+          setErrorTargetId(video.id);
+          setIsErrorOpen(true);
+        }}
+        mediaInfo={mediaInfoById[video.id]}
+        formatPublishedAt={formatPublishedAt}
+        formatDuration={formatDuration}
+      />
+    );
+  };
+
+  const activeActivityItems = useActiveActivityItems({
+    bulkDownloadActive: bulkDownload.active,
+    downloadingIds,
+    commentsDownloadingIds,
+    pendingCommentIds,
+    videos,
+    progressLines,
+    commentProgressLines,
+  });
+
   const clearDownloadErrors = useCallback(() => {
     setDownloadErrorItems([]);
     setDownloadErrorIndex(0);
   }, []);
 
-  const hasDownloadErrors = downloadErrorItems.length > 0;
+  const { downloadErrorSlides, hasDownloadErrors } = useDownloadErrorSlides({
+    downloadErrorItems,
+    setDownloadErrorIndex,
+  });
   const isCheckingFiles =
     isStateReady && !hasCheckedFiles && !!downloadDir && videos.length > 0;
 
-  const downloadErrorSlides = useMemo(() => {
-    if (downloadErrorItems.length === 0) return [] as {
-      title: string;
-      video?: FloatingErrorItem;
-      comments?: FloatingErrorItem;
-      metadata?: FloatingErrorItem;
-      createdAt: number;
-    }[];
-    const byTitle = new Map<
-      string,
-      { title: string; video?: FloatingErrorItem; comments?: FloatingErrorItem; metadata?: FloatingErrorItem; createdAt: number }
-    >();
-    downloadErrorItems.forEach((item) => {
-      const existing = byTitle.get(item.title);
-      const next = existing ?? {
-        title: item.title,
-        createdAt: item.createdAt,
-      };
-      if (item.phase === "video") {
-        if (!next.video || next.video.createdAt < item.createdAt) {
-          next.video = item;
-        }
-      } else if (item.phase === "comments") {
-        if (!next.comments || next.comments.createdAt < item.createdAt) {
-          next.comments = item;
-        }
-      } else {
-        if (!next.metadata || next.metadata.createdAt < item.createdAt) {
-          next.metadata = item;
-        }
-      }
-      next.createdAt = Math.max(
-        next.createdAt,
-        next.video?.createdAt ?? 0,
-        next.comments?.createdAt ?? 0,
-        next.metadata?.createdAt ?? 0
-      );
-      byTitle.set(item.title, next);
-    });
-    return Array.from(byTitle.values()).sort(
-      (a, b) => b.createdAt - a.createdAt
-    );
-  }, [downloadErrorItems]);
-
-  useEffect(() => {
-    if (downloadErrorSlides.length === 0) {
-      setDownloadErrorIndex(0);
-      return;
-    }
-    setDownloadErrorIndex((prev) =>
-      Math.min(Math.max(prev, 0), downloadErrorSlides.length - 1)
-    );
-  }, [downloadErrorSlides.length]);
-
-  const formatPublishedAt = (value?: string) => {
-    const parsedMs = parseDateValue(value);
-    if (parsedMs !== null) {
-      return new Date(parsedMs).toLocaleString("ja-JP");
-    }
-    return value?.trim() ?? "";
-  };
+  const handleAddModeChange = useCallback(
+    (mode: "video" | "channel") => {
+      setAddMode(mode);
+      setErrorMessage("");
+    },
+    []
+  );
 
   const playerContent = (
-    <>
-      <div className="comment-title">{playerTitle}</div>
-      {playerLoading && <p className="progress-line">読み込み中...</p>}
-      {playerError && <p className="error">{playerError}</p>}
-      <div className="player-layout">
-        <div className="player-media">
-          {playerSrc && !playerError && (
-            <video
-              ref={playerVideoRef}
-              className="player-video"
-              autoPlay
-              controls
-              preload="metadata"
-              src={playerSrc}
-              onCanPlay={() => setPlayerError("")}
-              onTimeUpdate={(event) => {
-                setPlayerTimeMs(Math.floor(event.currentTarget.currentTime * 1000));
-              }}
-              onError={(event) => {
-                const media = event.currentTarget;
-                const err = media.error;
-                const debug = `code=${err?.code ?? "none"} network=${media.networkState} ready=${media.readyState} src=${media.currentSrc}`;
-                setPlayerDebug(debug);
-                const info = playerVideoId ? mediaInfoById[playerVideoId] : null;
-                const v = info?.videoCodec?.toLowerCase();
-                const a = info?.audioCodec?.toLowerCase();
-                if (v && !a) {
-                  setPlayerError(
-                    "音声トラックが含まれていません。ffmpegを用意して再ダウンロードしてください。"
-                  );
-                } else if (a && !v) {
-                  setPlayerError(
-                    "映像トラックが含まれていません。再ダウンロードしてください。"
-                  );
-                } else if (v && a && v.includes("h264") && a.includes("aac")) {
-                  setPlayerError(
-                    "この動画は再生できません。Linux側のコーデック(GStreamer)が未導入の可能性があります。"
-                  );
-                } else if (v || a) {
-                  setPlayerError(
-                    "この動画は再生できません。H.264/AACで再ダウンロードしてください。"
-                  );
-                } else {
-                  setPlayerError(
-                    "この動画は再生できません。コーデック未確認のため、先に『コーデック確認』を実行してください。"
-                  );
-                }
-              }}
-            />
-          )}
-          {playerDebug && <p className="progress-line codec-line">{playerDebug}</p>}
-          {playerError && playerFilePath && (
-            <div className="action-row">
-              <button className="ghost small" onClick={openExternalPlayer}>
-                外部プレイヤーで開く
-              </button>
-              <button className="ghost small" onClick={revealInFolder}>
-                フォルダを開く
-              </button>
-            </div>
-          )}
-        </div>
-        <aside className="player-chat">
-          <div className="player-chat-header">
-            <div className="player-chat-title">
-              <span className="comment-title">チャット</span>
-              <span
-                className={`badge ${
-                  sortedPlayerComments.length > 0 ? "badge-success" : "badge-muted"
-                }`}
-              >
-                {sortedPlayerComments.length > 0 ? "同期" : "同期不可"}
-              </span>
-            </div>
-            <div className="player-chat-actions">
-              <button
-                className="ghost tiny"
-                onClick={() => setIsChatAutoScroll((prev) => !prev)}
-              >
-                {isChatAutoScroll ? "自動スクロール: ON" : "自動スクロール: OFF"}
-              </button>
-            </div>
-          </div>
-          <div className="player-chat-meta">
-            <span>再生位置 {formatClock(playerTimeMs)}</span>
-            {playerCommentsLoading && <span>読み込み中...</span>}
-          </div>
-          {playerCommentsError && <p className="error small">{playerCommentsError}</p>}
-          {!playerCommentsLoading &&
-            !playerCommentsError &&
-            sortedPlayerComments.length === 0 && (
-              <p className="progress-line">
-                同期可能なチャットがありません。ライブチャットリプレイのみ対応しています。
-              </p>
-            )}
-          <div className="player-chat-list">
-            {playerVisibleComments.map((comment, index) => (
-              <div
-                key={`${comment.author}-${comment.offsetMs ?? index}-${index}`}
-                className="player-chat-item"
-              >
-                <div className="comment-meta">
-                  <span>{comment.author}</span>
-                  {comment.offsetMs !== undefined && (
-                    <span>{formatClock(comment.offsetMs)}</span>
-                  )}
-                </div>
-                <div className="comment-text">{comment.text}</div>
-              </div>
-            ))}
-            <div ref={playerChatEndRef} />
-          </div>
-        </aside>
-      </div>
-    </>
+    <PlayerContent
+      title={playerTitle}
+      loading={playerLoading}
+      error={playerError}
+      src={playerSrc}
+      videoRef={playerVideoRef}
+      onCanPlay={() => setPlayerError("")}
+      onTimeUpdate={(timeMs) => setPlayerTimeMs(timeMs)}
+      onError={handlePlayerError}
+      debug={playerDebug}
+      filePath={playerFilePath}
+      onOpenExternalPlayer={openExternalPlayer}
+      onRevealInFolder={revealInFolder}
+      sortedComments={sortedPlayerComments}
+      isChatAutoScroll={isChatAutoScroll}
+      onToggleChatAutoScroll={() => setIsChatAutoScroll((prev) => !prev)}
+      commentsLoading={playerCommentsLoading}
+      commentsError={playerCommentsError}
+      visibleComments={playerVisibleComments}
+      chatEndRef={playerChatEndRef}
+      formatClock={formatClock}
+      timeMs={playerTimeMs}
+    />
   );
 
   if (isPlayerWindow) {
     return (
-      <main className="app player-window">
-        <header className="app-header">
-          <div>
-            <h1>{playerTitle || "再生"}</h1>
-          </div>
-        </header>
-        {isPlayerOpen ? (
-          <section className="player-window-body">{playerContent}</section>
-        ) : (
-          <section className="empty">
-            再生する動画が選択されていません。メインウィンドウから動画を再生してください。
-          </section>
-        )}
-      </main>
+      <PlayerWindow title={playerTitle} isOpen={isPlayerOpen}>
+        {playerContent}
+      </PlayerWindow>
     );
   }
 
   return (
     <main className="app">
-      {isCheckingFiles && (
-        <div className="loading-overlay" role="status" aria-live="polite">
-          <div className="loading-panel">
-            <span className="loading-spinner" aria-hidden="true" />
-            <p>データチェック中...</p>
-          </div>
-        </div>
-      )}
-      <header className="app-header">
-        <div>
-          <h1>YouTube Local Viewer</h1>
-          <p className="subtitle">ローカル保存と再生のためのデスクトップアプリ</p>
-        </div>
-        <div className="header-actions">
-          <button className="ghost" onClick={() => setIsSettingsOpen(true)}>
-            設定
-          </button>
-          <button className="primary" onClick={() => setIsAddOpen(true)}>
-            ＋ 動画を追加
-          </button>
-        </div>
-      </header>
+      <LoadingOverlay isOpen={isCheckingFiles} message="データチェック中..." />
+      <AppHeader
+        onOpenSettings={() => setIsSettingsOpen(true)}
+        onOpenAdd={() => setIsAddOpen(true)}
+      />
 
       <div className="app-body">
-        {sortedVideos.length === 0 ? (
-          <section className="empty">
-            まだ動画がありません。右上の「＋ 動画を追加」から登録してください。
-          </section>
-        ) : (
-          <>
-            <section className="filter-bar">
-            <div className="filter-group filter-search">
-              <span className="filter-label">検索</span>
-              <div className="search-field">
-                <input
-                  className="search-input"
-                  type="search"
-                  placeholder="タイトル・チャンネル・タグで検索"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                />
-                {searchQuery && (
-                  <button
-                    className="ghost tiny"
-                    type="button"
-                    onClick={() => setSearchQuery("")}
-                  >
-                    クリア
-                  </button>
-                )}
-              </div>
-            </div>
-            <div className="filter-group">
-              <span className="filter-label">ダウンロード</span>
-              <div className="segmented">
-                <button
-                  className={downloadFilter === "all" ? "active" : ""}
-                  onClick={() => setDownloadFilter("all")}
-                  type="button"
-                >
-                  すべて
-                </button>
-                <button
-                  className={downloadFilter === "downloaded" ? "active" : ""}
-                  onClick={() => setDownloadFilter("downloaded")}
-                  type="button"
-                >
-                  ダウンロード済み
-                </button>
-                <button
-                  className={downloadFilter === "undownloaded" ? "active" : ""}
-                  onClick={() => setDownloadFilter("undownloaded")}
-                  type="button"
-                >
-                  未ダウンロード
-                </button>
-              </div>
-            </div>
-            <div className="filter-group">
-              <span className="filter-label">種別</span>
-              <div className="segmented">
-                <button
-                  className={typeFilter === "all" ? "active" : ""}
-                  onClick={() => setTypeFilter("all")}
-                  type="button"
-                >
-                  すべて
-                </button>
-                <button
-                  className={typeFilter === "video" ? "active" : ""}
-                  onClick={() => setTypeFilter("video")}
-                  type="button"
-                >
-                  動画
-                </button>
-                <button
-                  className={typeFilter === "live" ? "active" : ""}
-                  onClick={() => setTypeFilter("live")}
-                  type="button"
-                >
-                  配信
-                </button>
-                <button
-                  className={typeFilter === "shorts" ? "active" : ""}
-                  onClick={() => setTypeFilter("shorts")}
-                  type="button"
-                >
-                  ショート
-                </button>
-              </div>
-            </div>
-            <div className="filter-group">
-              <span className="filter-label">配信日</span>
-              <div className="segmented">
-                <button
-                  className={
-                    publishedSort === "published-desc" ? "active" : ""
-                  }
-                  onClick={() => setPublishedSort("published-desc")}
-                  type="button"
-                >
-                  新しい順
-                </button>
-                <button
-                  className={
-                    publishedSort === "published-asc" ? "active" : ""
-                  }
-                  onClick={() => setPublishedSort("published-asc")}
-                  type="button"
-                >
-                  古い順
-                </button>
-              </div>
-            </div>
-            <div className="filter-actions">
-              <div className="filter-summary">
-                表示: {filteredVideos.length} / {sortedVideos.length}
-              </div>
-              <div className="bulk-download-group">
-                <button
-                  className="primary small"
-                  type="button"
-                  onClick={startBulkDownload}
-                  disabled={
-                    bulkDownload.active ||
-                    downloadingIds.length > 0 ||
-                    !hasUndownloaded ||
-                    !downloadDirRef.current.trim()
-                  }
-                >
-                  未ダウンロードを一括DL
-                </button>
-              </div>
-            </div>
-          </section>
-
-            {filteredVideos.length === 0 && !showAddSkeleton ? (
-              <section className="empty">
-                条件に一致する動画がありません。
-              </section>
-            ) : (
-              <section className="grid-virtual">
-                <div className="grid-virtual-container">
-                  <AutoSizer>
-                    {({ width, height }: { width: number; height: number }) => {
-                    const totalItems =
-                      filteredVideos.length + (showAddSkeleton ? 1 : 0);
-                    const maxColumns = Math.min(
-                      4,
-                      Math.max(
-                        1,
-                        Math.floor((width + GRID_GAP) / (GRID_CARD_WIDTH + GRID_GAP))
-                      )
-                    );
-                    const columnCount = maxColumns;
-                    const columnWidth = GRID_CARD_WIDTH + GRID_GAP;
-                    const rowCount = Math.ceil(totalItems / columnCount);
-
-                    return (
-                      <Grid
-                        columnCount={columnCount}
-                        columnWidth={columnWidth + GRID_GAP}
-                        height={height}
-                        rowCount={rowCount}
-                        rowHeight={GRID_ROW_HEIGHT + GRID_GAP}
-                        width={width}
-                        overscanRowCount={2}
-                      >
-                        {({ columnIndex, rowIndex, style }: GridChildComponentProps) => {
-                          const index = rowIndex * columnCount + columnIndex;
-                          if (index >= totalItems) return null;
-                          const offsetIndex = showAddSkeleton ? index - 1 : index;
-                          const adjustedStyle = {
-                            ...style,
-                            left: (style.left as number) + GRID_GAP,
-                            top: (style.top as number) + GRID_GAP,
-                            width: (style.width as number) - GRID_GAP,
-                            height: (style.height as number) - GRID_GAP,
-                          };
-                          if (showAddSkeleton && index === 0) {
-                            return (
-                              <div style={adjustedStyle}>
-                                {renderSkeletonCard()}
-                              </div>
-                            );
-                          }
-                          const video = filteredVideos[offsetIndex];
-                          if (!video) return null;
-                          return (
-                            <div style={adjustedStyle}>
-                              {renderVideoCard(video)}
-                            </div>
-                          );
-                        }}
-                      </Grid>
-                    );
-                    }}
-                  </AutoSizer>
-                </div>
-              </section>
-            )}
-          </>
-        )}
+        <VideoListSection
+          sortedCount={sortedVideos.length}
+          filteredCount={filteredVideos.length}
+          showAddSkeleton={showAddSkeleton}
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+          onClearSearch={() => setSearchQuery("")}
+          downloadFilter={downloadFilter}
+          onChangeDownloadFilter={setDownloadFilter}
+          typeFilter={typeFilter}
+          onChangeTypeFilter={setTypeFilter}
+          publishedSort={publishedSort}
+          onChangePublishedSort={setPublishedSort}
+          onStartBulkDownload={startBulkDownload}
+          bulkDownloadDisabled={
+            bulkDownload.active ||
+            downloadingIds.length > 0 ||
+            !hasUndownloaded ||
+            !downloadDirRef.current.trim()
+          }
+          filteredVideos={filteredVideos}
+          renderSkeletonCard={renderSkeletonCard}
+          renderVideoCard={renderVideoCard}
+          gridCardWidth={GRID_CARD_WIDTH}
+          gridGap={GRID_GAP}
+          gridRowHeight={GRID_ROW_HEIGHT}
+        />
       </div>
 
-      {isAddOpen && (
-        <div className="modal-backdrop" onClick={() => setIsAddOpen(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2>動画を追加</h2>
-              <button className="icon" onClick={() => setIsAddOpen(false)}>
-                ×
-              </button>
-            </div>
-            <div className="modal-body">
-              <div className="segmented">
-                <button
-                  className={addMode === "video" ? "active" : ""}
-                  onClick={() => {
-                    setAddMode("video");
-                    setErrorMessage("");
-                  }}
-                  type="button"
-                >
-                  動画
-                </button>
-                <button
-                  className={addMode === "channel" ? "active" : ""}
-                  onClick={() => {
-                    setAddMode("channel");
-                    setErrorMessage("");
-                  }}
-                  type="button"
-                >
-                  チャンネル
-                </button>
-              </div>
-              {addMode === "video" ? (
-                <label>
-                  動画URL
-                  <input
-                    type="url"
-                    placeholder="https://www.youtube.com/watch?v=..."
-                    value={videoUrl}
-                    onChange={(e) => setVideoUrl(e.target.value)}
-                  />
-                </label>
-              ) : (
-                <>
-                  <label>
-                    チャンネルURL
-                    <input
-                      type="url"
-                      placeholder="https://www.youtube.com/@channel"
-                      value={channelUrl}
-                      onChange={(e) => setChannelUrl(e.target.value)}
-                    />
-                  </label>
-                </>
-              )}
-              {addMode === "video" && (
-                <label className="checkbox">
-                  <input
-                    type="checkbox"
-                    checked={downloadOnAdd}
-                    onChange={(e) => setDownloadOnAdd(e.target.checked)}
-                  />
-                  <span>追加と同時にダウンロードする</span>
-                </label>
-              )}
-              {errorMessage && <p className="error">{errorMessage}</p>}
-            </div>
-            <div className="modal-footer">
-              <button className="ghost" onClick={() => setIsAddOpen(false)}>
-                キャンセル
-              </button>
-              <button
-                className="primary"
-                onClick={addMode === "video" ? addVideo : addChannelVideos}
-                disabled={
-                  isAdding ||
-                  (addMode === "video" ? !videoUrl.trim() : !channelUrl.trim())
-                }
-              >
-                {addMode === "video" ? "追加" : "まとめて追加"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <FloatingStatusStack
+        ytDlpNotices={ytDlpNotices}
+        onCloseNotice={dismissYtDlpNotice}
+        metadataFetch={metadataFetch}
+        metadataPaused={metadataPaused}
+        metadataPauseReason={metadataPauseReason}
+        onRetryMetadata={retryMetadataFetch}
+        hasDownloadErrors={hasDownloadErrors}
+        downloadErrorSlides={downloadErrorSlides}
+        isDownloadErrorOpen={isDownloadErrorOpen}
+        onToggleDownloadErrorOpen={() =>
+          setIsDownloadErrorOpen((prev) => !prev)
+        }
+        onClearDownloadErrors={clearDownloadErrors}
+        downloadErrorIndex={downloadErrorIndex}
+        onPrevDownloadError={() =>
+          setDownloadErrorIndex((prev) => Math.max(prev - 1, 0))
+        }
+        onNextDownloadError={() =>
+          setDownloadErrorIndex((prev) =>
+            Math.min(prev + 1, downloadErrorSlides.length - 1)
+          )
+        }
+        bulkDownload={bulkDownload}
+        isBulkLogOpen={isBulkLogOpen}
+        onToggleBulkLogOpen={() => setIsBulkLogOpen((prev) => !prev)}
+        onStopBulkDownload={() => void stopBulkDownload()}
+        progressLines={progressLines}
+        commentProgressLines={commentProgressLines}
+        activeActivityItems={activeActivityItems}
+        isDownloadLogOpen={isDownloadLogOpen}
+        onToggleDownloadLogOpen={() => setIsDownloadLogOpen((prev) => !prev)}
+      />
 
-      {(bulkDownload.active || activeActivityItems.length > 0 || hasDownloadErrors || metadataFetch.active || ytDlpNotices.length > 0) && (
-        <div className="floating-stack">
-          {ytDlpNotices.map((notice) => (
-            <div
-              key={notice.id}
-              className={`floating-panel yt-dlp-update ${
-                notice.kind === "error" ? "is-error" : "is-success"
-              }`}
-            >
-              <div className="bulk-status-header">
-                <div className="bulk-status-title">
-                  <span>{notice.title}</span>
-                </div>
-                <button
-                  className="ghost tiny"
-                  type="button"
-                  onClick={() =>
-                    setYtDlpNotices((prev) =>
-                      prev.filter((item) => item.id !== notice.id)
-                    )
-                  }
-                >
-                  閉じる
-                </button>
-              </div>
-              {notice.details && (
-                <div className="bulk-status-body">
-                  <pre className="bulk-status-log">{notice.details}</pre>
-                </div>
-              )}
-            </div>
-          ))}
-          {metadataFetch.active && (
-            <div className="floating-panel bulk-status">
-              <div className="bulk-status-header">
-                <div className="bulk-status-title">
-                  <div className="spinner" />
-                  <span>
-                    詳細情報取得中 ({metadataFetch.completed}/{metadataFetch.total})
-                  </span>
-                </div>
-              </div>
-              <div className="bulk-status-body">
-                {metadataPaused ? (
-                  <div className="bulk-status-paused">
-                    <p className="bulk-status-title-line">停止中: 再試行が必要です</p>
-                    {metadataPauseReason && (
-                      <pre className="bulk-status-log">{metadataPauseReason}</pre>
-                    )}
-                    <button
-                      className="ghost small"
-                      type="button"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        setMetadataPaused(false);
-                        setMetadataPauseReason("");
-                        window.setTimeout(startNextMetadataDownload, 0);
-                      }}
-                    >
-                      再試行
-                    </button>
-                  </div>
-                ) : (
-                  <pre className="bulk-status-log">バックグラウンドで取得しています…</pre>
-                )}
-              </div>
-            </div>
-          )}
-          {hasDownloadErrors && (
-            <div
-              className={`floating-panel download-errors ${
-                isDownloadErrorOpen ? "open" : ""
-              } is-error`}
-              role="button"
-              tabIndex={0}
-              onClick={() => setIsDownloadErrorOpen((prev) => !prev)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  setIsDownloadErrorOpen((prev) => !prev);
-                }
-              }}
-            >
-              <div className="bulk-status-header">
-                <div className="bulk-status-title">
-                  <span>ダウンロードエラー ({downloadErrorSlides.length}件)</span>
-                </div>
-                <button
-                  className="ghost tiny"
-                  type="button"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    clearDownloadErrors();
-                  }}
-                >
-                  クリア
-                </button>
-              </div>
-              {isDownloadErrorOpen && (
-                <div
-                  className="bulk-status-body"
-                  onClick={(event) => event.stopPropagation()}
-                >
-                  {downloadErrorSlides.length > 0 && (
-                    <div className="download-error-carousel">
-                      <div className="download-error-track">
-                        <div
-                          className="download-error-slide"
-                          style={{
-                            transform: `translateX(-${downloadErrorIndex * 100}%)`,
-                          }}
-                        >
-                          {downloadErrorSlides.map((item) => (
-                            <div
-                              key={item.title}
-                              className="download-error-card"
-                            >
-                              <p className="bulk-status-title-line">
-                                {item.title}
-                              </p>
-                              {item.video && (
-                                <div className="download-error-section">
-                                  <p className="bulk-status-title-line">
-                                    動画
-                                  </p>
-                                  <pre className="bulk-status-log">
-                                    {item.video.details}
-                                  </pre>
-                                </div>
-                              )}
-                              {item.comments && (
-                                <div className="download-error-section">
-                                  <p className="bulk-status-title-line">
-                                    ライブチャット
-                                  </p>
-                                  <pre className="bulk-status-log">
-                                    {item.comments.details}
-                                  </pre>
-                                </div>
-                              )}
-                              {item.metadata && (
-                                <div className="download-error-section">
-                                  <p className="bulk-status-title-line">
-                                    詳細情報
-                                  </p>
-                                  <pre className="bulk-status-log">
-                                    {item.metadata.details}
-                                  </pre>
-                                </div>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                      <div className="download-error-controls">
-                        <button
-                          className="ghost tiny"
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            setDownloadErrorIndex((prev) =>
-                              Math.max(prev - 1, 0)
-                            );
-                          }}
-                          disabled={downloadErrorIndex === 0}
-                        >
-                          前へ
-                        </button>
-                        <span className="download-error-index">
-                          {downloadErrorIndex + 1}/{downloadErrorSlides.length}
-                        </span>
-                        <button
-                          className="ghost tiny"
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            setDownloadErrorIndex((prev) =>
-                              Math.min(prev + 1, downloadErrorSlides.length - 1)
-                            );
-                          }}
-                          disabled={
-                            downloadErrorIndex >= downloadErrorSlides.length - 1
-                          }
-                        >
-                          次へ
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-          {bulkDownload.active && (
-            <div
-              className={`floating-panel bulk-status ${
-                isBulkLogOpen ? "open" : ""
-              }`}
-              role="button"
-              tabIndex={0}
-              onClick={() => setIsBulkLogOpen((prev) => !prev)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  setIsBulkLogOpen((prev) => !prev);
-                }
-              }}
-            >
-              <div className="bulk-status-header">
-                <div className="bulk-status-title">
-                  <div className="spinner" />
-                  <span>
-                    ダウンロード中 ({bulkDownload.completed}/
-                    {bulkDownload.total})
-                  </span>
-                </div>
-                <button
-                  className="ghost tiny"
-                  type="button"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    void stopBulkDownload();
-                  }}
-                  disabled={!bulkDownload.currentId || bulkDownload.stopRequested}
-                >
-                  {bulkDownload.stopRequested ? "停止中..." : "停止"}
-                </button>
-              </div>
-              {isBulkLogOpen && (
-                <div className="bulk-status-body">
-                  {bulkDownload.currentTitle && (
-                    <p className="bulk-status-title-line">
-                      現在: {bulkDownload.currentTitle}
-                    </p>
-                  )}
-                  {bulkDownload.phase && (
-                    <p className="bulk-status-title-line">
-                      状態: {bulkDownload.phase === "comments" ? "ライブチャット取得中" : "動画ダウンロード中"}
-                    </p>
-                  )}
-                  <pre className="bulk-status-log">
-                    {bulkDownload.currentId &&
-                    (bulkDownload.phase === "comments"
-                      ? commentProgressLines[bulkDownload.currentId]
-                      : progressLines[bulkDownload.currentId])
-                      ? (bulkDownload.phase === "comments"
-                          ? commentProgressLines[bulkDownload.currentId]
-                          : progressLines[bulkDownload.currentId])
-                      : "ログ待機中..."}
-                  </pre>
-                </div>
-              )}
-            </div>
-          )}
-
-          {activeActivityItems.length > 0 && (
-            <div
-              className={`floating-panel download-status ${
-                isDownloadLogOpen ? "open" : ""
-              }`}
-              role="button"
-              tabIndex={0}
-              onClick={() => setIsDownloadLogOpen((prev) => !prev)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  setIsDownloadLogOpen((prev) => !prev);
-                }
-              }}
-            >
-              <div className="bulk-status-header">
-                <div className="bulk-status-title">
-                  {activeActivityItems.length > 0 && <div className="spinner" />}
-                  <span>ダウンロード中 ({activeActivityItems.length}件)</span>
-                </div>
-              </div>
-              {isDownloadLogOpen && (
-                <div className="bulk-status-body">
-                  {activeActivityItems.map((item) => (
-                    <div key={item.id} className="download-status-item">
-                      <p className="bulk-status-title-line">{item.title}</p>
-                      <p className="bulk-status-title-line">{item.status}</p>
-                      <pre className="bulk-status-log">
-                        {item.line || "ログ待機中..."}
-                      </pre>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      )}
-
-      {isSettingsOpen && (
-        <div className="modal-backdrop" onClick={() => void closeSettings()}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2>設定</h2>
-              <button className="icon" onClick={() => void closeSettings()}>
-                ×
-              </button>
-            </div>
-            <div className="modal-body">
-              <div className="setting-row">
-                <div>
-                  <p className="setting-label">保存先フォルダ</p>
-                  <p className="setting-value">
-                    {downloadDir ? downloadDir : "未設定"}
-                  </p>
-                </div>
-                <button className="ghost" onClick={pickDownloadDir}>
-                  フォルダを選択
-                </button>
-              </div>
-              <div className="setting-row">
-                <div>
-                  <p className="setting-label">Cookieの取得元</p>
-                  <p className="setting-value">
-                    {cookiesSource === "browser"
-                      ? "ブラウザ"
-                      : cookiesSource === "file"
-                        ? "ファイル"
-                        : "未使用"}
-                  </p>
-                </div>
-                <div className="select-wrap">
-                  <select
-                    value={cookiesSource}
-                    onChange={(e) =>
-                      updateCookiesSource(
-                        e.target.value as "none" | "file" | "browser"
-                      )
-                    }
-                  >
-                    <option value="none">使用しない</option>
-                    <option value="file">Cookieファイル（推奨）</option>
-                    <option value="browser">ブラウザ（非推奨）</option>
-                  </select>
-                </div>
-              </div>
-              {cookiesSource === "file" && (
-                <div className="setting-row">
-                  <div>
-                    <p className="setting-label">YouTube Cookieファイル</p>
-                    <p className="setting-value">
-                      {cookiesFile ? cookiesFile : "未設定"}
-                    </p>
-                  </div>
-                  <div className="action-row">
-                    <button className="ghost" onClick={pickCookiesFile}>
-                      ファイルを選択
-                    </button>
-                    {cookiesFile && (
-                      <button
-                        className="ghost"
-                        onClick={() => {
-                          setCookiesFile("");
-                          localStorage.removeItem(COOKIES_FILE_KEY);
-                        }}
-                      >
-                        クリア
-                      </button>
-                    )}
-                  </div>
-                </div>
-              )}
-              {cookiesSource === "browser" && (
-                <div className="setting-row">
-                  <div>
-                    <p className="setting-label">ブラウザ</p>
-                    <p className="setting-value">
-                      {cookiesBrowser
-                        ? COOKIE_BROWSER_OPTIONS.find(
-                            (option) => option.value === cookiesBrowser
-                          )?.label ?? cookiesBrowser
-                        : "未設定"}
-                    </p>
-                  </div>
-                  <div className="select-wrap">
-                    <select
-                      value={cookiesBrowser}
-                      onChange={(e) => updateCookiesBrowser(e.target.value)}
-                    >
-                      <option value="">選択してください</option>
-                      {COOKIE_BROWSER_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-              )}
-              <div className="setting-row">
-                <div>
-                  <p className="setting-label">yt-dlp</p>
-                  <p className="setting-value">
-                    {ytDlpPath ? ytDlpPath : "未設定（同梱/パス指定なら空でもOK）"}
-                  </p>
-                </div>
-                <div className="action-row">
-                  <button className="ghost" onClick={pickYtDlpPath}>
-                    ファイルを選択
-                  </button>
-                  {ytDlpPath && (
-                    <button
-                      className="ghost"
-                      onClick={() => {
-                        setYtDlpPath("");
-                        localStorage.removeItem(YTDLP_PATH_KEY);
-                      }}
-                    >
-                      クリア
-                    </button>
-                  )}
-                </div>
-              </div>
-              <div className="setting-row">
-                <div>
-                  <p className="setting-label">ffmpeg</p>
-                  <p className="setting-value">
-                    {ffmpegPath ? ffmpegPath : "未設定（同梱/パス指定なら空でもOK）"}
-                  </p>
-                </div>
-                <div className="action-row">
-                  <button className="ghost" onClick={pickFfmpegPath}>
-                    ファイルを選択
-                  </button>
-                  {ffmpegPath && (
-                    <button
-                      className="ghost"
-                      onClick={() => {
-                        setFfmpegPath("");
-                        localStorage.removeItem(FFMPEG_PATH_KEY);
-                      }}
-                    >
-                      クリア
-                    </button>
-                  )}
-                </div>
-              </div>
-              <div className="setting-row">
-                <div>
-                  <p className="setting-label">ffprobe</p>
-                  <p className="setting-value">
-                    {ffprobePath ? ffprobePath : "未設定（同梱/パス指定なら空でもOK）"}
-                  </p>
-                </div>
-                <div className="action-row">
-                  <button className="ghost" onClick={pickFfprobePath}>
-                    ファイルを選択
-                  </button>
-                  {ffprobePath && (
-                    <button
-                      className="ghost"
-                      onClick={() => {
-                        setFfprobePath("");
-                        localStorage.removeItem(FFPROBE_PATH_KEY);
-                      }}
-                    >
-                      クリア
-                    </button>
-                  )}
-                </div>
-              </div>
-              <div className="setting-row">
-                <div>
-                  <p className="setting-label">Remote components (EJS)</p>
-                  <p className="setting-value">
-                    {remoteComponents === "none" ? "無効" : remoteComponents}
-                  </p>
-                </div>
-                <div className="select-wrap">
-                  <select
-                    value={remoteComponents}
-                    onChange={(e) =>
-                      updateRemoteComponents(
-                        e.target.value as "none" | "ejs:github" | "ejs:npm"
-                      )
-                    }
-                  >
-                    <option value="none">無効</option>
-                    <option value="ejs:github">ejs:github（推奨）</option>
-                    <option value="ejs:npm">ejs:npm</option>
-                  </select>
-                </div>
-              </div>
-              <div className="setting-row">
-                <div>
-                  <p className="setting-label">整合性チェック</p>
-                  <p className="setting-value">
-                    {integritySummary
-                      ? `欠損 ${integritySummary.total}件（動画:${integritySummary.videoMissing} / コメント:${integritySummary.commentsMissing} / メタデータ:${integritySummary.metadataMissing}）`
-                      : "ライブラリ内の欠損を検査"}
-                  </p>
-                </div>
-                <div className="action-row">
-                  <button
-                    className="ghost"
-                    onClick={() => void runIntegrityCheck(true)}
-                    disabled={integrityRunning}
-                  >
-                    {integrityRunning ? "チェック中..." : "チェック"}
-                  </button>
-                  {integritySummary && (
-                    <button
-                      className="ghost"
-                      onClick={() => setIsIntegrityOpen(true)}
-                    >
-                      結果
-                    </button>
-                  )}
-                </div>
-              </div>
-              <div className="setting-row">
-                <div>
-                  <p className="setting-label">バックアップ</p>
-                  <p className="setting-value">設定とインデックスをzipで保存/復元</p>
-                </div>
-                <div className="action-row">
-                  <button className="ghost" onClick={exportBackup}>
-                    エクスポート
-                  </button>
-                  <button className="ghost" onClick={importBackup}>
-                    インポート
-                  </button>
-                </div>
-              </div>
-              {errorMessage && <p className="error">{errorMessage}</p>}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {isIntegrityOpen && (
-        <div className="modal-backdrop" onClick={() => setIsIntegrityOpen(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2>整合性チェック</h2>
-              <button
-                className="icon"
-                onClick={() => setIsIntegrityOpen(false)}
-              >
-                ×
-              </button>
-            </div>
-            <div className="modal-body">
-              {integrityMessage && <p className="error">{integrityMessage}</p>}
-              {integritySummary && (
-                <div className="integrity-summary">
-                  <p>
-                    欠損合計: {integritySummary.total}件（動画:
-                    {integritySummary.videoMissing} / コメント:
-                    {integritySummary.commentsMissing} / メタデータ:
-                    {integritySummary.metadataMissing}）
-                  </p>
-                </div>
-              )}
-              {!integrityMessage && integrityIssues.length === 0 && (
-                <p className="progress-line">欠損は見つかりませんでした。</p>
-              )}
-              {integrityIssues.length > 0 && (
-                <div className="integrity-list">
-                  {integrityIssues.map((item) => (
-                    <div key={item.id} className="integrity-item">
-                      <div className="integrity-title">{item.title}</div>
-                      <div className="integrity-badges">
-                        {item.videoMissing && (
-                          <span className="integrity-badge">動画欠損</span>
-                        )}
-                        {item.commentsMissing && (
-                          <span className="integrity-badge">コメント欠損</span>
-                        )}
-                        {item.metadataMissing && (
-                          <span className="integrity-badge">メタデータ欠損</span>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-            <div className="modal-footer">
-              <button
-                className="ghost"
-                onClick={() => void runIntegrityCheck(true)}
-                disabled={integrityRunning}
-              >
-                {integrityRunning ? "チェック中..." : "再チェック"}
-              </button>
-              <button className="ghost" onClick={relinkLibraryFolder}>
-                再リンク
-              </button>
-              <button
-                className="primary"
-                onClick={() => setIsIntegrityOpen(false)}
-              >
-                閉じる
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {isBackupNoticeOpen && backupMessage && (
-        <div
-          className="modal-backdrop"
-          onClick={() => setIsBackupNoticeOpen(false)}
-        >
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2>完了</h2>
-              <button
-                className="icon"
-                onClick={() => setIsBackupNoticeOpen(false)}
-              >
-                ×
-              </button>
-            </div>
-            <div className="modal-body">
-              <p>{backupMessage}</p>
-              {backupRestartRequired && backupRestartCountdown > 0 && (
-                <p className="progress-line backup-countdown">
-                  {backupRestartCountdown}秒後に自動で再起動します。
-                </p>
-              )}
-            </div>
-            <div className="modal-footer">
-              {backupRestartRequired ? (
-                <button
-                  className="primary"
-                  onClick={() => window.location.reload()}
-                >
-                  再起動
-                </button>
-              ) : (
-                <button
-                  className="primary"
-                  onClick={() => setIsBackupNoticeOpen(false)}
-                >
-                  閉じる
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {isChannelFetchOpen && (
-        <div className="modal-backdrop" onClick={() => setIsChannelFetchOpen(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2>チャンネル動画を取得中</h2>
-              <button className="icon" onClick={() => setIsChannelFetchOpen(false)}>
-                ×
-              </button>
-            </div>
-            <div className="modal-body">
-              <div className="loading-row">
-                <div className="spinner" aria-hidden="true" />
-                <p className="loading-text">{channelFetchMessage || "取得中..."}</p>
-              </div>
-              <div className="progress">
-                <div
-                  className="progress-bar"
-                  style={{ width: `${Math.min(channelFetchProgress, 100)}%` }}
-                />
-              </div>
-              <p className="progress-caption">{channelFetchProgress}%</p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {isErrorOpen && errorTargetId && (
-        <div className="modal-backdrop" onClick={() => setIsErrorOpen(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2>エラー詳細</h2>
-              <button className="icon" onClick={() => setIsErrorOpen(false)}>
-                ×
-              </button>
-            </div>
-            <div className="modal-body">
-              <pre className="error-details">
-                {videoErrors[errorTargetId] ?? "詳細がありません。"}
-              </pre>
-            </div>
-            <div className="modal-footer">
-              <button className="primary" onClick={() => setIsErrorOpen(false)}>
-                閉じる
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {isSwitchConfirmOpen && (
-        <div className="modal-backdrop" onClick={closeSwitchConfirm}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2>再生切替</h2>
-              <button className="icon" onClick={closeSwitchConfirm}>
-                ×
-              </button>
-            </div>
-            <div className="modal-body">
-              <p>{switchConfirmMessage}</p>
-            </div>
-            <div className="modal-footer">
-              <button className="ghost" onClick={closeSwitchConfirm}>
-                キャンセル
-              </button>
-              <button className="primary" onClick={confirmSwitch}>
-                切り替える
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {isPlayerOpen && (
-        <div className="modal-backdrop" onClick={closePlayer}>
-          <div className="modal modal-wide" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2>動画再生</h2>
-              <button className="icon" onClick={closePlayer}>
-                ×
-              </button>
-            </div>
-            <div className="modal-body">{playerContent}</div>
-            <div className="modal-footer">
-              <button className="primary" onClick={closePlayer}>
-                閉じる
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <AppModals
+        isAddOpen={isAddOpen}
+        addMode={addMode}
+        onChangeAddMode={handleAddModeChange}
+        videoUrl={videoUrl}
+        onChangeVideoUrl={setVideoUrl}
+        channelUrl={channelUrl}
+        onChangeChannelUrl={setChannelUrl}
+        downloadOnAdd={downloadOnAdd}
+        onToggleDownloadOnAdd={setDownloadOnAdd}
+        addErrorMessage={errorMessage}
+        isAdding={isAdding}
+        onCloseAdd={() => setIsAddOpen(false)}
+        onAddVideo={addVideo}
+        onAddChannel={addChannelVideos}
+        isSettingsOpen={isSettingsOpen}
+        onCloseSettings={() => void closeSettings()}
+        downloadDir={downloadDir}
+        onPickDownloadDir={pickDownloadDir}
+        cookiesSource={cookiesSource}
+        onUpdateCookiesSource={updateCookiesSource}
+        cookiesFile={cookiesFile}
+        onPickCookiesFile={pickCookiesFile}
+        onClearCookiesFile={clearCookiesFile}
+        cookiesBrowser={cookiesBrowser}
+        onUpdateCookiesBrowser={updateCookiesBrowser}
+        cookieBrowserOptions={COOKIE_BROWSER_OPTIONS}
+        ytDlpPath={ytDlpPath}
+        onPickYtDlpPath={pickYtDlpPath}
+        onClearYtDlpPath={clearYtDlpPath}
+        ffmpegPath={ffmpegPath}
+        onPickFfmpegPath={pickFfmpegPath}
+        onClearFfmpegPath={clearFfmpegPath}
+        ffprobePath={ffprobePath}
+        onPickFfprobePath={pickFfprobePath}
+        onClearFfprobePath={clearFfprobePath}
+        remoteComponents={remoteComponents}
+        onUpdateRemoteComponents={updateRemoteComponents}
+        integritySummary={integritySummary}
+        integrityRunning={integrityRunning}
+        onRunIntegrityCheck={() => void runIntegrityCheck(true)}
+        onOpenIntegrity={() => setIsIntegrityOpen(true)}
+        onExportBackup={exportBackup}
+        onImportBackup={importBackup}
+        settingsErrorMessage={errorMessage}
+        isIntegrityOpen={isIntegrityOpen}
+        onCloseIntegrity={() => setIsIntegrityOpen(false)}
+        integrityMessage={integrityMessage}
+        integrityIssues={integrityIssues}
+        onRelink={relinkLibraryFolder}
+        isBackupNoticeOpen={isBackupNoticeOpen}
+        backupMessage={backupMessage}
+        backupRestartRequired={backupRestartRequired}
+        backupRestartCountdown={backupRestartCountdown}
+        onCloseBackupNotice={() => setIsBackupNoticeOpen(false)}
+        onRestart={() => window.location.reload()}
+        isChannelFetchOpen={isChannelFetchOpen}
+        channelFetchMessage={channelFetchMessage}
+        channelFetchProgress={channelFetchProgress}
+        onCloseChannelFetch={() => setIsChannelFetchOpen(false)}
+        isErrorOpen={isErrorOpen && !!errorTargetId}
+        errorDetails={
+          errorTargetId ? videoErrors[errorTargetId] ?? "詳細がありません。" : ""
+        }
+        onCloseError={() => setIsErrorOpen(false)}
+        isSwitchConfirmOpen={isSwitchConfirmOpen}
+        switchConfirmMessage={switchConfirmMessage}
+        onCancelSwitch={closeSwitchConfirm}
+        onConfirmSwitch={confirmSwitch}
+        isPlayerOpen={isPlayerOpen}
+        onClosePlayer={closePlayer}
+        playerContent={playerContent}
+      />
     </main>
   );
 }
