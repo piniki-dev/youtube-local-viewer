@@ -12,6 +12,7 @@ dist
 dist-ssr
 *.local
 Downloads/
+RELEASE_TODO.md
 
 # Local tool binaries
 ffmpeg.exe
