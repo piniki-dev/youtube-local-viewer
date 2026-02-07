@@ -326,8 +326,6 @@ function App() {
   const [backupRestartRequired, setBackupRestartRequired] = useState(false);
   const [backupRestartCountdown, setBackupRestartCountdown] = useState(0);
   const [mediaInfoById, setMediaInfoById] = useState<Record<string, MediaInfo | null>>({});
-  const [mediaInfoErrors, setMediaInfoErrors] = useState<Record<string, string>>({});
-  const [mediaInfoLoadingIds, setMediaInfoLoadingIds] = useState<string[]>([]);
   const [hasCheckedFiles, setHasCheckedFiles] = useState(false);
   const [isIntegrityOpen, setIsIntegrityOpen] = useState(false);
   const [integrityIssues, setIntegrityIssues] = useState<IntegrityIssue[]>([]);
@@ -2512,55 +2510,6 @@ function App() {
     playerChatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [playerVisibleComments, isChatAutoScroll]);
 
-  const checkMediaInfo = async (video: VideoItem) => {
-    if (!downloadDir) {
-      setErrorMessage("保存先フォルダが未設定です。設定から選択してください。");
-      setIsSettingsOpen(true);
-      return;
-    }
-
-    setMediaInfoLoadingIds((prev) => (prev.includes(video.id) ? prev : [...prev, video.id]));
-    setMediaInfoErrors((prev) => {
-      const next = { ...prev };
-      delete next[video.id];
-      return next;
-    });
-    setMediaInfoById((prev) => ({ ...prev, [video.id]: null }));
-
-    try {
-      const filePath = await invoke<string | null>("resolve_video_file", {
-        id: video.id,
-        title: video.title,
-        outputDir: downloadDir,
-      });
-      if (!filePath) {
-        setMediaInfoErrors((prev) => ({
-          ...prev,
-          [video.id]: "動画ファイルが見つかりません。",
-        }));
-        return;
-      }
-
-      const info = await invoke<{
-        videoCodec?: string | null;
-        audioCodec?: string | null;
-        width?: number | null;
-        height?: number | null;
-        duration?: number | null;
-        container?: string | null;
-      }>("probe_media", { filePath, ffprobePath: ffprobePath || null });
-
-      setMediaInfoById((prev) => ({ ...prev, [video.id]: info }));
-    } catch {
-      setMediaInfoErrors((prev) => ({
-        ...prev,
-        [video.id]: "コーデック情報の取得に失敗しました。ffprobeが必要です。",
-      }));
-    } finally {
-      setMediaInfoLoadingIds((prev) => prev.filter((id) => id !== video.id));
-    }
-  };
-
   const pickDownloadDir = async () => {
     setErrorMessage("");
     try {
@@ -2968,22 +2917,6 @@ function App() {
                     エラー詳細
                   </button>
                 )}
-                {displayStatus === "downloaded" && (
-                  <div className="action-row">
-                    <button
-                      className="ghost small"
-                      onClick={() => checkMediaInfo(video)}
-                      disabled={mediaInfoLoadingIds.includes(video.id)}
-                    >
-                      {mediaInfoLoadingIds.includes(video.id)
-                        ? "確認中..."
-                        : "コーデック確認"}
-                    </button>
-                  </div>
-                )}
-                {mediaInfoErrors[video.id] && (
-                  <p className="error small">{mediaInfoErrors[video.id]}</p>
-                )}
                 {mediaInfoById[video.id] && (
                   <p className="progress-line codec-line">
                     動画: {mediaInfoById[video.id]?.videoCodec ?? "不明"}
@@ -3025,24 +2958,7 @@ function App() {
                             ? "ライブチャット未取得"
                             : "ライブチャット失敗"}
                     </span>
-                    <button
-                      className="ghost small"
-                      onClick={() => startCommentsDownload(video)}
-                      disabled={isCommentsDownloading}
-                    >
-                      {isCommentsDownloading ? "取得中..." : "ライブチャット取得"}
-                    </button>
-                    <button
-                      className="ghost small"
-                      onClick={() => openComments(video)}
-                      disabled={video.commentsStatus !== "downloaded"}
-                    >
-                      チャットを見る
-                    </button>
                   </div>
-                )}
-                {commentErrors[video.id] && (
-                  <p className="error small">{commentErrors[video.id]}</p>
                 )}
               </>
             );
@@ -3605,7 +3521,7 @@ function App() {
                     checked={downloadOnAdd}
                     onChange={(e) => setDownloadOnAdd(e.target.checked)}
                   />
-                  追加と同時にダウンロードする
+                  <span>追加と同時にダウンロードする</span>
                 </label>
               )}
               {errorMessage && <p className="error">{errorMessage}</p>}
