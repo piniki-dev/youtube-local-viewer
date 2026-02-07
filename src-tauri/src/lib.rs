@@ -3030,14 +3030,6 @@ fn parse_comments_value(value: &serde_json::Value) -> Vec<CommentItem> {
     out
 }
 
-fn parse_comments_array(content: &str) -> Vec<CommentItem> {
-    let mut out = Vec::new();
-    if let Ok(value) = serde_json::from_str::<serde_json::Value>(content) {
-        out.extend(parse_comments_value(&value));
-    }
-    out
-}
-
 fn parse_comments_lines(content: &str) -> Vec<CommentItem> {
     let mut out = Vec::new();
     for line in content.lines() {
