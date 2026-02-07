@@ -24,7 +24,7 @@ type UseSettingsActionsParams<TVideo> = {
   ffmpegPath: string;
   ffprobePath: string;
   setDownloadDir: React.Dispatch<React.SetStateAction<string>>;
-  setErrorMessage: React.Dispatch<React.SetStateAction<string>>;
+  setSettingsErrorMessage: React.Dispatch<React.SetStateAction<string>>;
   setIntegrityMessage: React.Dispatch<React.SetStateAction<string>>;
   setIsSettingsOpen: React.Dispatch<React.SetStateAction<boolean>>;
   setCookiesFile: React.Dispatch<React.SetStateAction<string>>;
@@ -66,7 +66,7 @@ export function useSettingsActions<TVideo>({
   ffmpegPath,
   ffprobePath,
   setDownloadDir,
-  setErrorMessage,
+  setSettingsErrorMessage,
   setIntegrityMessage,
   setIsSettingsOpen,
   setCookiesFile,
@@ -114,7 +114,7 @@ export function useSettingsActions<TVideo>({
   );
 
   const pickDownloadDir = useCallback(async () => {
-    setErrorMessage("");
+    setSettingsErrorMessage("");
     try {
       const selected = await openDialog({
         directory: true,
@@ -127,9 +127,9 @@ export function useSettingsActions<TVideo>({
         await persistSettings(selected);
       }
     } catch {
-      setErrorMessage("保存先の設定に失敗しました。");
+      setSettingsErrorMessage("保存先の設定に失敗しました。");
     }
-  }, [setErrorMessage, setDownloadDir, storageKeys.downloadDirKey, persistSettings]);
+  }, [setSettingsErrorMessage, setDownloadDir, storageKeys.downloadDirKey, persistSettings]);
 
   const relinkLibraryFolder = useCallback(async () => {
     setIntegrityMessage("");
@@ -210,7 +210,7 @@ export function useSettingsActions<TVideo>({
   );
 
   const pickCookiesFile = useCallback(async () => {
-    setErrorMessage("");
+    setSettingsErrorMessage("");
     try {
       const selected = await openDialog({
         directory: false,
@@ -224,10 +224,10 @@ export function useSettingsActions<TVideo>({
         localStorage.setItem(storageKeys.cookiesSourceKey, "file");
       }
     } catch {
-      setErrorMessage("Cookieファイルの設定に失敗しました。");
+      setSettingsErrorMessage("Cookieファイルの設定に失敗しました。");
     }
   }, [
-    setErrorMessage,
+    setSettingsErrorMessage,
     setCookiesFile,
     setCookiesSource,
     storageKeys.cookiesFileKey,
@@ -235,7 +235,7 @@ export function useSettingsActions<TVideo>({
   ]);
 
   const pickYtDlpPath = useCallback(async () => {
-    setErrorMessage("");
+    setSettingsErrorMessage("");
     try {
       const selected = await openDialog({
         directory: false,
@@ -247,12 +247,12 @@ export function useSettingsActions<TVideo>({
         localStorage.setItem(storageKeys.ytDlpPathKey, selected);
       }
     } catch {
-      setErrorMessage("yt-dlpの設定に失敗しました。");
+      setSettingsErrorMessage("yt-dlpの設定に失敗しました。");
     }
-  }, [setErrorMessage, setYtDlpPath, storageKeys.ytDlpPathKey]);
+  }, [setSettingsErrorMessage, setYtDlpPath, storageKeys.ytDlpPathKey]);
 
   const pickFfmpegPath = useCallback(async () => {
-    setErrorMessage("");
+    setSettingsErrorMessage("");
     try {
       const selected = await openDialog({
         directory: false,
@@ -264,12 +264,12 @@ export function useSettingsActions<TVideo>({
         localStorage.setItem(storageKeys.ffmpegPathKey, selected);
       }
     } catch {
-      setErrorMessage("ffmpegの設定に失敗しました。");
+      setSettingsErrorMessage("ffmpegの設定に失敗しました。");
     }
-  }, [setErrorMessage, setFfmpegPath, storageKeys.ffmpegPathKey]);
+  }, [setSettingsErrorMessage, setFfmpegPath, storageKeys.ffmpegPathKey]);
 
   const pickFfprobePath = useCallback(async () => {
-    setErrorMessage("");
+    setSettingsErrorMessage("");
     try {
       const selected = await openDialog({
         directory: false,
@@ -281,9 +281,9 @@ export function useSettingsActions<TVideo>({
         localStorage.setItem(storageKeys.ffprobePathKey, selected);
       }
     } catch {
-      setErrorMessage("ffprobeの設定に失敗しました。");
+      setSettingsErrorMessage("ffprobeの設定に失敗しました。");
     }
-  }, [setErrorMessage, setFfprobePath, storageKeys.ffprobePathKey]);
+  }, [setSettingsErrorMessage, setFfprobePath, storageKeys.ffprobePathKey]);
 
   const clearCookiesFile = useCallback(() => {
     setCookiesFile("");

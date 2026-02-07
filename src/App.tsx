@@ -141,6 +141,7 @@ function App() {
   const [channelUrl, setChannelUrl] = useState("");
   const [downloadOnAdd, setDownloadOnAdd] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const [settingsErrorMessage, setSettingsErrorMessage] = useState("");
   const [isAdding, setIsAdding] = useState(false);
   const [isChannelFetchOpen, setIsChannelFetchOpen] = useState(false);
   const [channelFetchMessage, setChannelFetchMessage] = useState("");
@@ -390,7 +391,7 @@ function App() {
     ffmpegPath,
     ffprobePath,
     setDownloadDir,
-    setErrorMessage,
+    setSettingsErrorMessage,
     setIntegrityMessage,
     setIsSettingsOpen,
     setCookiesFile,
@@ -407,7 +408,7 @@ function App() {
 
   const { exportBackup, importBackup } = useBackupActions({
     persistSettings,
-    setErrorMessage,
+    setSettingsErrorMessage,
     setBackupMessage,
     setBackupRestartRequired,
     setIsBackupNoticeOpen,
@@ -782,7 +783,7 @@ function App() {
         onOpenIntegrity={() => setIsIntegrityOpen(true)}
         onExportBackup={exportBackup}
         onImportBackup={importBackup}
-        settingsErrorMessage={errorMessage}
+        settingsErrorMessage={settingsErrorMessage}
         isIntegrityOpen={isIntegrityOpen}
         onCloseIntegrity={() => setIsIntegrityOpen(false)}
         integrityMessage={integrityMessage}

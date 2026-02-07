@@ -5,7 +5,7 @@ import { join } from "@tauri-apps/api/path";
 
 type UseBackupActionsParams = {
   persistSettings: () => Promise<void>;
-  setErrorMessage: React.Dispatch<React.SetStateAction<string>>;
+  setSettingsErrorMessage: React.Dispatch<React.SetStateAction<string>>;
   setBackupMessage: React.Dispatch<React.SetStateAction<string>>;
   setBackupRestartRequired: React.Dispatch<React.SetStateAction<boolean>>;
   setIsBackupNoticeOpen: React.Dispatch<React.SetStateAction<boolean>>;
@@ -15,7 +15,7 @@ type UseBackupActionsParams = {
 
 export function useBackupActions({
   persistSettings,
-  setErrorMessage,
+  setSettingsErrorMessage,
   setBackupMessage,
   setBackupRestartRequired,
   setIsBackupNoticeOpen,
@@ -23,7 +23,7 @@ export function useBackupActions({
   integrityCheckPendingKey,
 }: UseBackupActionsParams) {
   const exportBackup = useCallback(async () => {
-    setErrorMessage("");
+    setSettingsErrorMessage("");
     setBackupMessage("");
     setBackupRestartRequired(false);
     try {
@@ -39,18 +39,18 @@ export function useBackupActions({
       setBackupMessage("バックアップのエクスポートが完了しました。");
       setIsBackupNoticeOpen(true);
     } catch {
-      setErrorMessage("バックアップの作成に失敗しました。");
+      setSettingsErrorMessage("バックアップの作成に失敗しました。");
     }
   }, [
     persistSettings,
-    setErrorMessage,
+    setSettingsErrorMessage,
     setBackupMessage,
     setBackupRestartRequired,
     setIsBackupNoticeOpen,
   ]);
 
   const importBackup = useCallback(async () => {
-    setErrorMessage("");
+    setSettingsErrorMessage("");
     setBackupMessage("");
     setBackupRestartRequired(false);
     try {
@@ -79,10 +79,10 @@ export function useBackupActions({
         window.location.reload();
       }, 10_000);
     } catch {
-      setErrorMessage("バックアップの復元に失敗しました。");
+      setSettingsErrorMessage("バックアップの復元に失敗しました。");
     }
   }, [
-    setErrorMessage,
+    setSettingsErrorMessage,
     setBackupMessage,
     setBackupRestartRequired,
     setIsBackupNoticeOpen,

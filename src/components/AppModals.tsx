@@ -226,7 +226,7 @@ export function AppModals({
         onOpenIntegrity={onOpenIntegrity}
         onExportBackup={onExportBackup}
         onImportBackup={onImportBackup}
-        errorMessage={settingsErrorMessage}
+        settingsErrorMessage={settingsErrorMessage}
       />
 
       <IntegrityModal

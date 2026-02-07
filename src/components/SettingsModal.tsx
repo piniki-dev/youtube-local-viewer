@@ -37,7 +37,7 @@ type SettingsModalProps = {
   onOpenIntegrity: () => void;
   onExportBackup: () => void;
   onImportBackup: () => void;
-  errorMessage: string;
+  settingsErrorMessage: string;
 };
 
 export function SettingsModal({
@@ -70,7 +70,7 @@ export function SettingsModal({
   onOpenIntegrity,
   onExportBackup,
   onImportBackup,
-  errorMessage,
+  settingsErrorMessage,
 }: SettingsModalProps) {
   if (!isOpen) return null;
 
@@ -278,7 +278,9 @@ export function SettingsModal({
               </button>
             </div>
           </div>
-          {errorMessage && <p className="error">{errorMessage}</p>}
+          {settingsErrorMessage && (
+            <p className="error">{settingsErrorMessage}</p>
+          )}
         </div>
       </div>
     </div>
