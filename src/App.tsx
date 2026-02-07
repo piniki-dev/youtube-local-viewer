@@ -290,11 +290,7 @@ function App() {
   const [commentsDownloadingIds, setCommentsDownloadingIds] = useState<string[]>([]);
   const [commentErrors, setCommentErrors] = useState<Record<string, string>>({});
   const [commentProgressLines, setCommentProgressLines] = useState<Record<string, string>>({});
-  const [isCommentsOpen, setIsCommentsOpen] = useState(false);
-  const [commentsLoading, setCommentsLoading] = useState(false);
-  const [commentsTitle, setCommentsTitle] = useState("");
-  const [commentsList, setCommentsList] = useState<CommentItem[]>([]);
-  const [commentsError, setCommentsError] = useState("");
+  
   const [downloadErrorItems, setDownloadErrorItems] = useState<FloatingErrorItem[]>([]);
   const [ytDlpNotices, setYtDlpNotices] = useState<FloatingNoticeItem[]>([]);
   const [ytDlpUpdateDone, setYtDlpUpdateDone] = useState(false);
@@ -2192,29 +2188,6 @@ function App() {
       }));
       setErrorMessage("ライブチャット取得に失敗しました。詳細を確認してください。");
       setCommentsDownloadingIds((prev) => prev.filter((id) => id !== video.id));
-    }
-  };
-
-  const openComments = async (video: VideoItem) => {
-    if (!downloadDir) {
-      setErrorMessage("保存先フォルダが未設定です。設定から選択してください。");
-      setIsSettingsOpen(true);
-      return;
-    }
-    setCommentsLoading(true);
-    setCommentsError("");
-    setCommentsTitle(video.title);
-    setIsCommentsOpen(true);
-    try {
-      const result = await invoke<CommentItem[]>("get_comments", {
-        id: video.id,
-        outputDir: downloadDir,
-      });
-      setCommentsList(result ?? []);
-    } catch {
-      setCommentsError("ライブチャットの読み込みに失敗しました。");
-    } finally {
-      setCommentsLoading(false);
     }
   };
 
@@ -4236,48 +4209,6 @@ function App() {
             </div>
             <div className="modal-footer">
               <button className="primary" onClick={() => setIsErrorOpen(false)}>
-                閉じる
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {isCommentsOpen && (
-        <div className="modal-backdrop" onClick={() => setIsCommentsOpen(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2>ライブチャット一覧</h2>
-              <button className="icon" onClick={() => setIsCommentsOpen(false)}>
-                ×
-              </button>
-            </div>
-            <div className="modal-body">
-              <div className="comment-title">{commentsTitle}</div>
-              {commentsLoading && <p className="progress-line">読み込み中...</p>}
-              {commentsError && <p className="error">{commentsError}</p>}
-              {!commentsLoading && !commentsError && commentsList.length === 0 && (
-                <p className="progress-line">チャットが見つかりませんでした。</p>
-              )}
-              <div className="comment-list">
-                {commentsList.map((comment, index) => (
-                  <div key={`${comment.author}-${index}`} className="comment-item">
-                    <div className="comment-meta">
-                      <span>{comment.author}</span>
-                      {comment.likeCount !== undefined && (
-                        <span>👍 {comment.likeCount}</span>
-                      )}
-                      {comment.publishedAt && (
-                        <span>{formatPublishedAt(comment.publishedAt)}</span>
-                      )}
-                    </div>
-                    <div className="comment-text">{comment.text}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div className="modal-footer">
-              <button className="primary" onClick={() => setIsCommentsOpen(false)}>
                 閉じる
               </button>
             </div>
