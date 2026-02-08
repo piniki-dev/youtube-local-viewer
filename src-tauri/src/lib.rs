@@ -202,6 +202,13 @@ struct VideoMetadata {
     age_limit: Option<u64>,
 }
 
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LocalMetadataItem {
+    id: String,
+    metadata: VideoMetadata,
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct PersistedState {
@@ -2397,8 +2404,9 @@ fn get_metadata_index(output_dir: String) -> Result<MetadataIndex, String> {
             None => continue,
         };
         let name_lower = name.to_lowercase();
+        let is_info = name_lower.ends_with(".info.json");
         let is_chat = name_lower.ends_with(".live_chat.json") || name_lower.ends_with(".comments.json");
-        if !is_chat {
+        if !is_info && !is_chat {
             continue;
         }
 
@@ -2406,7 +2414,12 @@ fn get_metadata_index(output_dir: String) -> Result<MetadataIndex, String> {
             if close_idx > open_idx + 1 {
                 let id = name[(open_idx + 1)..close_idx].trim().to_string();
                 if !id.is_empty() {
-                    chat_ids.insert(id);
+                    if is_info {
+                        info_ids.insert(id.clone());
+                    }
+                    if is_chat {
+                        chat_ids.insert(id);
+                    }
                     continue;
                 }
             }
@@ -2421,7 +2434,12 @@ fn get_metadata_index(output_dir: String) -> Result<MetadataIndex, String> {
                     .or_else(|| value.get("display_id").and_then(|v| v.as_str()))
                     .map(|s| s.to_string());
                 if let Some(id) = id {
-                    chat_ids.insert(id);
+                    if is_info {
+                        info_ids.insert(id.clone());
+                    }
+                    if is_chat {
+                        chat_ids.insert(id);
+                    }
                 }
             }
         }
@@ -2431,6 +2449,94 @@ fn get_metadata_index(output_dir: String) -> Result<MetadataIndex, String> {
         info_ids: info_ids.into_iter().collect(),
         chat_ids: chat_ids.into_iter().collect(),
     })
+}
+
+#[tauri::command]
+fn get_local_metadata_by_ids(
+    output_dir: String,
+    ids: Vec<String>,
+) -> Result<Vec<LocalMetadataItem>, String> {
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut remaining: HashSet<String> = ids.iter().map(|id| id.to_lowercase()).collect();
+    let mut results: Vec<LocalMetadataItem> = Vec::new();
+
+    let metadata_dir = library_metadata_dir(&output_dir);
+    let comments_dir = library_comments_dir(&output_dir);
+
+    let mut scan_dirs: Vec<PathBuf> = Vec::new();
+    if metadata_dir.exists() {
+        scan_dirs.push(metadata_dir);
+    }
+    if comments_dir.exists() {
+        scan_dirs.push(comments_dir);
+    }
+
+    for dir in scan_dirs {
+        for path in collect_files_recursive(&dir) {
+            if remaining.is_empty() {
+                return Ok(results);
+            }
+            if !path.is_file() {
+                continue;
+            }
+            let name = match path.file_name().and_then(|n| n.to_str()) {
+                Some(name) => name.to_string(),
+                None => continue,
+            };
+            let name_lower = name.to_lowercase();
+            if !name_lower.ends_with(".info.json") {
+                continue;
+            }
+
+            let extracted_id = extract_id_from_filename(&name);
+            let extracted_lower = extracted_id.as_ref().map(|id| id.to_lowercase());
+            let matches_name = extracted_lower
+                .as_ref()
+                .map(|id| remaining.contains(id))
+                .unwrap_or(false);
+
+            if !matches_name && extracted_id.is_some() {
+                continue;
+            }
+
+            let content = match fs::read_to_string(&path) {
+                Ok(content) => content,
+                Err(_) => continue,
+            };
+            let value = match serde_json::from_str::<serde_json::Value>(&content) {
+                Ok(value) => value,
+                Err(_) => continue,
+            };
+
+            let id_from_value = value
+                .get("id")
+                .and_then(|v| v.as_str())
+                .or_else(|| value.get("video_id").and_then(|v| v.as_str()))
+                .or_else(|| value.get("display_id").and_then(|v| v.as_str()))
+                .map(|s| s.to_string());
+
+            let resolved_id = id_from_value.or_else(|| extracted_id.clone());
+            let Some(resolved_id) = resolved_id else {
+                continue;
+            };
+            let resolved_lower = resolved_id.to_lowercase();
+            if !remaining.contains(&resolved_lower) {
+                continue;
+            }
+
+            let metadata = parse_video_metadata_value(&value);
+            results.push(LocalMetadataItem {
+                id: resolved_id.clone(),
+                metadata,
+            });
+            remaining.remove(&resolved_lower);
+        }
+    }
+
+    Ok(results)
 }
 
 #[tauri::command]
@@ -3627,6 +3733,7 @@ pub fn run() {
             verify_local_files,
             info_json_exists,
             get_metadata_index,
+            get_local_metadata_by_ids,
             probe_media,
             load_state,
             save_state,

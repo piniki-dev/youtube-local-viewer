@@ -46,6 +46,11 @@ type MetadataFinished = {
   hasLiveChat?: boolean | null;
 };
 
+type LocalMetadataItem = {
+  id: string;
+  metadata: VideoMetadata;
+};
+
 type VideoLike = {
   id: string;
   title: string;
@@ -184,6 +189,106 @@ export function useMetadataFetch<TVideo extends VideoLike>({
     }, 300);
   }, [flushMetadataUpdates]);
 
+  const applyMetadataUpdate = useCallback(
+    (params: {
+      id: string;
+      metadata?: VideoMetadata | null;
+      hasLiveChat?: boolean | null;
+      currentVideo?: TVideo | null;
+      markMetadataFetched?: boolean;
+    }) => {
+      const {
+        id,
+        metadata,
+        hasLiveChat,
+        currentVideo,
+        markMetadataFetched = false,
+      } = params;
+      const patch: Partial<TVideo> = {};
+
+      if (metadata) {
+        const metaFields = buildMetadataFields({
+          webpageUrl: metadata.webpageUrl ?? null,
+          durationSec: metadata.durationSec ?? null,
+          uploadDate: metadata.uploadDate ?? null,
+          releaseTimestamp: metadata.releaseTimestamp ?? null,
+          timestamp: metadata.timestamp ?? null,
+          liveStatus: metadata.liveStatus ?? null,
+          isLive: metadata.isLive ?? null,
+          wasLive: metadata.wasLive ?? null,
+          viewCount: metadata.viewCount ?? null,
+          likeCount: metadata.likeCount ?? null,
+          commentCount: metadata.commentCount ?? null,
+          tags: metadata.tags ?? null,
+          categories: metadata.categories ?? null,
+          description: metadata.description ?? null,
+          channelId: metadata.channelId ?? null,
+          uploaderId: metadata.uploaderId ?? null,
+          channelUrl: metadata.channelUrl ?? null,
+          uploaderUrl: metadata.uploaderUrl ?? null,
+          availability: metadata.availability ?? null,
+          language: metadata.language ?? null,
+          audioLanguage: metadata.audioLanguage ?? null,
+          ageLimit: metadata.ageLimit ?? null,
+        });
+        patch.title = (metadata.title ?? currentVideo?.title) || "Untitled";
+        patch.channel = (metadata.channel ?? currentVideo?.channel) || "YouTube";
+        patch.sourceUrl =
+          metadata.webpageUrl ?? metadata.url ?? currentVideo?.sourceUrl ?? "";
+        patch.thumbnail =
+          currentVideo?.thumbnail ?? metadata.thumbnail ?? currentVideo?.thumbnail;
+        Object.assign(patch, metaFields);
+
+        const thumbnailCandidates = buildThumbnailCandidates(
+          id,
+          metadata.thumbnail ?? currentVideo?.thumbnail ?? null
+        );
+        void (async () => {
+          const savedThumbnail = await resolveThumbnailPath(
+            id,
+            metadata.title ?? currentVideo?.title ?? "Untitled",
+            metadata.uploaderId ?? null,
+            metadata.uploaderUrl ?? null,
+            metadata.channelUrl ?? null,
+            thumbnailCandidates
+          );
+          if (savedThumbnail) {
+            pendingMetadataUpdatesRef.current.set(
+              id,
+              { thumbnail: savedThumbnail } as Partial<TVideo>
+            );
+            scheduleMetadataFlush();
+          }
+        })();
+      }
+
+      if (markMetadataFetched) {
+        patch.metadataFetched = true;
+      }
+
+      if (typeof hasLiveChat === "boolean") {
+        if (hasLiveChat) {
+          if (currentVideo?.commentsStatus !== "downloaded") {
+            patch.commentsStatus = "downloaded";
+          }
+        } else if (currentVideo?.commentsStatus === "pending") {
+          patch.commentsStatus = "unavailable";
+        }
+      }
+
+      if (Object.keys(patch).length > 0) {
+        pendingMetadataUpdatesRef.current.set(id, patch);
+        scheduleMetadataFlush();
+      }
+    },
+    [
+      buildMetadataFields,
+      buildThumbnailCandidates,
+      resolveThumbnailPath,
+      scheduleMetadataFlush,
+    ]
+  );
+
   const startNextMetadataDownload = useCallback(async () => {
     if (metadataActiveIdRef.current) return;
     if (metadataPausedRef.current) return;
@@ -296,6 +401,8 @@ export function useMetadataFetch<TVideo extends VideoLike>({
       try {
         const snapshot = videosRef.current;
         const candidates: Array<{ id: string; sourceUrl?: string | null }> = [];
+        const infoLookupIds: string[] = [];
+        const videoById = new Map(snapshot.map((item) => [item.id, item]));
 
         let infoIds = new Set<string>();
         let chatIds = new Set<string>();
@@ -316,14 +423,55 @@ export function useMetadataFetch<TVideo extends VideoLike>({
           if (pendingMetadataIdsRef.current.has(video.id)) continue;
           if (metadataActiveIdRef.current === video.id) continue;
 
-          const needsLiveChatRetry =
-            video.commentsStatus === "pending" || video.commentsStatus === "failed";
+          const isPending = video.commentsStatus === "pending";
+          const needsLiveChatRetry = isPending || video.commentsStatus === "failed";
 
           const hasInfo = infoIds.has(video.id);
           const hasChat = chatIds.has(video.id);
 
+          if (isPending && hasChat) {
+            applyMetadataUpdate({
+              id: video.id,
+              metadata: null,
+              hasLiveChat: true,
+              currentVideo: video,
+              markMetadataFetched: false,
+            });
+          }
+
+          if (isPending && hasInfo) {
+            infoLookupIds.push(video.id);
+          }
+
           if (!hasInfo || (needsLiveChatRetry && !hasChat)) {
             candidates.push({ id: video.id, sourceUrl: video.sourceUrl });
+          }
+        }
+
+        if (infoLookupIds.length > 0) {
+          let localMetadata: LocalMetadataItem[] = [];
+          try {
+            localMetadata = await invoke<LocalMetadataItem[]>(
+              "get_local_metadata_by_ids",
+              { outputDir, ids: infoLookupIds }
+            );
+          } catch {
+            localMetadata = [];
+          }
+
+          for (const item of localMetadata) {
+            const currentVideo = videoById.get(item.id);
+            if (!currentVideo || currentVideo.commentsStatus !== "pending") {
+              continue;
+            }
+            const hasChat = chatIds.has(item.id);
+            applyMetadataUpdate({
+              id: item.id,
+              metadata: item.metadata,
+              hasLiveChat: hasChat ? true : null,
+              currentVideo,
+              markMetadataFetched: true,
+            });
           }
         }
 
@@ -338,6 +486,7 @@ export function useMetadataFetch<TVideo extends VideoLike>({
       ytDlpUpdateDone,
       integritySummaryTotal,
       integrityIssuesLength,
+      applyMetadataUpdate,
       scheduleBackgroundMetadataFetch,
       downloadDirRef,
       videosRef,
@@ -364,83 +513,13 @@ export function useMetadataFetch<TVideo extends VideoLike>({
             const currentVideo = videosRef.current.find(
               (item: TVideo) => item.id === id
             );
-            const patch: Partial<TVideo> = {};
-
-            if (metadata) {
-              const metaFields = buildMetadataFields({
-                webpageUrl: metadata.webpageUrl ?? null,
-                durationSec: metadata.durationSec ?? null,
-                uploadDate: metadata.uploadDate ?? null,
-                releaseTimestamp: metadata.releaseTimestamp ?? null,
-                timestamp: metadata.timestamp ?? null,
-                liveStatus: metadata.liveStatus ?? null,
-                isLive: metadata.isLive ?? null,
-                wasLive: metadata.wasLive ?? null,
-                viewCount: metadata.viewCount ?? null,
-                likeCount: metadata.likeCount ?? null,
-                commentCount: metadata.commentCount ?? null,
-                tags: metadata.tags ?? null,
-                categories: metadata.categories ?? null,
-                description: metadata.description ?? null,
-                channelId: metadata.channelId ?? null,
-                uploaderId: metadata.uploaderId ?? null,
-                channelUrl: metadata.channelUrl ?? null,
-                uploaderUrl: metadata.uploaderUrl ?? null,
-                availability: metadata.availability ?? null,
-                language: metadata.language ?? null,
-                audioLanguage: metadata.audioLanguage ?? null,
-                ageLimit: metadata.ageLimit ?? null,
-              });
-              patch.title = (metadata.title ?? currentVideo?.title) || "Untitled";
-              patch.channel =
-                (metadata.channel ?? currentVideo?.channel) || "YouTube";
-              patch.sourceUrl =
-                metadata.webpageUrl ?? metadata.url ?? currentVideo?.sourceUrl ?? "";
-              patch.thumbnail =
-                currentVideo?.thumbnail ?? metadata.thumbnail ?? currentVideo?.thumbnail;
-              Object.assign(patch, metaFields);
-            }
-
-            if (metadata) {
-              const thumbnailCandidates = buildThumbnailCandidates(
-                id,
-                metadata.thumbnail ?? currentVideo?.thumbnail ?? null
-              );
-              void (async () => {
-                const savedThumbnail = await resolveThumbnailPath(
-                  id,
-                  metadata.title ?? currentVideo?.title ?? "Untitled",
-                  metadata.uploaderId ?? null,
-                  metadata.uploaderUrl ?? null,
-                  metadata.channelUrl ?? null,
-                  thumbnailCandidates
-                );
-                if (savedThumbnail) {
-                  pendingMetadataUpdatesRef.current.set(
-                    id,
-                    { thumbnail: savedThumbnail } as Partial<TVideo>
-                  );
-                  scheduleMetadataFlush();
-                }
-              })();
-            }
-
-            patch.metadataFetched = true;
-
-            if (typeof hasLiveChat === "boolean") {
-              if (hasLiveChat) {
-                if (currentVideo?.commentsStatus !== "downloaded") {
-                  patch.commentsStatus = "downloaded";
-                }
-              } else if (currentVideo?.commentsStatus === "pending") {
-                patch.commentsStatus = "unavailable";
-              }
-            }
-
-            if (Object.keys(patch).length > 0) {
-              pendingMetadataUpdatesRef.current.set(id, patch);
-              scheduleMetadataFlush();
-            }
+            applyMetadataUpdate({
+              id,
+              metadata: metadata ?? null,
+              hasLiveChat: typeof hasLiveChat === "boolean" ? hasLiveChat : null,
+              currentVideo,
+              markMetadataFetched: true,
+            });
           } else {
             const details = stderr || stdout || "不明なエラー";
             addDownloadErrorItem(id, "metadata", details);
@@ -477,6 +556,7 @@ export function useMetadataFetch<TVideo extends VideoLike>({
     scheduleMetadataFlush,
     startNextMetadataDownload,
     videosRef,
+    applyMetadataUpdate,
   ]);
 
   useEffect(() => {
