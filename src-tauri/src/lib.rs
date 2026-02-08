@@ -3690,6 +3690,11 @@ pub fn run() {
                         });
                     }
                 }
+
+                #[cfg(debug_assertions)]
+                {
+                    window.open_devtools();
+                }
             }
 
             Ok(())
