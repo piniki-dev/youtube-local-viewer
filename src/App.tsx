@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { AppHeader } from "./components/AppHeader";
 import { VideoListSection } from "./components/VideoListSection";
 import { AppModals } from "./components/AppModals";
@@ -95,6 +96,17 @@ type FloatingErrorItem = {
   phase: "video" | "comments" | "metadata";
   details: string;
   createdAt: number;
+};
+
+type ToolingCheckStatus = {
+  ok: boolean;
+  path: string;
+};
+
+type ToolingCheckResult = {
+  ytDlp: ToolingCheckStatus;
+  ffmpeg: ToolingCheckStatus;
+  ffprobe: ToolingCheckStatus;
 };
 
 type BulkDownloadState = {
@@ -192,6 +204,9 @@ function App() {
   const [remoteComponents, setRemoteComponents] = useState<
     "none" | "ejs:github" | "ejs:npm"
   >("none");
+  const [toolingStatus, setToolingStatus] = useState<ToolingCheckResult | null>(
+    null
+  );
   const [bulkDownload, setBulkDownload] = useState<BulkDownloadState>({
     active: false,
     total: 0,
@@ -306,6 +321,29 @@ function App() {
     downloadDirRef.current = downloadDir;
   }, [downloadDir]);
 
+  useEffect(() => {
+    if (!isStateReady) return;
+    let cancelled = false;
+    void invoke<ToolingCheckResult>("check_tooling", {
+      ytDlpPath: ytDlpPath || null,
+      ffmpegPath: ffmpegPath || null,
+      ffprobePath: ffprobePath || null,
+    })
+      .then((result) => {
+        if (!cancelled) {
+          setToolingStatus(result);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setToolingStatus(null);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isStateReady, ytDlpPath, ffmpegPath, ffprobePath]);
+
   const addDownloadErrorItem = useCallback(
     (id: string, phase: "video" | "comments" | "metadata", details: string) => {
       const title = videosRef.current.find((item) => item.id === id)?.title ?? id;
@@ -354,6 +392,7 @@ function App() {
     useYtDlpUpdateNotices({
       isStateReady,
       isDataCheckDone,
+      ytDlpAvailable: toolingStatus?.ytDlp.ok ?? false,
     });
 
   const { resolveThumbnailPath, refreshThumbnailsForDir } =
@@ -618,6 +657,13 @@ function App() {
   });
   const isCheckingFiles =
     isStateReady && !hasCheckedFiles && !!downloadDir && videos.length > 0;
+  const addDisabled =
+    !!downloadDir &&
+    !(
+      toolingStatus?.ytDlp.ok &&
+      toolingStatus?.ffmpeg.ok &&
+      toolingStatus?.ffprobe.ok
+    );
 
   const handleAddModeChange = useCallback(
     (mode: "video" | "channel") => {
@@ -667,6 +713,7 @@ function App() {
       <AppHeader
         onOpenSettings={() => setIsSettingsOpen(true)}
         onOpenAdd={() => setIsAddOpen(true)}
+        addDisabled={addDisabled}
       />
 
       <div className="app-body">
@@ -699,6 +746,7 @@ function App() {
           downloadDir={downloadDir}
           onOpenSettings={() => setIsSettingsOpen(true)}
           onOpenAdd={() => setIsAddOpen(true)}
+          addDisabled={addDisabled}
         />
       </div>
 
@@ -764,12 +812,15 @@ function App() {
         onUpdateCookiesBrowser={updateCookiesBrowser}
         cookieBrowserOptions={COOKIE_BROWSER_OPTIONS}
         ytDlpPath={ytDlpPath}
+        ytDlpStatus={toolingStatus?.ytDlp ?? null}
         onPickYtDlpPath={pickYtDlpPath}
         onClearYtDlpPath={clearYtDlpPath}
         ffmpegPath={ffmpegPath}
+        ffmpegStatus={toolingStatus?.ffmpeg ?? null}
         onPickFfmpegPath={pickFfmpegPath}
         onClearFfmpegPath={clearFfmpegPath}
         ffprobePath={ffprobePath}
+        ffprobeStatus={toolingStatus?.ffprobe ?? null}
         onPickFfprobePath={pickFfprobePath}
         onClearFfprobePath={clearFfprobePath}
         remoteComponents={remoteComponents}

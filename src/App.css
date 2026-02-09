@@ -1041,6 +1041,44 @@ body {
   word-break: break-all;
 }
 
+.setting-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 6px;
+  font-size: 11px;
+}
+
+.status-pill {
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-weight: 600;
+}
+
+.status-pill.ok {
+  background: #e6f4ea;
+  color: #1b5e20;
+  border-color: #a3d3b1;
+}
+
+.status-pill.missing {
+  background: #fdecea;
+  color: #9f3a38;
+  border-color: #f5c2c0;
+}
+
+.status-pill.unknown {
+  background: #eef0f4;
+  color: #5b6474;
+  border-color: #d5dbe6;
+}
+
+.setting-hint {
+  color: #6a7383;
+}
+
 .integrity-summary {
   margin-bottom: 12px;
   font-size: 13px;

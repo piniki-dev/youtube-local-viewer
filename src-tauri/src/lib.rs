@@ -3339,14 +3339,26 @@ fn resolve_override(value: Option<String>) -> Option<String> {
     })
 }
 
-fn can_run_yt_dlp(yt_dlp: &str) -> bool {
-    Command::new(yt_dlp)
-        .arg("--version")
+fn can_run_tool(tool: &str, args: &[&str]) -> bool {
+    Command::new(tool)
+        .args(args)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
         .map(|status| status.success())
         .unwrap_or(false)
+}
+
+fn can_run_yt_dlp(yt_dlp: &str) -> bool {
+    can_run_tool(yt_dlp, &["--version"])
+}
+
+fn can_run_ffmpeg(ffmpeg: &str) -> bool {
+    can_run_tool(ffmpeg, &["-version"])
+}
+
+fn can_run_ffprobe(ffprobe: &str) -> bool {
+    can_run_tool(ffprobe, &["-version"])
 }
 
 #[derive(Clone, Serialize)]
@@ -3355,6 +3367,21 @@ struct YtDlpUpdateEvent {
     status: String,
     stdout: String,
     stderr: String,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ToolingCheckStatus {
+    ok: bool,
+    path: String,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ToolingCheckResult {
+    yt_dlp: ToolingCheckStatus,
+    ffmpeg: ToolingCheckStatus,
+    ffprobe: ToolingCheckStatus,
 }
 
 fn update_yt_dlp_if_available(app: &AppHandle, yt_dlp: String) {
@@ -3422,6 +3449,32 @@ fn update_yt_dlp_if_available(app: &AppHandle, yt_dlp: String) {
             },
         );
     }
+}
+
+#[tauri::command]
+fn check_tooling(
+    yt_dlp_path: Option<String>,
+    ffmpeg_path: Option<String>,
+    ffprobe_path: Option<String>,
+) -> Result<ToolingCheckResult, String> {
+    let yt_dlp = resolve_override(yt_dlp_path).unwrap_or_else(resolve_yt_dlp);
+    let ffmpeg = resolve_override(ffmpeg_path).unwrap_or_else(resolve_ffmpeg);
+    let ffprobe = resolve_override(ffprobe_path).unwrap_or_else(resolve_ffprobe);
+
+    Ok(ToolingCheckResult {
+        yt_dlp: ToolingCheckStatus {
+            ok: can_run_yt_dlp(&yt_dlp),
+            path: yt_dlp,
+        },
+        ffmpeg: ToolingCheckStatus {
+            ok: can_run_ffmpeg(&ffmpeg),
+            path: ffmpeg,
+        },
+        ffprobe: ToolingCheckStatus {
+            ok: can_run_ffprobe(&ffprobe),
+            path: ffprobe,
+        },
+    })
 }
 
 #[tauri::command]
@@ -3741,7 +3794,8 @@ pub fn run() {
             import_state,
             resolve_thumbnail_path,
             save_thumbnail,
-            update_yt_dlp
+            update_yt_dlp,
+            check_tooling
         ])
         .setup(|app| {
             if let Some(window) = app.get_webview_window("main") {

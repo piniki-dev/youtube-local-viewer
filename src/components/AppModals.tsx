@@ -26,6 +26,11 @@ type IntegritySummary = {
 
 type CookieBrowserOption = { value: string; label: string };
 
+type ToolingCheckStatus = {
+  ok: boolean;
+  path: string;
+};
+
 type AppModalsProps = {
   isAddOpen: boolean;
   addMode: AddMode;
@@ -55,12 +60,15 @@ type AppModalsProps = {
   onUpdateCookiesBrowser: (value: string) => void;
   cookieBrowserOptions: CookieBrowserOption[];
   ytDlpPath: string;
+  ytDlpStatus: ToolingCheckStatus | null;
   onPickYtDlpPath: () => void;
   onClearYtDlpPath: () => void;
   ffmpegPath: string;
+  ffmpegStatus: ToolingCheckStatus | null;
   onPickFfmpegPath: () => void;
   onClearFfmpegPath: () => void;
   ffprobePath: string;
+  ffprobeStatus: ToolingCheckStatus | null;
   onPickFfprobePath: () => void;
   onClearFfprobePath: () => void;
   remoteComponents: "none" | "ejs:github" | "ejs:npm";
@@ -129,12 +137,15 @@ export function AppModals({
   onUpdateCookiesBrowser,
   cookieBrowserOptions,
   ytDlpPath,
+  ytDlpStatus,
   onPickYtDlpPath,
   onClearYtDlpPath,
   ffmpegPath,
+  ffmpegStatus,
   onPickFfmpegPath,
   onClearFfmpegPath,
   ffprobePath,
+  ffprobeStatus,
   onPickFfprobePath,
   onClearFfprobePath,
   remoteComponents,
@@ -202,12 +213,15 @@ export function AppModals({
         onUpdateCookiesBrowser={onUpdateCookiesBrowser}
         cookieBrowserOptions={cookieBrowserOptions}
         ytDlpPath={ytDlpPath}
+        ytDlpStatus={ytDlpStatus}
         onPickYtDlpPath={onPickYtDlpPath}
         onClearYtDlpPath={onClearYtDlpPath}
         ffmpegPath={ffmpegPath}
+        ffmpegStatus={ffmpegStatus}
         onPickFfmpegPath={onPickFfmpegPath}
         onClearFfmpegPath={onClearFfmpegPath}
         ffprobePath={ffprobePath}
+        ffprobeStatus={ffprobeStatus}
         onPickFfprobePath={onPickFfprobePath}
         onClearFfprobePath={onClearFfprobePath}
         remoteComponents={remoteComponents}

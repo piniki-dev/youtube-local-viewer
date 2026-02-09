@@ -31,6 +31,7 @@ type VideoListSectionProps<T> = {
   downloadDir: string;
   onOpenSettings: () => void;
   onOpenAdd: () => void;
+  addDisabled: boolean;
 };
 
 export function VideoListSection<T>({
@@ -57,6 +58,7 @@ export function VideoListSection<T>({
   downloadDir,
   onOpenSettings,
   onOpenAdd,
+  addDisabled,
 }: VideoListSectionProps<T>) {
   if (sortedCount === 0) {
     return (
@@ -75,7 +77,7 @@ export function VideoListSection<T>({
             <button className="ghost" onClick={onOpenSettings}>
               設定を開く
             </button>
-            <button className="primary" onClick={onOpenAdd}>
+            <button className="primary" onClick={onOpenAdd} disabled={addDisabled}>
               動画を追加
             </button>
           </div>

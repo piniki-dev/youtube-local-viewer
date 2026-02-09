@@ -1,5 +1,10 @@
 type CookieBrowserOption = { value: string; label: string };
 
+type ToolingCheckStatus = {
+  ok: boolean;
+  path: string;
+};
+
 type IntegritySummary = {
   total: number;
   videoMissing: number;
@@ -21,12 +26,15 @@ type SettingsModalProps = {
   onUpdateCookiesBrowser: (value: string) => void;
   cookieBrowserOptions: CookieBrowserOption[];
   ytDlpPath: string;
+  ytDlpStatus: ToolingCheckStatus | null;
   onPickYtDlpPath: () => void;
   onClearYtDlpPath: () => void;
   ffmpegPath: string;
+  ffmpegStatus: ToolingCheckStatus | null;
   onPickFfmpegPath: () => void;
   onClearFfmpegPath: () => void;
   ffprobePath: string;
+  ffprobeStatus: ToolingCheckStatus | null;
   onPickFfprobePath: () => void;
   onClearFfprobePath: () => void;
   remoteComponents: "none" | "ejs:github" | "ejs:npm";
@@ -54,12 +62,15 @@ export function SettingsModal({
   onUpdateCookiesBrowser,
   cookieBrowserOptions,
   ytDlpPath,
+  ytDlpStatus,
   onPickYtDlpPath,
   onClearYtDlpPath,
   ffmpegPath,
+  ffmpegStatus,
   onPickFfmpegPath,
   onClearFfmpegPath,
   ffprobePath,
+  ffprobeStatus,
   onPickFfprobePath,
   onClearFfprobePath,
   remoteComponents,
@@ -73,6 +84,25 @@ export function SettingsModal({
   settingsErrorMessage,
 }: SettingsModalProps) {
   if (!isOpen) return null;
+
+  const renderToolingStatus = (status: ToolingCheckStatus | null) => {
+    if (!status) {
+      return (
+        <div className="setting-meta">
+          <span className="status-pill unknown">未確認</span>
+        </div>
+      );
+    }
+
+    return (
+      <div className="setting-meta">
+        <span className={`status-pill ${status.ok ? "ok" : "missing"}`}>
+          {status.ok ? "検出済み" : "未検出"}
+        </span>
+        <span className="setting-hint">検出: {status.path}</span>
+      </div>
+    );
+  };
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -170,6 +200,7 @@ export function SettingsModal({
               <p className="setting-value">
                 {ytDlpPath ? ytDlpPath : "未設定（同梱/パス指定なら空でもOK）"}
               </p>
+              {renderToolingStatus(ytDlpStatus)}
             </div>
             <div className="action-row">
               <button className="ghost" onClick={onPickYtDlpPath}>
@@ -188,6 +219,7 @@ export function SettingsModal({
               <p className="setting-value">
                 {ffmpegPath ? ffmpegPath : "未設定（同梱/パス指定なら空でもOK）"}
               </p>
+              {renderToolingStatus(ffmpegStatus)}
             </div>
             <div className="action-row">
               <button className="ghost" onClick={onPickFfmpegPath}>
@@ -206,6 +238,7 @@ export function SettingsModal({
               <p className="setting-value">
                 {ffprobePath ? ffprobePath : "未設定（同梱/パス指定なら空でもOK）"}
               </p>
+              {renderToolingStatus(ffprobeStatus)}
             </div>
             <div className="action-row">
               <button className="ghost" onClick={onPickFfprobePath}>

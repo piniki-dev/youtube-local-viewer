@@ -19,11 +19,13 @@ type YtDlpUpdatePayload = {
 type UseYtDlpUpdateNoticesParams = {
   isStateReady: boolean;
   isDataCheckDone: boolean;
+  ytDlpAvailable: boolean;
 };
 
 export function useYtDlpUpdateNotices({
   isStateReady,
   isDataCheckDone,
+  ytDlpAvailable,
 }: UseYtDlpUpdateNoticesParams) {
   const [ytDlpNotices, setYtDlpNotices] = useState<FloatingNoticeItem[]>([]);
   const [ytDlpUpdateDone, setYtDlpUpdateDone] = useState(false);
@@ -85,11 +87,11 @@ export function useYtDlpUpdateNotices({
   }, [addYtDlpNotice]);
 
   useEffect(() => {
-    if (!isStateReady || !isDataCheckDone) return;
+    if (!isStateReady || !isDataCheckDone || !ytDlpAvailable) return;
     if (updateRequestedRef.current) return;
     updateRequestedRef.current = true;
     void invoke("update_yt_dlp");
-  }, [isStateReady, isDataCheckDone]);
+  }, [isStateReady, isDataCheckDone, ytDlpAvailable]);
 
   return { ytDlpNotices, dismissYtDlpNotice, ytDlpUpdateDone };
 }

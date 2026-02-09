@@ -1,9 +1,14 @@
 type AppHeaderProps = {
   onOpenSettings: () => void;
   onOpenAdd: () => void;
+  addDisabled: boolean;
 };
 
-export function AppHeader({ onOpenSettings, onOpenAdd }: AppHeaderProps) {
+export function AppHeader({
+  onOpenSettings,
+  onOpenAdd,
+  addDisabled,
+}: AppHeaderProps) {
   return (
     <header className="app-header">
       <div>
@@ -14,7 +19,7 @@ export function AppHeader({ onOpenSettings, onOpenAdd }: AppHeaderProps) {
         <button className="ghost" onClick={onOpenSettings}>
           設定
         </button>
-        <button className="primary" onClick={onOpenAdd}>
+        <button className="primary" onClick={onOpenAdd} disabled={addDisabled}>
           ＋ 動画を追加
         </button>
       </div>
