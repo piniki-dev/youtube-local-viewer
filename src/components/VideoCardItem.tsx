@@ -35,6 +35,7 @@ type VideoCardItemProps = {
   video: VideoItem;
   downloadingIds: string[];
   commentsDownloadingIds: string[];
+  queuedDownloadIds: string[];
   onPlay: (video: VideoItem) => void;
   onDownload: (video: VideoItem) => Promise<void> | void;
   mediaInfo?: MediaInfo | null;
@@ -46,6 +47,7 @@ export function VideoCardItem({
   video,
   downloadingIds,
   commentsDownloadingIds,
+  queuedDownloadIds,
   onPlay,
   onDownload,
   mediaInfo,
@@ -56,6 +58,7 @@ export function VideoCardItem({
   const isPlayable = video.downloadStatus === "downloaded";
   const isDownloading = downloadingIds.includes(video.id);
   const isCommentsDownloading = commentsDownloadingIds.includes(video.id);
+  const isQueued = queuedDownloadIds.includes(video.id);
   const displayStatus: DownloadStatus = isDownloading
     ? "downloading"
     : video.downloadStatus;
@@ -67,6 +70,7 @@ export function VideoCardItem({
       isPlayable={isPlayable}
       isDownloading={isDownloading}
       isCommentsDownloading={isCommentsDownloading}
+      isQueued={isQueued}
       displayStatus={displayStatus}
       onPlay={() => onPlay(video)}
       onDownload={() => onDownload(video)}

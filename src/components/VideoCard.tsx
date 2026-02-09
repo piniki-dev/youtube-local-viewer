@@ -31,6 +31,7 @@ type VideoCardProps = {
   isPlayable: boolean;
   isDownloading: boolean;
   isCommentsDownloading: boolean;
+  isQueued: boolean;
   displayStatus: DownloadStatus;
   onPlay: () => void;
   onDownload: () => void;
@@ -45,6 +46,7 @@ export function VideoCard({
   isPlayable,
   isDownloading,
   isCommentsDownloading,
+  isQueued,
   displayStatus,
   onPlay,
   onDownload,
@@ -59,7 +61,7 @@ export function VideoCard({
   ) : (
     <i className="ri-download-2-line" />
   );
-  const isActionDisabled = isDownloaded ? !isPlayable : isDownloading;
+  const isActionDisabled = isDownloaded ? !isPlayable : isDownloading || isQueued;
 
   return (
     <article className="video-card">
@@ -100,8 +102,10 @@ export function VideoCard({
         >
           {displayStatus === "downloaded"
             ? "ダウンロード済"
-            : displayStatus === "downloading"
-              ? "ダウンロード中"
+            : displayStatus === "downloading" || isQueued
+              ? isQueued
+                ? "ダウンロード待機中"
+                : "ダウンロード中"
               : displayStatus === "pending"
                 ? "未ダウンロード"
                 : "失敗"}

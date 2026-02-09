@@ -16,6 +16,7 @@ type UseActiveActivityItemsParams<TVideo extends VideoLike> = {
   bulkDownloadActive: boolean;
   downloadingIds: string[];
   commentsDownloadingIds: string[];
+  queuedDownloadIds: string[];
   pendingCommentIds: string[];
   videos: TVideo[];
   progressLines: Record<string, string>;
@@ -26,6 +27,7 @@ export function useActiveActivityItems<TVideo extends VideoLike>({
   bulkDownloadActive,
   downloadingIds,
   commentsDownloadingIds,
+  queuedDownloadIds,
   pendingCommentIds,
   videos,
   progressLines,
@@ -36,16 +38,20 @@ export function useActiveActivityItems<TVideo extends VideoLike>({
     const ids = new Set([
       ...downloadingIds,
       ...commentsDownloadingIds,
+      ...queuedDownloadIds,
       ...pendingCommentIds,
     ]);
     return Array.from(ids).map((id) => {
       const video = videos.find((item) => item.id === id);
       const isVideo = downloadingIds.includes(id);
       const isComment = commentsDownloadingIds.includes(id);
+      const isQueued = queuedDownloadIds.includes(id);
       const status = isComment
         ? "ライブチャット取得中"
         : isVideo
           ? "動画ダウンロード中"
+          : isQueued
+            ? "ダウンロード待機中"
           : "ライブチャット準備中";
       const line = isComment
         ? commentProgressLines[id] ?? ""
@@ -61,6 +67,7 @@ export function useActiveActivityItems<TVideo extends VideoLike>({
     bulkDownloadActive,
     downloadingIds,
     commentsDownloadingIds,
+    queuedDownloadIds,
     pendingCommentIds,
     videos,
     progressLines,

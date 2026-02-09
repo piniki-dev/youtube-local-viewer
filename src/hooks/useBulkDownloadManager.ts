@@ -17,6 +17,7 @@ type BulkDownloadState = {
   queue: string[];
   stopRequested: boolean;
   phase: "video" | "comments" | null;
+  waitingForSingles: boolean;
 };
 
 type UseBulkDownloadManagerParams<TVideo extends VideoLike> = {
@@ -27,10 +28,12 @@ type UseBulkDownloadManagerParams<TVideo extends VideoLike> = {
   downloadDirRef: React.RefObject<string>;
   downloadingIds: string[];
   commentsDownloadingIds: string[];
+  queuedDownloadIds: string[];
+  pendingCommentIds: string[];
   setPendingCommentIds: React.Dispatch<React.SetStateAction<string[]>>;
   setErrorMessage: React.Dispatch<React.SetStateAction<string>>;
   setIsSettingsOpen: React.Dispatch<React.SetStateAction<boolean>>;
-  startDownload: (video: TVideo) => Promise<void> | void;
+  startDownload: (video: TVideo, options?: { allowDuringBulk?: boolean; trackSingleQueue?: boolean }) => Promise<void> | void;
   startCommentsDownload: (video: TVideo) => Promise<void> | void;
 };
 
@@ -42,6 +45,8 @@ export function useBulkDownloadManager<TVideo extends VideoLike>({
   downloadDirRef,
   downloadingIds,
   commentsDownloadingIds,
+  queuedDownloadIds,
+  pendingCommentIds,
   setPendingCommentIds,
   setErrorMessage,
   setIsSettingsOpen,
@@ -93,10 +98,11 @@ export function useBulkDownloadManager<TVideo extends VideoLike>({
         currentId: nextId,
         currentTitle: nextVideo.title,
         phase: "video",
+        waitingForSingles: false,
       };
       setBulkDownload(nextState);
       bulkDownloadRef.current = nextState;
-      void startDownload(nextVideo);
+      void startDownload(nextVideo, { allowDuringBulk: true, trackSingleQueue: false });
     },
     [bulkDownloadRef, setBulkDownload, startDownload, videosRef]
   );
@@ -136,14 +142,15 @@ export function useBulkDownloadManager<TVideo extends VideoLike>({
 
   const maybeStartAutoCommentsDownload = useCallback(
     (id: string) => {
-      if (bulkDownloadRef.current.active) return;
+      if (bulkDownloadRef.current.active) return false;
       const video = videosRef.current.find((item) => item.id === id);
-      if (!video) return;
-      if (video.commentsStatus === "downloaded") return;
-      if (video.commentsStatus === "unavailable") return;
-      if (commentsDownloadingIds.includes(id)) return;
+      if (!video) return false;
+      if (video.commentsStatus === "downloaded") return false;
+      if (video.commentsStatus === "unavailable") return false;
+      if (commentsDownloadingIds.includes(id)) return true;
       setPendingCommentIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
       void startCommentsDownload(video);
+      return true;
     },
     [
       bulkDownloadRef,
@@ -162,17 +169,28 @@ export function useBulkDownloadManager<TVideo extends VideoLike>({
       return;
     }
     if (bulkDownloadRef.current.active) return;
-    if (downloadingIds.length > 0) {
-      setErrorMessage(
-        "他のダウンロードが進行中です。完了後に一括ダウンロードしてください。"
-      );
-      return;
-    }
     const targets = videosRef.current.filter(
       (video) => video.downloadStatus !== "downloaded"
     );
     if (targets.length === 0) {
       setErrorMessage("未ダウンロードの動画がありません。");
+      return;
+    }
+
+    if (downloadingIds.length > 0 || queuedDownloadIds.length > 0) {
+      const waitingState: BulkDownloadState = {
+        active: true,
+        total: targets.length,
+        completed: 0,
+        currentId: null,
+        currentTitle: "",
+        queue: targets.map((video) => video.id),
+        stopRequested: false,
+        phase: null,
+        waitingForSingles: true,
+      };
+      setBulkDownload(waitingState);
+      bulkDownloadRef.current = waitingState;
       return;
     }
 
@@ -185,6 +203,7 @@ export function useBulkDownloadManager<TVideo extends VideoLike>({
       queue: targets.map((video) => video.id),
       stopRequested: false,
       phase: null,
+      waitingForSingles: false,
     };
     setBulkDownload(nextState);
     bulkDownloadRef.current = nextState;
@@ -193,6 +212,7 @@ export function useBulkDownloadManager<TVideo extends VideoLike>({
     bulkDownloadRef,
     downloadDirRef,
     downloadingIds.length,
+    queuedDownloadIds.length,
     setErrorMessage,
     setIsSettingsOpen,
     setBulkDownload,
@@ -202,7 +222,20 @@ export function useBulkDownloadManager<TVideo extends VideoLike>({
 
   const stopBulkDownload = useCallback(async () => {
     const state = bulkDownloadRef.current;
-    if (!state.active || !state.currentId) return;
+    if (!state.active) return;
+    if (state.waitingForSingles && !state.currentId) {
+      const clearedState: BulkDownloadState = {
+        ...state,
+        active: false,
+        queue: [],
+        waitingForSingles: false,
+        stopRequested: false,
+      };
+      setBulkDownload(clearedState);
+      bulkDownloadRef.current = clearedState;
+      return;
+    }
+    if (!state.currentId) return;
 
     const nextState: BulkDownloadState = { ...state, stopRequested: true };
     setBulkDownload(nextState);
@@ -218,11 +251,37 @@ export function useBulkDownloadManager<TVideo extends VideoLike>({
     }
   }, [bulkDownloadRef, setBulkDownload, setErrorMessage]);
 
+  const maybeStartQueuedBulk = useCallback(() => {
+    const state = bulkDownloadRef.current;
+    if (!state.active || !state.waitingForSingles) return;
+    if (
+      downloadingIds.length > 0 ||
+      queuedDownloadIds.length > 0 ||
+      commentsDownloadingIds.length > 0 ||
+      pendingCommentIds.length > 0
+    ) {
+      return;
+    }
+    const nextState: BulkDownloadState = { ...state, waitingForSingles: false };
+    setBulkDownload(nextState);
+    bulkDownloadRef.current = nextState;
+    startNextBulkDownload(nextState);
+  }, [
+    bulkDownloadRef,
+    commentsDownloadingIds.length,
+    downloadingIds.length,
+    pendingCommentIds.length,
+    queuedDownloadIds.length,
+    setBulkDownload,
+    startNextBulkDownload,
+  ]);
+
   return {
     bulkDownload,
     startBulkDownload,
     stopBulkDownload,
     handleBulkCompletion,
     maybeStartAutoCommentsDownload,
+    maybeStartQueuedBulk,
   };
 }

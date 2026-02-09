@@ -41,13 +41,15 @@ type UseDownloadEventsParams<TVideo extends VideoLike> = {
   setPendingCommentIds: React.Dispatch<React.SetStateAction<string[]>>;
   bulkDownloadRef: React.RefObject<BulkDownloadState>;
   handleBulkCompletion: (id: string, cancelled: boolean) => void;
-  maybeStartAutoCommentsDownload: (id: string) => void;
+  maybeStartAutoCommentsDownload: (id: string) => boolean;
   addDownloadErrorItem: (
     id: string,
     phase: "video" | "comments" | "metadata",
     details: string
   ) => void;
   setErrorMessage: React.Dispatch<React.SetStateAction<string>>;
+  onVideoDownloadFinished?: (id: string, waitForComments: boolean) => void;
+  onCommentsDownloadFinished?: (id: string) => void;
 };
 
 export function useDownloadEvents<TVideo extends VideoLike>({
@@ -65,6 +67,8 @@ export function useDownloadEvents<TVideo extends VideoLike>({
   maybeStartAutoCommentsDownload,
   addDownloadErrorItem,
   setErrorMessage,
+  onVideoDownloadFinished,
+  onCommentsDownloadFinished,
 }: UseDownloadEventsParams<TVideo>) {
   useEffect(() => {
     let unlisten: (() => void) | null = null;
@@ -94,6 +98,9 @@ export function useDownloadEvents<TVideo extends VideoLike>({
         (event) => {
           const { id, success, stderr, stdout, cancelled } = event.payload;
           const wasCancelled = Boolean(cancelled);
+          const isBulkCurrent =
+            bulkDownloadRef.current.active &&
+            bulkDownloadRef.current.currentId === id;
           setDownloadingIds((prev: string[]) =>
             prev.filter((item: string) => item !== id)
           );
@@ -115,6 +122,7 @@ export function useDownloadEvents<TVideo extends VideoLike>({
               delete next[id];
               return next;
             });
+            onVideoDownloadFinished?.(id, false);
           } else if (success) {
             setVideos((prev: TVideo[]) =>
               prev.map((v: TVideo) =>
@@ -133,14 +141,10 @@ export function useDownloadEvents<TVideo extends VideoLike>({
               delete next[id];
               return next;
             });
-            if (
-              bulkDownloadRef.current.active &&
-              bulkDownloadRef.current.currentId === id
-            ) {
-              handleBulkCompletion(id, false);
-            } else {
-              maybeStartAutoCommentsDownload(id);
-            }
+            const commentsStarted = !isBulkCurrent
+              ? maybeStartAutoCommentsDownload(id)
+              : false;
+            onVideoDownloadFinished?.(id, commentsStarted);
           } else {
             setVideos((prev: TVideo[]) =>
               prev.map((v: TVideo) =>
@@ -156,16 +160,10 @@ export function useDownloadEvents<TVideo extends VideoLike>({
             }));
             addDownloadErrorItem(id, "video", details);
             setErrorMessage("ダウンロードに失敗しました。詳細を確認してください。");
+            onVideoDownloadFinished?.(id, false);
           }
-          if (
-            bulkDownloadRef.current.active &&
-            bulkDownloadRef.current.currentId === id
-          ) {
-            if (wasCancelled || !success) {
-              handleBulkCompletion(id, wasCancelled);
-            }
-          } else {
-            if (wasCancelled) return;
+          if (isBulkCurrent) {
+            handleBulkCompletion(id, wasCancelled);
           }
         }
       );
@@ -179,6 +177,8 @@ export function useDownloadEvents<TVideo extends VideoLike>({
     bulkDownloadRef,
     handleBulkCompletion,
     maybeStartAutoCommentsDownload,
+    onVideoDownloadFinished,
+    onCommentsDownloadFinished,
     setDownloadingIds,
     setErrorMessage,
     setProgressLines,
@@ -280,6 +280,7 @@ export function useDownloadEvents<TVideo extends VideoLike>({
             ) {
               handleBulkCompletion(id, false);
             }
+            onCommentsDownloadFinished?.(id);
           })();
         }
       );
@@ -299,5 +300,6 @@ export function useDownloadEvents<TVideo extends VideoLike>({
     setErrorMessage,
     setPendingCommentIds,
     setVideos,
+    onCommentsDownloadFinished,
   ]);
 }

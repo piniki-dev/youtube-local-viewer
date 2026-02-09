@@ -118,6 +118,15 @@ type BulkDownloadState = {
   queue: string[];
   stopRequested: boolean;
   phase: "video" | "comments" | null;
+  waitingForSingles: boolean;
+};
+
+type FloatingNotice = {
+  id: string;
+  kind: "success" | "error" | "info";
+  title: string;
+  details?: string;
+  autoDismissMs?: number;
 };
 
 const COOKIE_BROWSER_OPTIONS = [
@@ -161,6 +170,7 @@ function App() {
   const [channelFetchProgress, setChannelFetchProgress] = useState(0);
   const [downloadDir, setDownloadDir] = useState<string>("");
   const [downloadingIds, setDownloadingIds] = useState<string[]>([]);
+  const [queuedDownloadIds, setQueuedDownloadIds] = useState<string[]>([]);
   const [videoErrors, setVideoErrors] = useState<Record<string, string>>({});
   const storageKeys = useMemo(
     () => ({
@@ -195,6 +205,7 @@ function App() {
   const [downloadErrorItems, setDownloadErrorItems] = useState<
     FloatingErrorItem[]
   >([]);
+  const [floatingNotices, setFloatingNotices] = useState<FloatingNotice[]>([]);
   const [isStateReady, setIsStateReady] = useState(false);
   const [backupMessage, setBackupMessage] = useState("");
   const [isBackupNoticeOpen, setIsBackupNoticeOpen] = useState(false);
@@ -216,6 +227,7 @@ function App() {
     queue: [],
     stopRequested: false,
     phase: null,
+    waitingForSingles: false,
   });
   const [isBulkLogOpen, setIsBulkLogOpen] = useState(false);
   const [isDownloadLogOpen, setIsDownloadLogOpen] = useState(false);
@@ -364,6 +376,23 @@ function App() {
     []
   );
 
+  const addFloatingNotice = useCallback(
+    (notice: Omit<FloatingNotice, "id">) => {
+      const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      setFloatingNotices((prev) => [{ ...notice, id }, ...prev].slice(0, 4));
+      if (notice.autoDismissMs && notice.autoDismissMs > 0) {
+        window.setTimeout(() => {
+          setFloatingNotices((prev) => prev.filter((item) => item.id !== id));
+        }, notice.autoDismissMs);
+      }
+    },
+    []
+  );
+
+  const dismissFloatingNotice = useCallback((id: string) => {
+    setFloatingNotices((prev) => prev.filter((item) => item.id !== id));
+  }, []);
+
   const {
     hasCheckedFiles,
     integrityIssues,
@@ -494,26 +523,34 @@ function App() {
     void runIntegrityCheck(true);
   }, [isStateReady, runIntegrityCheck]);
 
-  const { startDownload, startCommentsDownload } = useDownloadActions({
-    downloadDirRef,
-    cookiesFile,
-    cookiesSource,
-    cookiesBrowser,
-    remoteComponents,
-    ytDlpPath,
-    ffmpegPath,
-    setErrorMessage,
-    setIsSettingsOpen,
-    setDownloadingIds,
-    setCommentsDownloadingIds,
-    setPendingCommentIds,
-    setVideos,
-    setVideoErrors,
-    setCommentErrors,
-    setProgressLines,
-    setCommentProgressLines,
-    onStartFailedRef,
-  });
+  const {
+    startDownload,
+    startCommentsDownload,
+    handleVideoDownloadFinished,
+    handleCommentsDownloadFinished,
+  } = useDownloadActions({
+      downloadDirRef,
+      cookiesFile,
+      cookiesSource,
+      cookiesBrowser,
+      remoteComponents,
+      ytDlpPath,
+      ffmpegPath,
+      setErrorMessage,
+      setIsSettingsOpen,
+      setDownloadingIds,
+      setCommentsDownloadingIds,
+      setPendingCommentIds,
+      setVideos,
+      setVideoErrors,
+      setCommentErrors,
+      setProgressLines,
+      setCommentProgressLines,
+      onStartFailedRef,
+      bulkDownloadRef,
+      setQueuedDownloadIds,
+      addFloatingNotice,
+    });
 
   const { addVideo, addChannelVideos } = useAddVideoActions({
     videos,
@@ -543,6 +580,7 @@ function App() {
     stopBulkDownload,
     handleBulkCompletion,
     maybeStartAutoCommentsDownload,
+    maybeStartQueuedBulk,
   } = useBulkDownloadManager({
     bulkDownload,
     setBulkDownload,
@@ -551,6 +589,8 @@ function App() {
     downloadDirRef,
     downloadingIds,
     commentsDownloadingIds,
+    queuedDownloadIds,
+    pendingCommentIds,
     setPendingCommentIds,
     setErrorMessage,
     setIsSettingsOpen,
@@ -561,6 +601,23 @@ function App() {
   useEffect(() => {
     onStartFailedRef.current = (id: string) => handleBulkCompletion(id, false);
   }, [handleBulkCompletion]);
+
+  const handleVideoDownloadFinishedWithBulk = useCallback(
+    (id: string, waitForComments: boolean) => {
+      handleVideoDownloadFinished(id, waitForComments);
+    },
+    [handleVideoDownloadFinished]
+  );
+
+  useEffect(() => {
+    maybeStartQueuedBulk();
+  }, [
+    maybeStartQueuedBulk,
+    downloadingIds.length,
+    queuedDownloadIds.length,
+    commentsDownloadingIds.length,
+    pendingCommentIds.length,
+  ]);
 
   useDownloadEvents({
     downloadDirRef,
@@ -577,6 +634,8 @@ function App() {
     maybeStartAutoCommentsDownload,
     addDownloadErrorItem,
     setErrorMessage,
+    onVideoDownloadFinished: handleVideoDownloadFinishedWithBulk,
+    onCommentsDownloadFinished: handleCommentsDownloadFinished,
   });
 
   const {
@@ -623,6 +682,7 @@ function App() {
         video={video}
         downloadingIds={downloadingIds}
         commentsDownloadingIds={commentsDownloadingIds}
+        queuedDownloadIds={queuedDownloadIds}
         onPlay={(target) => {
           if (target.downloadStatus === "downloaded") {
             void openPlayer(target);
@@ -637,14 +697,18 @@ function App() {
   };
 
   const activeActivityItems = useActiveActivityItems({
-    bulkDownloadActive: bulkDownload.active,
+    bulkDownloadActive: bulkDownload.active && !bulkDownload.waitingForSingles,
     downloadingIds,
     commentsDownloadingIds,
+    queuedDownloadIds,
     pendingCommentIds,
     videos,
     progressLines,
     commentProgressLines,
   });
+
+  const activeDownloadCount = downloadingIds.length;
+  const queuedDownloadCount = queuedDownloadIds.length;
 
   const clearDownloadErrors = useCallback(() => {
     setDownloadErrorItems([]);
@@ -733,7 +797,6 @@ function App() {
           onStartBulkDownload={startBulkDownload}
           bulkDownloadDisabled={
             bulkDownload.active ||
-            downloadingIds.length > 0 ||
             !hasUndownloaded ||
             !downloadDirRef.current.trim()
           }
@@ -753,6 +816,8 @@ function App() {
       <FloatingStatusStack
         ytDlpNotices={ytDlpNotices}
         onCloseNotice={dismissYtDlpNotice}
+        floatingNotices={floatingNotices}
+        onCloseFloatingNotice={dismissFloatingNotice}
         metadataFetch={metadataFetch}
         metadataPaused={metadataPaused}
         metadataPauseReason={metadataPauseReason}
@@ -780,6 +845,8 @@ function App() {
         progressLines={progressLines}
         commentProgressLines={commentProgressLines}
         activeActivityItems={activeActivityItems}
+        activeDownloadCount={activeDownloadCount}
+        queuedDownloadCount={queuedDownloadCount}
         isDownloadLogOpen={isDownloadLogOpen}
         onToggleDownloadLogOpen={() => setIsDownloadLogOpen((prev) => !prev)}
       />

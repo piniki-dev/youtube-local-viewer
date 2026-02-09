@@ -5,6 +5,14 @@ type YtDlpNotice = {
   details?: string;
 };
 
+type FloatingNotice = {
+  id: string;
+  kind: "success" | "error" | "info";
+  title: string;
+  details?: string;
+  autoDismissMs?: number;
+};
+
 type MetadataFetchState = {
   active: boolean;
   total: number;
@@ -27,6 +35,7 @@ type BulkDownloadState = {
   currentTitle: string;
   stopRequested: boolean;
   phase: "video" | "comments" | null;
+  waitingForSingles: boolean;
 };
 
 type ActiveActivityItem = {
@@ -39,6 +48,8 @@ type ActiveActivityItem = {
 type FloatingStatusStackProps = {
   ytDlpNotices: YtDlpNotice[];
   onCloseNotice: (id: string) => void;
+  floatingNotices: FloatingNotice[];
+  onCloseFloatingNotice: (id: string) => void;
   metadataFetch: MetadataFetchState;
   metadataPaused: boolean;
   metadataPauseReason: string;
@@ -58,6 +69,8 @@ type FloatingStatusStackProps = {
   progressLines: Record<string, string>;
   commentProgressLines: Record<string, string>;
   activeActivityItems: ActiveActivityItem[];
+  activeDownloadCount: number;
+  queuedDownloadCount: number;
   isDownloadLogOpen: boolean;
   onToggleDownloadLogOpen: () => void;
 };
@@ -65,6 +78,8 @@ type FloatingStatusStackProps = {
 export function FloatingStatusStack({
   ytDlpNotices,
   onCloseNotice,
+  floatingNotices,
+  onCloseFloatingNotice,
   metadataFetch,
   metadataPaused,
   metadataPauseReason,
@@ -84,20 +99,57 @@ export function FloatingStatusStack({
   progressLines,
   commentProgressLines,
   activeActivityItems,
+  activeDownloadCount,
+  queuedDownloadCount,
   isDownloadLogOpen,
   onToggleDownloadLogOpen,
 }: FloatingStatusStackProps) {
+  const totalDownloadCount = activeDownloadCount + queuedDownloadCount;
+  const displayTotalCount =
+    totalDownloadCount > 0 ? totalDownloadCount : activeActivityItems.length;
   const hasPanels =
     bulkDownload.active ||
     activeActivityItems.length > 0 ||
     hasDownloadErrors ||
     metadataFetch.active ||
-    ytDlpNotices.length > 0;
+    ytDlpNotices.length > 0 ||
+    floatingNotices.length > 0;
 
   if (!hasPanels) return null;
 
   return (
     <div className="floating-stack">
+      {floatingNotices.map((notice) => (
+        <div
+          key={notice.id}
+          className={`floating-panel generic-notice ${
+            notice.kind === "error"
+              ? "is-error"
+              : notice.kind === "success"
+                ? "is-success"
+                : ""
+          }`}
+        >
+          <div className="bulk-status-header">
+            <div className="bulk-status-title">
+              <span>{notice.title}</span>
+            </div>
+            <button
+              className="ghost tiny"
+              type="button"
+              onClick={() => onCloseFloatingNotice(notice.id)}
+            >
+              閉じる
+            </button>
+          </div>
+          {notice.details && (
+            <div className="bulk-status-body">
+              <pre className="bulk-status-log">{notice.details}</pre>
+            </div>
+          )}
+        </div>
+      ))}
+
       {ytDlpNotices.map((notice) => (
         <div
           key={notice.id}
@@ -285,7 +337,9 @@ export function FloatingStatusStack({
             <div className="bulk-status-title">
               <div className="spinner" />
               <span>
-                ダウンロード中 ({bulkDownload.completed}/{bulkDownload.total})
+                {bulkDownload.waitingForSingles
+                  ? `一括ダウンロード待機中 (${bulkDownload.completed}/${bulkDownload.total})`
+                  : `ダウンロード中 (${bulkDownload.completed}/${bulkDownload.total})`}
               </span>
             </div>
             <button
@@ -295,33 +349,45 @@ export function FloatingStatusStack({
                 event.stopPropagation();
                 onStopBulkDownload();
               }}
-              disabled={!bulkDownload.currentId || bulkDownload.stopRequested}
+              disabled={
+                bulkDownload.waitingForSingles ||
+                !bulkDownload.currentId ||
+                bulkDownload.stopRequested
+              }
             >
               {bulkDownload.stopRequested ? "停止中..." : "停止"}
             </button>
           </div>
           {isBulkLogOpen && (
             <div className="bulk-status-body">
-              {bulkDownload.currentTitle && (
+              {bulkDownload.waitingForSingles ? (
                 <p className="bulk-status-title-line">
-                  現在: {bulkDownload.currentTitle}
+                  個別ダウンロードの終了を待機中です。
                 </p>
+              ) : (
+                <>
+                  {bulkDownload.currentTitle && (
+                    <p className="bulk-status-title-line">
+                      現在: {bulkDownload.currentTitle}
+                    </p>
+                  )}
+                  {bulkDownload.phase && (
+                    <p className="bulk-status-title-line">
+                      状態: {bulkDownload.phase === "comments" ? "ライブチャット取得中" : "動画ダウンロード中"}
+                    </p>
+                  )}
+                  <pre className="bulk-status-log">
+                    {bulkDownload.currentId &&
+                    (bulkDownload.phase === "comments"
+                      ? commentProgressLines[bulkDownload.currentId]
+                      : progressLines[bulkDownload.currentId])
+                      ? bulkDownload.phase === "comments"
+                        ? commentProgressLines[bulkDownload.currentId]
+                        : progressLines[bulkDownload.currentId]
+                      : "ログ待機中..."}
+                  </pre>
+                </>
               )}
-              {bulkDownload.phase && (
-                <p className="bulk-status-title-line">
-                  状態: {bulkDownload.phase === "comments" ? "ライブチャット取得中" : "動画ダウンロード中"}
-                </p>
-              )}
-              <pre className="bulk-status-log">
-                {bulkDownload.currentId &&
-                (bulkDownload.phase === "comments"
-                  ? commentProgressLines[bulkDownload.currentId]
-                  : progressLines[bulkDownload.currentId])
-                  ? bulkDownload.phase === "comments"
-                    ? commentProgressLines[bulkDownload.currentId]
-                    : progressLines[bulkDownload.currentId]
-                  : "ログ待機中..."}
-              </pre>
             </div>
           )}
         </div>
@@ -345,7 +411,9 @@ export function FloatingStatusStack({
           <div className="bulk-status-header">
             <div className="bulk-status-title">
               {activeActivityItems.length > 0 && <div className="spinner" />}
-              <span>ダウンロード中 ({activeActivityItems.length}件)</span>
+              <span>
+                ダウンロード中 ({activeDownloadCount}/{displayTotalCount}件)
+              </span>
             </div>
           </div>
           {isDownloadLogOpen && (

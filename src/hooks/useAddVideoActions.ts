@@ -58,7 +58,7 @@ type UseAddVideoActionsParams<TVideo extends VideoBase> = {
   setChannelFetchProgress: React.Dispatch<React.SetStateAction<number>>;
   setChannelFetchMessage: React.Dispatch<React.SetStateAction<string>>;
   scheduleBackgroundMetadataFetch: (items: Array<{ id: string; sourceUrl?: string | null }>) => void;
-  startDownload: (video: TVideo) => Promise<void> | void;
+  startDownload: (video: TVideo, options?: { allowDuringBulk?: boolean; trackSingleQueue?: boolean }) => Promise<void> | void;
   cookiesFile: string;
   cookiesSource: "none" | "file" | "browser";
   cookiesBrowser: string;
