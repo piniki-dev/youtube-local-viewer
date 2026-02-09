@@ -107,7 +107,12 @@ export function useAddVideoActions<TVideo extends VideoBase>({
     try {
       const oembedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${id}&format=json`;
       const oembedRes = await fetch(oembedUrl);
-      const data = oembedRes.ok ? await oembedRes.json() : null;
+      if (!oembedRes.ok) {
+        setErrorMessage("存在しない動画URLです。");
+        setIsAddOpen(true);
+        return;
+      }
+      const data = await oembedRes.json();
       const metaFields = buildMetadataFields({
         webpageUrl: null,
         durationSec: null,

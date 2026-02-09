@@ -49,11 +49,23 @@ export type MetadataFields = {
 export const parseVideoId = (url: string) => {
   try {
     const u = new URL(url);
-    if (u.hostname.includes("youtu.be")) {
+    const hostname = u.hostname.toLowerCase();
+    const isYouTubeHost =
+      hostname === "youtu.be" ||
+      hostname.endsWith(".youtu.be") ||
+      hostname === "youtube.com" ||
+      hostname.endsWith(".youtube.com") ||
+      hostname === "youtube-nocookie.com" ||
+      hostname.endsWith(".youtube-nocookie.com");
+    if (!isYouTubeHost) return null;
+    if (hostname.includes("youtu.be")) {
       return u.pathname.replace("/", "");
     }
     if (u.pathname.startsWith("/shorts/")) {
       return u.pathname.split("/shorts/")[1]?.split("/")[0] ?? null;
+    }
+    if (u.pathname.startsWith("/live/")) {
+      return u.pathname.split("/live/")[1]?.split("/")[0] ?? null;
     }
     if (u.pathname.startsWith("/embed/")) {
       return u.pathname.split("/embed/")[1]?.split("/")[0] ?? null;
