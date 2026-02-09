@@ -8,6 +8,30 @@ Tauri + React + TypeScript で作るデスクトップアプリのベースで�
 - npm run build
 - npm run tauri dev
 - npm run tauri build
+- npm run test
+- npm run test:watch
+- npm run test:e2e
+
+## Testing
+
+Unit/Component tests:
+
+```
+npm run test
+```
+
+E2E smoke test (Vite dev + Playwright):
+
+```
+npm run test:e2e
+```
+
+Playwright runs against the Vite dev server (`npm run dev`).
+If this is the first time, install browsers:
+
+```
+npx playwright install
+```
 
 ## Notes
 
