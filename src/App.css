@@ -330,32 +330,51 @@ body {
   background: #0f1115;
 }
 
+.thumbnail::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  pointer-events: none;
+  z-index: 1;
+}
+
 .thumbnail img {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
+  z-index: 0;
 }
 
-.play-overlay {
+.thumbnail-overlay {
   position: absolute;
   inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 40px;
-  color: rgba(255, 255, 255, 0.7);
-  text-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  color: rgba(255, 255, 255, 1);
+  text-shadow: 0 6px 16px rgba(0, 0, 0, 0.45);
   opacity: 0;
   transition: opacity 0.2s ease;
   pointer-events: none;
+  z-index: 2;
 }
 
-.thumbnail-button:not(:disabled):hover .play-overlay,
-.thumbnail-button:not(:disabled):focus-visible .play-overlay,
-.video-card:hover .thumbnail-button:not(:disabled) .play-overlay {
-  opacity: 0.85;
+.thumbnail-button:not(:disabled):hover .thumbnail-overlay,
+.thumbnail-button:not(:disabled):focus-visible .thumbnail-overlay,
+.video-card:hover .thumbnail-button:not(:disabled) .thumbnail-overlay {
+  opacity: 1;
+}
+
+.thumbnail-button:not(:disabled):hover .thumbnail::after,
+.thumbnail-button:not(:disabled):focus-visible .thumbnail::after,
+.video-card:hover .thumbnail-button:not(:disabled) .thumbnail::after {
+  opacity: 1;
 }
 
 .video-info {

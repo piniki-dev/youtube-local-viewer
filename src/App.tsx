@@ -42,6 +42,7 @@ import {
   buildThumbnailCandidates,
 } from "./utils/metadataHelpers";
 import "./App.css";
+import "remixicon/fonts/remixicon.css";
 
 type DownloadStatus = "pending" | "downloading" | "downloaded" | "failed";
 type CommentStatus =

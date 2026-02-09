@@ -56,23 +56,34 @@ export function VideoCard({
   formatPublishedAt,
   formatDuration,
 }: VideoCardProps) {
+  const isDownloaded = displayStatus === "downloaded";
+  const overlayClass = isDownloaded ? "play-overlay" : "download-overlay";
+  const overlayIcon = isDownloaded ? (
+    <i className="ri-play-large-fill" />
+  ) : (
+    <i className="ri-download-2-line" />
+  );
+  const isActionDisabled = isDownloaded ? !isPlayable : isDownloading;
+
   return (
     <article className="video-card">
       <button
         className="thumbnail-button"
         type="button"
-        onClick={onPlay}
-        disabled={!isPlayable}
+        onClick={isDownloaded ? onPlay : onDownload}
+        disabled={isActionDisabled}
         aria-label={
-          isPlayable
+          isDownloaded
             ? `再生: ${video.title}`
-            : `未ダウンロードのため再生不可: ${video.title}`
+            : isDownloading
+              ? `ダウンロード中: ${video.title}`
+              : `ダウンロード開始: ${video.title}`
         }
       >
         <div className="thumbnail">
           {thumbnailSrc && <img src={thumbnailSrc} alt={video.title} />}
-          <span className="play-overlay" aria-hidden="true">
-            ▶
+          <span className={`thumbnail-overlay ${overlayClass}`} aria-hidden="true">
+            {overlayIcon}
           </span>
         </div>
       </button>
@@ -99,15 +110,6 @@ export function VideoCard({
                 ? "未ダウンロード"
                 : "失敗"}
         </span>
-        {displayStatus !== "downloaded" && (
-          <button
-            className="ghost small"
-            onClick={onDownload}
-            disabled={isDownloading}
-          >
-            {isDownloading ? "ダウンロード中..." : "ダウンロード"}
-          </button>
-        )}
         {hasError && (
           <button className="ghost tiny" onClick={onOpenErrorDetails}>
             エラー詳細
