@@ -4,7 +4,6 @@ import { SettingsModal } from "./SettingsModal";
 import { IntegrityModal } from "./IntegrityModal";
 import { BackupNoticeModal } from "./BackupNoticeModal";
 import { ChannelFetchModal } from "./ChannelFetchModal";
-import { ErrorDetailsModal } from "./ErrorDetailsModal";
 import { SwitchConfirmModal } from "./SwitchConfirmModal";
 import { PlayerModal } from "./PlayerModal";
 
@@ -92,10 +91,6 @@ type AppModalsProps = {
   channelFetchProgress: number;
   onCloseChannelFetch: () => void;
 
-  isErrorOpen: boolean;
-  errorDetails: string;
-  onCloseError: () => void;
-
   isSwitchConfirmOpen: boolean;
   switchConfirmMessage: string;
   onCancelSwitch: () => void;
@@ -166,9 +161,6 @@ export function AppModals({
   channelFetchMessage,
   channelFetchProgress,
   onCloseChannelFetch,
-  isErrorOpen,
-  errorDetails,
-  onCloseError,
   isSwitchConfirmOpen,
   switchConfirmMessage,
   onCancelSwitch,
@@ -254,12 +246,6 @@ export function AppModals({
         message={channelFetchMessage}
         progress={channelFetchProgress}
         onClose={onCloseChannelFetch}
-      />
-
-      <ErrorDetailsModal
-        isOpen={isErrorOpen}
-        details={errorDetails}
-        onClose={onCloseError}
       />
 
       <SwitchConfirmModal

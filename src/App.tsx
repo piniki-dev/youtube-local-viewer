@@ -150,8 +150,6 @@ function App() {
   const [downloadDir, setDownloadDir] = useState<string>("");
   const [downloadingIds, setDownloadingIds] = useState<string[]>([]);
   const [videoErrors, setVideoErrors] = useState<Record<string, string>>({});
-  const [isErrorOpen, setIsErrorOpen] = useState(false);
-  const [errorTargetId, setErrorTargetId] = useState<string | null>(null);
   const storageKeys = useMemo(
     () => ({
       videoStorageKey: VIDEO_STORAGE_KEY,
@@ -592,11 +590,6 @@ function App() {
           }
         }}
         onDownload={startDownload}
-        hasError={!!videoErrors[video.id]}
-        onOpenErrorDetails={() => {
-          setErrorTargetId(video.id);
-          setIsErrorOpen(true);
-        }}
         mediaInfo={mediaInfoById[video.id]}
         formatPublishedAt={formatPublishedAt}
         formatDuration={formatDuration}
@@ -800,11 +793,6 @@ function App() {
         channelFetchMessage={channelFetchMessage}
         channelFetchProgress={channelFetchProgress}
         onCloseChannelFetch={() => setIsChannelFetchOpen(false)}
-        isErrorOpen={isErrorOpen && !!errorTargetId}
-        errorDetails={
-          errorTargetId ? videoErrors[errorTargetId] ?? "詳細がありません。" : ""
-        }
-        onCloseError={() => setIsErrorOpen(false)}
         isSwitchConfirmOpen={isSwitchConfirmOpen}
         switchConfirmMessage={switchConfirmMessage}
         onCancelSwitch={closeSwitchConfirm}

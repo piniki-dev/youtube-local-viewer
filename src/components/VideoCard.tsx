@@ -34,8 +34,6 @@ type VideoCardProps = {
   displayStatus: DownloadStatus;
   onPlay: () => void;
   onDownload: () => void;
-  hasError: boolean;
-  onOpenErrorDetails: () => void;
   mediaInfo?: MediaInfo | null;
   formatPublishedAt: (value?: string) => string;
   formatDuration: (value?: number | null) => string;
@@ -50,8 +48,6 @@ export function VideoCard({
   displayStatus,
   onPlay,
   onDownload,
-  hasError,
-  onOpenErrorDetails,
   mediaInfo,
   formatPublishedAt,
   formatDuration,
@@ -110,11 +106,6 @@ export function VideoCard({
                 ? "未ダウンロード"
                 : "失敗"}
         </span>
-        {hasError && (
-          <button className="ghost tiny" onClick={onOpenErrorDetails}>
-            エラー詳細
-          </button>
-        )}
         {mediaInfo && (
           <p className="progress-line codec-line">
             動画: {mediaInfo.videoCodec ?? "不明"}

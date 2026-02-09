@@ -37,8 +37,6 @@ type VideoCardItemProps = {
   commentsDownloadingIds: string[];
   onPlay: (video: VideoItem) => void;
   onDownload: (video: VideoItem) => Promise<void> | void;
-  hasError: boolean;
-  onOpenErrorDetails: () => void;
   mediaInfo?: MediaInfo | null;
   formatPublishedAt: (value?: string) => string;
   formatDuration: (value?: number | null) => string;
@@ -50,8 +48,6 @@ export function VideoCardItem({
   commentsDownloadingIds,
   onPlay,
   onDownload,
-  hasError,
-  onOpenErrorDetails,
   mediaInfo,
   formatPublishedAt,
   formatDuration,
@@ -74,8 +70,6 @@ export function VideoCardItem({
       displayStatus={displayStatus}
       onPlay={() => onPlay(video)}
       onDownload={() => onDownload(video)}
-      hasError={hasError}
-      onOpenErrorDetails={onOpenErrorDetails}
       mediaInfo={mediaInfo}
       formatPublishedAt={formatPublishedAt}
       formatDuration={formatDuration}
