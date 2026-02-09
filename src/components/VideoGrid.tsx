@@ -29,10 +29,11 @@ export function VideoGrid<T>({
             const totalItems = filteredVideos.length + (showAddSkeleton ? 1 : 0);
             const maxColumns = Math.min(
               4,
-              Math.max(1, Math.floor((width + gridGap) / (gridCardWidth + gridGap)))
+              Math.max(1, Math.floor((width - gridGap) / (gridCardWidth + gridGap)))
             );
             const columnCount = maxColumns;
-            const columnWidth = gridCardWidth + gridGap;
+            const availableWidth = Math.max(1, width - gridGap * (columnCount + 1));
+            const columnWidth = Math.max(1, Math.floor(availableWidth / columnCount));
             const rowCount = Math.ceil(totalItems / columnCount);
 
             return (
