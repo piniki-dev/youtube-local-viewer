@@ -239,6 +239,47 @@ body {
   background: #fafbfc;
 }
 
+.empty-guide {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: center;
+}
+
+.empty-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: #111;
+  margin: 0;
+}
+
+.empty-lead {
+  margin: 0;
+  color: #4c5563;
+}
+
+.empty-steps {
+  margin: 0;
+  padding-left: 18px;
+  color: #4c5563;
+  text-align: left;
+  max-width: 520px;
+}
+
+.empty-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.empty-hint {
+  margin: 0;
+  font-size: 13px;
+  color: #7a8393;
+  word-break: break-all;
+}
+
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));

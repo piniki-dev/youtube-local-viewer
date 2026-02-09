@@ -235,7 +235,7 @@ export function SettingsModal({
                 }
               >
                 <option value="none">無効</option>
-                <option value="ejs:github">ejs:github（推奨）</option>
+                <option value="ejs:github">ejs:github</option>
                 <option value="ejs:npm">ejs:npm</option>
               </select>
             </div>

@@ -28,6 +28,9 @@ type VideoListSectionProps<T> = {
   gridCardWidth: number;
   gridGap: number;
   gridRowHeight: number;
+  downloadDir: string;
+  onOpenSettings: () => void;
+  onOpenAdd: () => void;
 };
 
 export function VideoListSection<T>({
@@ -51,11 +54,35 @@ export function VideoListSection<T>({
   gridCardWidth,
   gridGap,
   gridRowHeight,
+  downloadDir,
+  onOpenSettings,
+  onOpenAdd,
 }: VideoListSectionProps<T>) {
   if (sortedCount === 0) {
     return (
       <EmptyState>
-        まだ動画がありません。右上の「＋ 動画を追加」から登録してください。
+        <div className="empty-guide">
+          <p className="empty-title">はじめに</p>
+          <p className="empty-lead">
+            保存先フォルダを設定してから、動画URLを追加してください。
+          </p>
+          <ol className="empty-steps">
+            <li>右上の「設定」から保存先フォルダを選択</li>
+            <li>「＋ 動画を追加」から動画のURLかチャンネルのURLを登録</li>
+            <li>必要なら「追加と同時にダウンロード」を有効にする</li>
+          </ol>
+          <div className="empty-actions">
+            <button className="ghost" onClick={onOpenSettings}>
+              設定を開く
+            </button>
+            <button className="primary" onClick={onOpenAdd}>
+              動画を追加
+            </button>
+          </div>
+          <p className="empty-hint">
+            保存先フォルダ: {downloadDir ? downloadDir : "未設定"}
+          </p>
+        </div>
       </EmptyState>
     );
   }

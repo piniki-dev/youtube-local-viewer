@@ -696,6 +696,9 @@ function App() {
           gridCardWidth={GRID_CARD_WIDTH}
           gridGap={GRID_GAP}
           gridRowHeight={GRID_ROW_HEIGHT}
+          downloadDir={downloadDir}
+          onOpenSettings={() => setIsSettingsOpen(true)}
+          onOpenAdd={() => setIsAddOpen(true)}
         />
       </div>
 
