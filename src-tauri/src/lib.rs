@@ -139,10 +139,28 @@ struct DownloadProcessState {
 #[serde(rename_all = "camelCase")]
 struct CommentItem {
     author: String,
+    author_photo_url: Option<String>,
     text: String,
+    runs: Option<Vec<CommentRun>>,
     like_count: Option<u64>,
     published_at: Option<String>,
     offset_ms: Option<u64>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CommentRun {
+    text: Option<String>,
+    emoji: Option<CommentEmoji>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CommentEmoji {
+    id: Option<String>,
+    url: Option<String>,
+    label: Option<String>,
+    is_custom: Option<bool>,
 }
 
 #[derive(Clone, Serialize)]
@@ -3324,13 +3342,26 @@ fn parse_live_chat_item(value: &serde_json::Value) -> Option<CommentItem> {
         .get("authorName")
         .and_then(extract_text)
         .unwrap_or_else(|| "不明".to_string());
+    let author_photo_url = renderer
+        .get("authorPhoto")
+        .and_then(|v| v.get("thumbnails"))
+        .and_then(|v| v.as_array())
+        .and_then(|arr| arr.last().or_else(|| arr.first()))
+        .and_then(|v| v.get("url"))
+        .and_then(|v| v.as_str())
+        .map(|v| v.to_string());
+    let runs = renderer
+        .get("message")
+        .and_then(extract_runs)
+        .or_else(|| renderer.get("headerSubtext").and_then(extract_runs))
+        .or_else(|| renderer.get("subtext").and_then(extract_runs));
     let text = renderer
         .get("message")
         .and_then(extract_text)
         .or_else(|| renderer.get("headerSubtext").and_then(extract_text))
         .or_else(|| renderer.get("subtext").and_then(extract_text))
         .unwrap_or_default();
-    if text.trim().is_empty() {
+    if text.trim().is_empty() && runs.is_none() {
         return None;
     }
     let published_at = renderer
@@ -3342,7 +3373,9 @@ fn parse_live_chat_item(value: &serde_json::Value) -> Option<CommentItem> {
     let offset_ms = find_video_offset_ms(value);
     Some(CommentItem {
         author,
+        author_photo_url,
         text,
+        runs,
         like_count: None,
         published_at,
         offset_ms,
@@ -3424,14 +3457,29 @@ fn extract_text(value: &serde_json::Value) -> Option<String> {
                 out.push_str(text);
                 continue;
             }
-            if let Some(shortcut) = run
-                .get("emoji")
-                .and_then(|v| v.get("shortcuts"))
-                .and_then(|v| v.as_array())
-                .and_then(|arr| arr.first())
-                .and_then(|v| v.as_str())
-            {
-                out.push_str(shortcut);
+            if let Some(emoji) = run.get("emoji") {
+                if let Some(emoji_id) = emoji.get("emojiId").and_then(|v| v.as_str()) {
+                    out.push_str(emoji_id);
+                    continue;
+                }
+                if let Some(label) = emoji
+                    .get("image")
+                    .and_then(|v| v.get("accessibility"))
+                    .and_then(|v| v.get("accessibilityData"))
+                    .and_then(|v| v.get("label"))
+                    .and_then(|v| v.as_str())
+                {
+                    out.push_str(label);
+                    continue;
+                }
+                if let Some(shortcut) = emoji
+                    .get("shortcuts")
+                    .and_then(|v| v.as_array())
+                    .and_then(|arr| arr.first())
+                    .and_then(|v| v.as_str())
+                {
+                    out.push_str(shortcut);
+                }
             }
         }
         if !out.is_empty() {
@@ -3439,6 +3487,59 @@ fn extract_text(value: &serde_json::Value) -> Option<String> {
         }
     }
     None
+}
+
+fn extract_runs(value: &serde_json::Value) -> Option<Vec<CommentRun>> {
+    let runs = value.get("runs").and_then(|v| v.as_array())?;
+    let mut out = Vec::new();
+    for run in runs {
+        if let Some(text) = run.get("text").and_then(|v| v.as_str()) {
+            out.push(CommentRun {
+                text: Some(text.to_string()),
+                emoji: None,
+            });
+            continue;
+        }
+        if let Some(emoji) = run.get("emoji") {
+            let id = emoji
+                .get("emojiId")
+                .and_then(|v| v.as_str())
+                .map(|v| v.to_string());
+            let label = emoji
+                .get("image")
+                .and_then(|v| v.get("accessibility"))
+                .and_then(|v| v.get("accessibilityData"))
+                .and_then(|v| v.get("label"))
+                .and_then(|v| v.as_str())
+                .map(|v| v.to_string());
+            let url = emoji
+                .get("image")
+                .and_then(|v| v.get("thumbnails"))
+                .and_then(|v| v.as_array())
+                .and_then(|arr| arr.last().or_else(|| arr.first()))
+                .and_then(|v| v.get("url"))
+                .and_then(|v| v.as_str())
+                .map(|v| v.to_string());
+            let is_custom = emoji.get("isCustomEmoji").and_then(|v| v.as_bool());
+            if id.is_none() && label.is_none() && url.is_none() {
+                continue;
+            }
+            out.push(CommentRun {
+                text: None,
+                emoji: Some(CommentEmoji {
+                    id,
+                    url,
+                    label,
+                    is_custom,
+                }),
+            });
+        }
+    }
+    if out.is_empty() {
+        None
+    } else {
+        Some(out)
+    }
 }
 
 fn parse_comment_item(value: &serde_json::Value) -> Option<CommentItem> {
@@ -3464,7 +3565,9 @@ fn parse_comment_item(value: &serde_json::Value) -> Option<CommentItem> {
         });
     Some(CommentItem {
         author,
+        author_photo_url: None,
         text,
+        runs: None,
         like_count,
         published_at,
         offset_ms: None,

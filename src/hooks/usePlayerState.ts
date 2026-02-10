@@ -5,10 +5,24 @@ import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
 
 type CommentItem = {
   author: string;
+  authorPhotoUrl?: string;
   text: string;
+  runs?: CommentRun[];
   likeCount?: number;
   publishedAt?: string;
   offsetMs?: number;
+};
+
+type CommentRun = {
+  text?: string;
+  emoji?: CommentEmoji;
+};
+
+type CommentEmoji = {
+  id?: string;
+  url?: string;
+  label?: string;
+  isCustom?: boolean;
 };
 
 type MediaInfo = {

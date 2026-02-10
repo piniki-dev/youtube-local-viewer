@@ -2,10 +2,24 @@ import type { RefObject } from "react";
 
 type CommentItem = {
   author: string;
+  authorPhotoUrl?: string;
   text: string;
+  runs?: CommentRun[];
   likeCount?: number;
   publishedAt?: string;
   offsetMs?: number;
+};
+
+type CommentRun = {
+  text?: string;
+  emoji?: CommentEmoji;
+};
+
+type CommentEmoji = {
+  id?: string;
+  url?: string;
+  label?: string;
+  isCustom?: boolean;
 };
 
 type PlayerContentProps = {
@@ -57,9 +71,34 @@ export function PlayerContent({
   formatClock,
   timeMs,
 }: PlayerContentProps) {
+  const renderCommentRuns = (comment: CommentItem) => {
+    if (!comment.runs || comment.runs.length === 0) return comment.text;
+    return comment.runs.map((run, index) => {
+      if (run.text) {
+        return <span key={`text-${index}`}>{run.text}</span>;
+      }
+      if (run.emoji) {
+        const label = run.emoji.label || run.emoji.id || "";
+        if (run.emoji.url) {
+          return (
+            <img
+              key={`emoji-${index}`}
+              className="comment-emoji"
+              src={run.emoji.url}
+              alt={label}
+              title={label}
+              loading="lazy"
+            />
+          );
+        }
+        return <span key={`emoji-${index}`}>{label}</span>;
+      }
+      return null;
+    });
+  };
+
   return (
     <>
-      <div className="comment-title">{title}</div>
       {loading && <p className="progress-line">読み込み中...</p>}
       {error && <p className="error">{error}</p>}
       <div className="player-layout">
@@ -146,12 +185,20 @@ export function PlayerContent({
                 className="player-chat-item"
               >
                 <div className="comment-meta">
+                  {comment.authorPhotoUrl && (
+                    <img
+                      className="comment-avatar"
+                      src={comment.authorPhotoUrl}
+                      alt={comment.author}
+                      loading="lazy"
+                    />
+                  )}
                   <span>{comment.author}</span>
                   {comment.offsetMs !== undefined && (
                     <span>{formatClock(comment.offsetMs)}</span>
                   )}
                 </div>
-                <div className="comment-text">{comment.text}</div>
+                <div className="comment-text">{renderCommentRuns(comment)}</div>
               </div>
             ))}
             <div ref={chatEndRef} />
