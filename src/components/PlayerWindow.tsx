@@ -1,5 +1,4 @@
 import type { ReactNode } from "react";
-import { EmptyState } from "./EmptyState";
 
 type PlayerWindowProps = {
   title: string;
@@ -15,13 +14,7 @@ export function PlayerWindow({ title, isOpen, children }: PlayerWindowProps) {
           <h1>{title || "再生"}</h1>
         </div>
       </header>
-      {isOpen ? (
-        <section className="player-window-body">{children}</section>
-      ) : (
-        <EmptyState>
-          再生する動画が選択されていません。メインウィンドウから動画を再生してください。
-        </EmptyState>
-      )}
+      <section className="player-window-body">{children}</section>
     </main>
   );
 }

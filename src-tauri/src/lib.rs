@@ -6,7 +6,7 @@ use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager, State, WindowEvent};
 use std::{fs, path::PathBuf};
 use zip::write::FileOptions;
@@ -46,6 +46,24 @@ struct WindowSizeConfig {
 struct WindowSizeState {
     last_saved: Mutex<Option<(u32, u32)>>,
     last_position: Mutex<Option<(i32, i32)>>,
+}
+
+#[derive(Default)]
+struct VideoIndexState {
+    root_dir: Mutex<Option<String>>,
+    index: Mutex<HashMap<String, String>>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PendingPlayerOpen {
+    id: String,
+    file_path: Option<String>,
+}
+
+#[derive(Default)]
+struct PendingPlayerOpenState {
+    pending: Mutex<HashMap<String, PendingPlayerOpen>>,
 }
 
 fn apply_cookies_args(
@@ -381,6 +399,20 @@ fn resolve_library_root_dir(output_dir: &str) -> PathBuf {
     base
 }
 
+fn normalized_library_root(output_dir: &str) -> String {
+    resolve_library_root_dir(output_dir).to_string_lossy().to_string()
+}
+
+fn ensure_video_index_root(state: &VideoIndexState, output_dir: &str) {
+    let root = normalized_library_root(output_dir);
+    let mut root_guard = state.root_dir.lock().unwrap();
+    let mut index_guard = state.index.lock().unwrap();
+    if root_guard.as_deref() != Some(root.as_str()) {
+        *root_guard = Some(root);
+        index_guard.clear();
+    }
+}
+
 fn library_videos_dir(output_dir: &str) -> PathBuf {
     resolve_library_root_dir(output_dir).join(LIBRARY_VIDEOS_DIR_NAME)
 }
@@ -639,6 +671,52 @@ fn find_info_json(dir: &Path, id: &str) -> Option<PathBuf> {
     }
 
     None
+}
+
+fn update_video_index_from_scan(
+    state: &VideoIndexState,
+    output_dir: &str,
+    video_entries: &[PathBuf],
+    info_stem_by_id: &HashMap<String, String>,
+) {
+    ensure_video_index_root(state, output_dir);
+    let mut index = state.index.lock().unwrap();
+    let mut stem_to_id: HashMap<String, String> = HashMap::new();
+    for (id, stem) in info_stem_by_id {
+        stem_to_id.insert(stem.to_lowercase(), id.to_lowercase());
+    }
+
+    for path in video_entries {
+        if !path.is_file() {
+            continue;
+        }
+        let name = match path.file_name().and_then(|n| n.to_str()) {
+            Some(name) => name.to_string(),
+            None => continue,
+        };
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_lowercase());
+        let is_video = matches!(ext.as_deref(), Some("mp4") | Some("webm") | Some("mkv") | Some("m4v"));
+        if !is_video {
+            continue;
+        }
+
+        if let Some(id) = extract_id_from_filename(&name) {
+            index.insert(id.to_lowercase(), path.to_string_lossy().to_string());
+            continue;
+        }
+
+        let stem = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or_default()
+            .to_lowercase();
+        if let Some(id) = stem_to_id.get(&stem) {
+            index.insert(id.clone(), path.to_string_lossy().to_string());
+        }
+    }
 }
 
 #[tauri::command]
@@ -1961,7 +2039,11 @@ fn build_channel_section_urls(base_url: &str) -> Vec<String> {
 }
 
 #[tauri::command]
-fn get_comments(id: String, output_dir: String) -> Result<Vec<CommentItem>, String> {
+fn get_comments(
+    id: String,
+    output_dir: String,
+    limit: Option<usize>,
+) -> Result<Vec<CommentItem>, String> {
     let dir = library_comments_dir(&output_dir);
     let file_path = find_comments_file(&dir, &id)
         .or_else(|| {
@@ -1972,25 +2054,65 @@ fn get_comments(id: String, output_dir: String) -> Result<Vec<CommentItem>, Stri
     let content = fs::read_to_string(&file_path)
         .map_err(|e| format!("コメントファイルの読み込みに失敗しました: {}", e))?;
 
-    if is_live_chat_file(&file_path) {
-        return Ok(parse_live_chat_content(&content));
+    let mut items = if is_live_chat_file(&file_path) {
+        parse_live_chat_content(&content)
+    } else if let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) {
+        parse_comments_value(&value)
+    } else {
+        parse_comments_lines(&content)
+    };
+
+    if let Some(limit) = limit {
+        if items.len() > limit {
+            items.truncate(limit);
+        }
     }
 
-    if let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) {
-        return Ok(parse_comments_value(&value));
-    }
-
-    Ok(parse_comments_lines(&content))
+    Ok(items)
 }
 
 #[tauri::command]
-fn resolve_video_file(id: String, title: String, output_dir: String) -> Result<Option<String>, String> {
+fn resolve_video_file(
+    id: String,
+    title: String,
+    output_dir: String,
+    trace_id: Option<String>,
+    state: State<VideoIndexState>,
+) -> Result<Option<String>, String> {
+    let started = Instant::now();
     let dir = library_videos_dir(&output_dir);
     if !dir.exists() {
+        println!(
+            "[resolve_video_file] missing dir id={} trace={}",
+            id,
+            trace_id.as_deref().unwrap_or("-")
+        );
         return Ok(None);
     }
 
+    ensure_video_index_root(&state, &output_dir);
     let id_lower = id.to_lowercase();
+    if let Ok(mut index) = state.index.lock() {
+        if let Some(found) = index.get(&id_lower).cloned() {
+            let cached = PathBuf::from(&found);
+            if cached.exists() {
+                println!(
+                    "[resolve_video_file] cache hit id={} trace={} elapsedMs={}",
+                    id,
+                    trace_id.as_deref().unwrap_or("-"),
+                    started.elapsed().as_millis()
+                );
+                return Ok(Some(found));
+            }
+            index.remove(&id_lower);
+        }
+    }
+    println!(
+        "[resolve_video_file] cache miss id={} trace={}",
+        id,
+        trace_id.as_deref().unwrap_or("-")
+    );
+
     let title_trimmed = title.trim().to_string();
     let title_lower = title_trimmed.to_lowercase();
     let entries = collect_files_recursive(&dir);
@@ -2029,7 +2151,7 @@ fn resolve_video_file(id: String, title: String, output_dir: String) -> Result<O
     let mut exact_title_matches: Vec<(PathBuf, SystemTime)> = Vec::new();
     let mut partial_title_matches: Vec<(PathBuf, SystemTime)> = Vec::new();
 
-    for path in entries {
+    for path in &entries {
         if !path.is_file() {
             continue;
         }
@@ -2095,12 +2217,30 @@ fn resolve_video_file(id: String, title: String, output_dir: String) -> Result<O
             }
         });
 
-    Ok(selected.map(|p| p.to_string_lossy().to_string()))
+    let resolved = selected.map(|p| p.to_string_lossy().to_string());
+    if let Some(path) = resolved.as_ref() {
+        if let Ok(mut index) = state.index.lock() {
+            index.insert(id_lower, path.clone());
+        }
+    }
+    println!(
+        "[resolve_video_file] done id={} trace={} found={} elapsedMs={}",
+        id,
+        trace_id.as_deref().unwrap_or("-"),
+        resolved.is_some(),
+        started.elapsed().as_millis()
+    );
+    Ok(resolved)
 }
 
 #[tauri::command]
-fn video_file_exists(id: String, title: String, output_dir: String) -> Result<bool, String> {
-    Ok(resolve_video_file(id, title, output_dir)?.is_some())
+fn video_file_exists(
+    id: String,
+    title: String,
+    output_dir: String,
+    state: State<VideoIndexState>,
+) -> Result<bool, String> {
+    Ok(resolve_video_file(id, title, output_dir, None, state)?.is_some())
 }
 
 #[tauri::command]
@@ -2132,6 +2272,7 @@ fn comments_file_exists(id: String, output_dir: String) -> Result<bool, String> 
 fn verify_local_files(
     output_dir: String,
     items: Vec<LocalFileCheckItem>,
+    state: State<VideoIndexState>,
 ) -> Result<Vec<LocalFileCheckResult>, String> {
     let videos_dir = library_videos_dir(&output_dir);
     let comments_dir = library_comments_dir(&output_dir);
@@ -2160,7 +2301,7 @@ fn verify_local_files(
     let mut comment_ids_from_name: HashSet<String> = HashSet::new();
     let mut comment_file_count = 0usize;
 
-    for path in video_entries {
+    for path in &video_entries {
         if !path.is_file() {
             continue;
         }
@@ -2259,6 +2400,8 @@ fn verify_local_files(
             }
         }
     }
+
+    update_video_index_from_scan(&state, &output_dir, &video_entries, &info_stem_by_id);
 
     let results = items
         .into_iter()
@@ -3763,6 +3906,44 @@ fn resolve_ffprobe() -> String {
     }
     "ffprobe".to_string()
 }
+
+#[tauri::command]
+fn set_pending_player_open(
+    label: String,
+    id: String,
+    file_path: Option<String>,
+    state: State<PendingPlayerOpenState>,
+) -> Result<(), String> {
+    let mut pending = state.pending.lock().unwrap();
+    pending.insert(
+        label,
+        PendingPlayerOpen {
+            id,
+            file_path,
+        },
+    );
+    Ok(())
+}
+
+#[tauri::command]
+fn take_pending_player_open(
+    label: String,
+    state: State<PendingPlayerOpenState>,
+) -> Result<Option<PendingPlayerOpen>, String> {
+    let mut pending = state.pending.lock().unwrap();
+    Ok(pending.remove(&label))
+}
+
+#[tauri::command]
+fn open_devtools_window(app: AppHandle, label: String) -> Result<(), String> {
+    #[cfg(debug_assertions)]
+    {
+        if let Some(window) = app.get_webview_window(&label) {
+            window.open_devtools();
+        }
+    }
+    Ok(())
+}
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -3771,6 +3952,8 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::default().build())
         .manage(DownloadProcessState::default())
         .manage(WindowSizeState::default())
+        .manage(VideoIndexState::default())
+        .manage(PendingPlayerOpenState::default())
         .invoke_handler(tauri::generate_handler![
             start_download,
             stop_download,
@@ -3795,7 +3978,10 @@ pub fn run() {
             resolve_thumbnail_path,
             save_thumbnail,
             update_yt_dlp,
-            check_tooling
+            check_tooling,
+            open_devtools_window,
+            set_pending_player_open,
+            take_pending_player_open
         ])
         .setup(|app| {
             if let Some(window) = app.get_webview_window("main") {

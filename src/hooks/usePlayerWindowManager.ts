@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { emitTo, listen } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 
 type VideoLike = {
@@ -14,7 +15,9 @@ type UsePlayerWindowManagerParams<TVideo extends VideoLike> = {
   downloadDir: string;
   setErrorMessage: React.Dispatch<React.SetStateAction<string>>;
   setIsSettingsOpen: React.Dispatch<React.SetStateAction<boolean>>;
-  openPlayerInWindow: (video: TVideo) => Promise<void> | void;
+  openPlayerInWindow: (video: TVideo, options?: { filePath?: string | null }) =>
+    | Promise<void>
+    | void;
   setPlayerTitle: React.Dispatch<React.SetStateAction<string>>;
   setPlayerError: React.Dispatch<React.SetStateAction<string>>;
   setIsPlayerOpen: React.Dispatch<React.SetStateAction<boolean>>;
@@ -32,6 +35,7 @@ export function usePlayerWindowManager<TVideo extends VideoLike>({
   setPlayerError,
   setIsPlayerOpen,
 }: UsePlayerWindowManagerParams<TVideo>) {
+  const isDev = import.meta.env.DEV;
   const [playerWindowActiveId, setPlayerWindowActiveId] = useState<
     string | null
   >(null);
@@ -42,11 +46,39 @@ export function usePlayerWindowManager<TVideo extends VideoLike>({
     null
   );
   const [pendingPlayerId, setPendingPlayerId] = useState<string | null>(null);
+  const [pendingPlayerFilePath, setPendingPlayerFilePath] = useState<
+    string | null
+  >(null);
+  const [pendingPlayerReady, setPendingPlayerReady] = useState(false);
+  const pendingPlayerTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  );
+  const pendingPlayerPollRef = useRef<ReturnType<typeof setInterval> | null>(
+    null
+  );
 
   const openPlayerWindow = useCallback(
     async (video: TVideo, options?: { skipConfirm?: boolean }) => {
       const label = "player";
       const existing = await WebviewWindow.getByLabel(label);
+      const resolveFilePath = async () => {
+        if (!downloadDir) return null;
+        try {
+          const result = await invoke<string | null>("resolve_video_file", {
+            id: video.id,
+            title: video.title,
+            outputDir: downloadDir,
+          });
+          console.log(
+            `[player-open] resolved filePath=${result ? "yes" : "no"}`
+          );
+          return result;
+        } catch {
+          console.log("[player-open] resolve_video_file failed");
+          return null;
+        }
+      };
+
       if (existing) {
         try {
           const isDifferentVideo =
@@ -62,7 +94,16 @@ export function usePlayerWindowManager<TVideo extends VideoLike>({
             setIsSwitchConfirmOpen(true);
             return;
           }
-          await emitTo(label, "player-open", { id: video.id });
+          const filePath = await resolveFilePath();
+          void invoke("set_pending_player_open", {
+            label,
+            id: video.id,
+            filePath,
+          });
+          await emitTo(label, "player-open", { id: video.id, filePath });
+          if (import.meta.env.DEV) {
+            void invoke("open_devtools_window", { label });
+          }
           try {
             await existing.setTitle(video.title);
           } catch {
@@ -82,6 +123,7 @@ export function usePlayerWindowManager<TVideo extends VideoLike>({
       }
 
       const url = `index.html?player=1&videoId=${encodeURIComponent(video.id)}`;
+      const filePathPromise = resolveFilePath();
       const playerWindow = new WebviewWindow(label, {
         title: video.title,
         url,
@@ -90,7 +132,17 @@ export function usePlayerWindowManager<TVideo extends VideoLike>({
         resizable: true,
       });
       playerWindow.once("tauri://created", () => {
-        void emitTo(label, "player-open", { id: video.id });
+        if (import.meta.env.DEV) {
+          void invoke("open_devtools_window", { label });
+        }
+        void filePathPromise.then((filePath) => {
+          void invoke("set_pending_player_open", {
+            label,
+            id: video.id,
+            filePath,
+          });
+          void emitTo(label, "player-open", { id: video.id, filePath });
+        });
       });
       playerWindow.once("tauri://error", () => {
         setErrorMessage("プレイヤーウィンドウの作成に失敗しました。");
@@ -103,6 +155,7 @@ export function usePlayerWindowManager<TVideo extends VideoLike>({
       setPlayerWindowActiveTitle(video.title);
     },
     [
+      downloadDir,
       playerWindowActiveId,
       playerWindowActiveTitle,
       setErrorMessage,
@@ -125,7 +178,7 @@ export function usePlayerWindowManager<TVideo extends VideoLike>({
   }, [pendingSwitchVideo, closeSwitchConfirm, openPlayerWindow]);
 
   const openPlayer = useCallback(
-    async (video: TVideo) => {
+    async (video: TVideo, filePath?: string | null) => {
       if (!isPlayerWindow) {
         if (!downloadDir) {
           setErrorMessage("保存先フォルダが未設定です。設定から選択してください。");
@@ -135,7 +188,7 @@ export function usePlayerWindowManager<TVideo extends VideoLike>({
         await openPlayerWindow(video);
         return;
       }
-      await openPlayerInWindow(video);
+      await openPlayerInWindow(video, { filePath });
     },
     [
       isPlayerWindow,
@@ -169,9 +222,29 @@ export function usePlayerWindowManager<TVideo extends VideoLike>({
     if (!isPlayerWindow) return;
     let unlisten: (() => void) | null = null;
     const setup = async () => {
-      unlisten = await listen<{ id: string }>("player-open", (event) => {
-        setPendingPlayerId(event.payload.id);
-      });
+      unlisten = await listen<{ id: string; filePath?: string | null }>(
+        "player-open",
+        (event) => {
+          setPendingPlayerId(event.payload.id);
+          setPendingPlayerFilePath(event.payload.filePath ?? null);
+          setPendingPlayerReady(true);
+          if (isDev) {
+            console.log(
+              `[player-open] id=${event.payload.id} filePath=${
+                event.payload.filePath ? "yes" : "no"
+              }`
+            );
+          }
+          if (pendingPlayerTimeoutRef.current) {
+            window.clearTimeout(pendingPlayerTimeoutRef.current);
+            pendingPlayerTimeoutRef.current = null;
+          }
+          if (pendingPlayerPollRef.current) {
+            window.clearInterval(pendingPlayerPollRef.current);
+            pendingPlayerPollRef.current = null;
+          }
+        }
+      );
     };
     void setup();
     return () => {
@@ -183,11 +256,64 @@ export function usePlayerWindowManager<TVideo extends VideoLike>({
     if (!isPlayerWindow) return;
     const params = new URLSearchParams(window.location.search);
     const initialId = params.get("videoId");
-    if (initialId) setPendingPlayerId(initialId);
+    if (!initialId) return;
+    setPendingPlayerId((prev) => prev ?? initialId);
+    setPendingPlayerFilePath((prev) => prev ?? null);
+    const label = "player";
+    const poll = window.setInterval(() => {
+      void invoke<{ id: string; filePath?: string | null } | null>(
+        "take_pending_player_open",
+        { label }
+      ).then((payload) => {
+        if (!payload) return;
+        setPendingPlayerId(payload.id);
+        setPendingPlayerFilePath(payload.filePath ?? null);
+        setPendingPlayerReady(true);
+          if (isDev) {
+            console.log(
+              `[player-open] pending store id=${payload.id} filePath=${
+                payload.filePath ? "yes" : "no"
+              }`
+            );
+          }
+        if (pendingPlayerTimeoutRef.current) {
+          window.clearTimeout(pendingPlayerTimeoutRef.current);
+          pendingPlayerTimeoutRef.current = null;
+        }
+        if (pendingPlayerPollRef.current) {
+          window.clearInterval(pendingPlayerPollRef.current);
+          pendingPlayerPollRef.current = null;
+        }
+      });
+    }, 200);
+    pendingPlayerPollRef.current = poll;
+    const timer = window.setTimeout(() => {
+      if (isDev) {
+        console.log(`[player-open] timeout fallback id=${initialId}`);
+      }
+      setPendingPlayerReady(true);
+      if (pendingPlayerPollRef.current) {
+        window.clearInterval(pendingPlayerPollRef.current);
+        pendingPlayerPollRef.current = null;
+      }
+    }, 5000);
+    pendingPlayerTimeoutRef.current = timer;
+    return () => {
+      window.clearTimeout(timer);
+      if (pendingPlayerTimeoutRef.current === timer) {
+        pendingPlayerTimeoutRef.current = null;
+      }
+      if (pendingPlayerPollRef.current === poll) {
+        window.clearInterval(pendingPlayerPollRef.current);
+        pendingPlayerPollRef.current = null;
+      }
+    };
   }, [isPlayerWindow]);
 
   useEffect(() => {
-    if (!isPlayerWindow || !isStateReady || !pendingPlayerId) return;
+    if (!isPlayerWindow || !isStateReady || !pendingPlayerId || !pendingPlayerReady) {
+      return;
+    }
     const target = videosRef.current.find((item) => item.id === pendingPlayerId);
     if (!target) {
       setPlayerTitle("動画が見つかりませんでした。");
@@ -195,11 +321,13 @@ export function usePlayerWindowManager<TVideo extends VideoLike>({
       setIsPlayerOpen(true);
       return;
     }
-    void openPlayer(target);
+    void openPlayer(target, pendingPlayerFilePath);
   }, [
     isPlayerWindow,
     isStateReady,
     pendingPlayerId,
+    pendingPlayerReady,
+    pendingPlayerFilePath,
     videosRef,
     openPlayer,
     setPlayerTitle,

@@ -13,6 +13,7 @@ type PlayerContentProps = {
   loading: boolean;
   error: string;
   src: string | null;
+  canPlay: boolean;
   videoRef: RefObject<HTMLVideoElement | null>;
   onCanPlay: () => void;
   onTimeUpdate: (timeMs: number) => void;
@@ -37,6 +38,7 @@ export function PlayerContent({
   loading,
   error,
   src,
+  canPlay,
   videoRef,
   onCanPlay,
   onTimeUpdate,
@@ -62,23 +64,33 @@ export function PlayerContent({
       {error && <p className="error">{error}</p>}
       <div className="player-layout">
         <div className="player-media">
-          {src && !error && (
-            <video
-              ref={videoRef}
-              className="player-video"
-              autoPlay
-              controls
-              preload="metadata"
-              src={src}
-              onCanPlay={onCanPlay}
-              onTimeUpdate={(event) => {
-                onTimeUpdate(Math.floor(event.currentTarget.currentTime * 1000));
-              }}
-              onError={(event) => {
-                onError(event.currentTarget);
-              }}
-            />
-          )}
+          <div className="player-video-frame">
+            {src && !error ? (
+              <video
+                ref={videoRef}
+                className="player-video"
+                autoPlay
+                controls
+                preload="metadata"
+                src={src}
+                onCanPlay={onCanPlay}
+                onTimeUpdate={(event) => {
+                  onTimeUpdate(Math.floor(event.currentTarget.currentTime * 1000));
+                }}
+                onError={(event) => {
+                  onError(event.currentTarget);
+                }}
+              />
+            ) : (
+              <div className="player-video-placeholder skeleton" />
+            )}
+            {src && !error && !canPlay && (
+              <div className="player-video-overlay">
+                <div className="player-video-shimmer" />
+                <div className="player-video-label">再生準備中...</div>
+              </div>
+            )}
+          </div>
           {debug && <p className="progress-line codec-line">{debug}</p>}
           {error && filePath && (
             <div className="action-row">
@@ -120,6 +132,14 @@ export function PlayerContent({
             </p>
           )}
           <div className="player-chat-list">
+            {(commentsLoading || !src) &&
+              Array.from({ length: 6 }).map((_, index) => (
+                <div key={`chat-skeleton-${index}`} className="player-chat-item">
+                  <div className="skeleton skeleton-line chat-skeleton-author" />
+                  <div className="skeleton skeleton-line chat-skeleton-line" />
+                  <div className="skeleton skeleton-line chat-skeleton-line short" />
+                </div>
+              ))}
             {visibleComments.map((comment, index) => (
               <div
                 key={`${comment.author}-${comment.offsetMs ?? index}-${index}`}

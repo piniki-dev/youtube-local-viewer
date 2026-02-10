@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useCallback, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 
@@ -19,6 +19,7 @@ type CommentFinished = {
 
 type VideoLike = {
   id: string;
+  title: string;
   downloadStatus: "pending" | "downloading" | "downloaded" | "failed";
   commentsStatus: "pending" | "downloading" | "downloaded" | "failed" | "unavailable";
 } & Record<string, unknown>;
@@ -31,6 +32,7 @@ type BulkDownloadState = {
 
 type UseDownloadEventsParams<TVideo extends VideoLike> = {
   downloadDirRef: React.RefObject<string>;
+  videosRef: React.RefObject<TVideo[]>;
   setDownloadingIds: React.Dispatch<React.SetStateAction<string[]>>;
   setCommentsDownloadingIds: React.Dispatch<React.SetStateAction<string[]>>;
   setProgressLines: React.Dispatch<React.SetStateAction<Record<string, string>>>;
@@ -54,6 +56,7 @@ type UseDownloadEventsParams<TVideo extends VideoLike> = {
 
 export function useDownloadEvents<TVideo extends VideoLike>({
   downloadDirRef,
+  videosRef,
   setDownloadingIds,
   setCommentsDownloadingIds,
   setProgressLines,
@@ -70,6 +73,21 @@ export function useDownloadEvents<TVideo extends VideoLike>({
   onVideoDownloadFinished,
   onCommentsDownloadFinished,
 }: UseDownloadEventsParams<TVideo>) {
+  const warmVideoCache = useCallback(
+    (id: string) => {
+      const outputDir = downloadDirRef.current.trim();
+      if (!outputDir) return;
+      const video = videosRef.current.find((item) => item.id === id);
+      if (!video) return;
+      void invoke<string | null>("resolve_video_file", {
+        id,
+        title: video.title,
+        outputDir,
+      });
+    },
+    [downloadDirRef, videosRef]
+  );
+
   useEffect(() => {
     let unlisten: (() => void) | null = null;
     const setup = async () => {
@@ -144,6 +162,7 @@ export function useDownloadEvents<TVideo extends VideoLike>({
             const commentsStarted = !isBulkCurrent
               ? maybeStartAutoCommentsDownload(id)
               : false;
+            warmVideoCache(id);
             onVideoDownloadFinished?.(id, commentsStarted);
           } else {
             setVideos((prev: TVideo[]) =>
@@ -184,6 +203,7 @@ export function useDownloadEvents<TVideo extends VideoLike>({
     setProgressLines,
     setVideoErrors,
     setVideos,
+    warmVideoCache,
   ]);
 
   useEffect(() => {

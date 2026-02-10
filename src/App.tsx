@@ -262,6 +262,11 @@ function App() {
     return new URLSearchParams(window.location.search).get("player") === "1";
   }, []);
 
+  useEffect(() => {
+    if (!import.meta.env.DEV || !isPlayerWindow) return;
+    void invoke("open_devtools_window", { label: "player" });
+  }, [isPlayerWindow]);
+
   const {
     isPlayerOpen,
     setIsPlayerOpen,
@@ -277,6 +282,8 @@ function App() {
     playerCommentsError,
     playerTimeMs,
     setPlayerTimeMs,
+    playerCanPlay,
+    setPlayerCanPlay,
     isChatAutoScroll,
     setIsChatAutoScroll,
     playerVideoRef,
@@ -621,6 +628,7 @@ function App() {
 
   useDownloadEvents({
     downloadDirRef,
+    videosRef,
     setDownloadingIds,
     setCommentsDownloadingIds,
     setProgressLines,
@@ -743,8 +751,12 @@ function App() {
       loading={playerLoading}
       error={playerError}
       src={playerSrc}
+      canPlay={playerCanPlay}
       videoRef={playerVideoRef}
-      onCanPlay={() => setPlayerError("")}
+      onCanPlay={() => {
+        setPlayerError("");
+        setPlayerCanPlay(true);
+      }}
       onTimeUpdate={(timeMs) => setPlayerTimeMs(timeMs)}
       onError={handlePlayerError}
       debug={playerDebug}

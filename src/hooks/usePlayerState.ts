@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { emitTo } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
 
 type CommentItem = {
@@ -41,6 +40,7 @@ export function usePlayerState({
   ffprobePath,
   downloadDirRef,
 }: UsePlayerStateParams) {
+  const isDev = import.meta.env.DEV;
   const [isPlayerOpen, setIsPlayerOpen] = useState(false);
   const [playerTitle, setPlayerTitle] = useState("");
   const [playerSrc, setPlayerSrc] = useState<string | null>(null);
@@ -52,6 +52,8 @@ export function usePlayerState({
   const [playerComments, setPlayerComments] = useState<CommentItem[]>([]);
   const [playerCommentsLoading, setPlayerCommentsLoading] = useState(false);
   const [playerCommentsError, setPlayerCommentsError] = useState("");
+  const [isInitialCommentsReady, setIsInitialCommentsReady] = useState(true);
+  const [playerCanPlay, setPlayerCanPlay] = useState(false);
   const [playerTimeMs, setPlayerTimeMs] = useState(0);
   const [isChatAutoScroll, setIsChatAutoScroll] = useState(true);
   const [mediaInfoById, setMediaInfoById] = useState<
@@ -60,11 +62,25 @@ export function usePlayerState({
 
   const playerVideoRef = useRef<HTMLVideoElement | null>(null);
   const playerChatEndRef = useRef<HTMLDivElement | null>(null);
+  const playerTraceIdRef = useRef<string | null>(null);
+  const playerVideoRefInfo = useRef<VideoItem | null>(null);
+  const playerCommentsRequestedRef = useRef<string | null>(null);
+  const autoPlayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingAutoPlayRef = useRef(false);
 
   const requestAutoPlay = useCallback(() => {
     if (!isPlayerWindow) return;
     const video = playerVideoRef.current;
     if (!video || !playerSrc || playerError) return;
+    const currentVideo = playerVideoRefInfo.current;
+    if (!isInitialCommentsReady && currentVideo?.commentsStatus === "downloaded") {
+      pendingAutoPlayRef.current = true;
+      return;
+    }
+    if (autoPlayTimerRef.current) {
+      window.clearTimeout(autoPlayTimerRef.current);
+      autoPlayTimerRef.current = null;
+    }
     if (Number.isFinite(video.currentTime) && video.currentTime > 0) {
       try {
         video.currentTime = 0;
@@ -72,13 +88,16 @@ export function usePlayerState({
         // ignore seek errors
       }
     }
-    const result = video.play();
-    if (result && typeof result.catch === "function") {
-      result.catch(() => {
-        // ignore autoplay errors
-      });
-    }
-  }, [isPlayerWindow, playerSrc, playerError]);
+    autoPlayTimerRef.current = window.setTimeout(() => {
+      const result = video.play();
+      if (result && typeof result.catch === "function") {
+        result.catch(() => {
+          // ignore autoplay errors
+        });
+      }
+      autoPlayTimerRef.current = null;
+    }, 250);
+  }, [isPlayerWindow, playerSrc, playerError, isInitialCommentsReady]);
 
   const getOutputDir = useCallback(
     () => downloadDirRef?.current.trim() || downloadDir,
@@ -93,90 +112,151 @@ export function usePlayerState({
       if (video.commentsStatus !== "downloaded") {
         setPlayerCommentsLoading(false);
         setPlayerCommentsError("ライブチャット未取得のため同期表示できません。");
+        setIsInitialCommentsReady(true);
         return;
       }
       try {
         const outputDir = getOutputDir();
         if (!outputDir) {
           setPlayerCommentsError("保存先フォルダが未設定のため読み込めません。");
+          setIsInitialCommentsReady(true);
           return;
         }
-        const result = await invoke<CommentItem[]>("get_comments", {
+        const initialLimit = 200;
+        const initial = await invoke<CommentItem[]>("get_comments", {
           id: video.id,
           outputDir,
+          limit: initialLimit,
         });
-        setPlayerComments(result ?? []);
+        setPlayerComments(initial ?? []);
+        setIsInitialCommentsReady(true);
+        setPlayerCommentsLoading(false);
+        void (async () => {
+          try {
+            const full = await invoke<CommentItem[]>("get_comments", {
+              id: video.id,
+              outputDir,
+            });
+            if (full && full.length > (initial?.length ?? 0)) {
+              setPlayerComments(full);
+            }
+          } catch {
+            // ignore hydrate errors
+          }
+        })();
       } catch {
         setPlayerCommentsError("ライブチャットの読み込みに失敗しました。");
+        setIsInitialCommentsReady(true);
       } finally {
-        setPlayerCommentsLoading(false);
+        // keep loading state managed in the initial load path
       }
     },
     [getOutputDir]
   );
 
+
+  const requestPlayerComments = useCallback(() => {
+    const video = playerVideoRefInfo.current;
+    if (!video) return;
+    if (playerCommentsRequestedRef.current === video.id) return;
+    playerCommentsRequestedRef.current = video.id;
+    void loadPlayerComments(video);
+  }, [loadPlayerComments]);
+
   const openPlayerInWindow = useCallback(
-    async (video: VideoItem) => {
+    async (video: VideoItem, options?: { filePath?: string | null }) => {
+      const traceId = `${video.id}-${Date.now()}`;
+      playerTraceIdRef.current = traceId;
+      console.time(`player-open:${traceId}`);
       const outputDir = getOutputDir();
       if (!outputDir) {
         setPlayerError("保存先フォルダが未設定のため再生できません。");
         setIsPlayerOpen(true);
+        console.timeEnd(`player-open:${traceId}`);
         return;
       }
 
       setPlayerLoading(true);
       setPlayerError("");
       setPlayerTitle(video.title);
-      try {
-        await getCurrentWindow().setTitle(video.title);
-      } catch {
-        // ignore title errors
-      }
       if (isPlayerWindow) {
         try {
-          await emitTo("main", "player-active", {
+          console.time(`player-emit:${traceId}`);
+          void emitTo("main", "player-active", {
             id: video.id,
             title: video.title,
-          });
+          })
+            .then(() => {
+              console.timeEnd(`player-emit:${traceId}`);
+            })
+            .catch(() => {
+              console.timeEnd(`player-emit:${traceId}`);
+            });
         } catch {
+          console.timeEnd(`player-emit:${traceId}`);
           // ignore event errors
         }
       }
       setPlayerSrc(null);
       setPlayerVideoId(video.id);
+      playerVideoRefInfo.current = video;
+      playerCommentsRequestedRef.current = null;
       setPlayerDebug("");
       setPlayerFilePath(null);
+      setIsInitialCommentsReady(video.commentsStatus !== "downloaded");
       setPlayerTimeMs(0);
+      setPlayerCanPlay(false);
       setIsChatAutoScroll(true);
       setIsPlayerOpen(true);
-      void loadPlayerComments(video);
 
       try {
-        const filePath = await invoke<string | null>("resolve_video_file", {
-          id: video.id,
-          title: video.title,
-          outputDir,
-        });
-        if (!filePath) {
+        let resolvedPath = options?.filePath ?? null;
+        console.time(`player-resolve:${traceId}`);
+        if (resolvedPath) {
+          if (isDev) {
+            console.log(
+              `[player-resolve] trace=${traceId} using pre-resolved filePath`
+            );
+          }
+        } else {
+          if (isDev) {
+            console.log(
+              `[player-resolve] trace=${traceId} invoking resolve_video_file`
+            );
+          }
+          resolvedPath = await invoke<string | null>("resolve_video_file", {
+            id: video.id,
+            title: video.title,
+            outputDir,
+            traceId: traceId,
+          });
+        }
+        console.timeEnd(`player-resolve:${traceId}`);
+        if (!resolvedPath) {
           setPlayerError("動画ファイルが見つかりませんでした。");
+          console.timeEnd(`player-open:${traceId}`);
           return;
         }
-        setPlayerFilePath(filePath);
-        try {
-          const info = await invoke<MediaInfo>("probe_media", {
-            filePath,
-            ffprobePath: ffprobePath || null,
-          });
-          setMediaInfoById((prev) => ({ ...prev, [video.id]: info }));
-        } catch {
-          // ignore probe errors here; user can run manual check
-        }
-        const src = convertFileSrc(filePath);
+        setPlayerFilePath(resolvedPath);
+        const src = convertFileSrc(resolvedPath);
         setPlayerSrc(src);
+        console.time(`player-canplay:${traceId}`);
+        void (async () => {
+          try {
+            const info = await invoke<MediaInfo>("probe_media", {
+              filePath: resolvedPath,
+              ffprobePath: ffprobePath || null,
+            });
+            setMediaInfoById((prev) => ({ ...prev, [video.id]: info }));
+          } catch {
+            // ignore probe errors here; user can run manual check
+          }
+        })();
       } catch {
         setPlayerError("動画ファイルの読み込みに失敗しました。");
       } finally {
         setPlayerLoading(false);
+        console.timeEnd(`player-open:${traceId}`);
       }
     },
     [ffprobePath, getOutputDir, isPlayerWindow, loadPlayerComments]
@@ -193,9 +273,25 @@ export function usePlayerState({
     setPlayerComments([]);
     setPlayerCommentsError("");
     setPlayerCommentsLoading(false);
+    setIsInitialCommentsReady(true);
+    setPlayerCanPlay(false);
     setPlayerTimeMs(0);
     setIsChatAutoScroll(true);
+    playerVideoRefInfo.current = null;
+    playerCommentsRequestedRef.current = null;
+    pendingAutoPlayRef.current = false;
+    if (autoPlayTimerRef.current) {
+      window.clearTimeout(autoPlayTimerRef.current);
+      autoPlayTimerRef.current = null;
+    }
   }, []);
+
+  useEffect(() => {
+    if (!isInitialCommentsReady) return;
+    if (!pendingAutoPlayRef.current) return;
+    pendingAutoPlayRef.current = false;
+    requestAutoPlay();
+  }, [isInitialCommentsReady, requestAutoPlay]);
 
   const handlePlayerError = useCallback(
     (media: HTMLVideoElement) => {
@@ -280,18 +376,23 @@ export function usePlayerState({
     if (!isPlayerWindow || !isPlayerOpen) return;
     const video = playerVideoRef.current;
     if (!video || !playerSrc || playerError) return;
+    const traceId = playerTraceIdRef.current ?? "unknown";
     if (video.readyState >= 2) {
       requestAutoPlay();
+      requestPlayerComments();
+      console.timeEnd(`player-canplay:${traceId}`);
       return;
     }
     const handleCanPlay = () => {
       requestAutoPlay();
+      requestPlayerComments();
+      console.timeEnd(`player-canplay:${traceId}`);
     };
     video.addEventListener("canplay", handleCanPlay, { once: true });
     return () => {
       video.removeEventListener("canplay", handleCanPlay);
     };
-  }, [isPlayerWindow, isPlayerOpen, playerSrc, playerError, requestAutoPlay]);
+  }, [isPlayerWindow, isPlayerOpen, playerSrc, playerError, requestAutoPlay, requestPlayerComments]);
 
   return {
     isPlayerOpen,
@@ -308,6 +409,8 @@ export function usePlayerState({
     playerCommentsError,
     playerTimeMs,
     setPlayerTimeMs,
+    playerCanPlay,
+    setPlayerCanPlay,
     isChatAutoScroll,
     setIsChatAutoScroll,
     playerVideoRef,
