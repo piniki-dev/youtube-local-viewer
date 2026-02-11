@@ -126,11 +126,19 @@ export function usePlayerWindowManager<TVideo extends VideoLike>({
 
       const url = `index.html?player=1&videoId=${encodeURIComponent(video.id)}`;
       const filePathPromise = resolveFilePath();
+      const savedSize = await invoke<{
+        width: number;
+        height: number;
+        x: number | null;
+        y: number | null;
+      } | null>("get_player_window_size").catch(() => null);
       const playerWindow = new WebviewWindow(label, {
         title: video.title,
         url,
-        width: 1200,
-        height: 800,
+        width: savedSize?.width ?? 1200,
+        height: savedSize?.height ?? 800,
+        x: savedSize?.x ?? undefined,
+        y: savedSize?.y ?? undefined,
         minWidth: playerWindowMinWidth,
         minHeight: playerWindowMinHeight,
         resizable: true,

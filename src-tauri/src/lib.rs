@@ -22,6 +22,7 @@ const YTDLP_NONE_DECODE_RETRY_SLEEP_MS: u64 = 10_000;
 const WINDOW_MIN_WIDTH: u32 = 1280;
 const WINDOW_MIN_HEIGHT: u32 = 720;
 const WINDOW_SIZE_FILE_NAME: &str = "window_size.json";
+const PLAYER_WINDOW_SIZE_FILE_NAME: &str = "player_window_size.json";
 const SETTINGS_DIR_NAME: &str = "settings";
 const INDEX_DIR_NAME: &str = "index";
 const SETTINGS_FILE_NAME: &str = "app.json";
@@ -44,6 +45,12 @@ struct WindowSizeConfig {
 
 #[derive(Default)]
 struct WindowSizeState {
+    last_saved: Mutex<Option<(u32, u32)>>,
+    last_position: Mutex<Option<(i32, i32)>>,
+}
+
+#[derive(Default)]
+struct PlayerWindowSizeState {
     last_saved: Mutex<Option<(u32, u32)>>,
     last_position: Mutex<Option<(i32, i32)>>,
 }
@@ -535,6 +542,36 @@ fn write_window_size(app: &AppHandle, size: WindowSizeConfig) -> Result<(), Stri
     fs::write(&path, content)
         .map_err(|e| format!("ウィンドウサイズの保存に失敗しました: {}", e))?;
     Ok(())
+}
+
+fn player_window_size_file_path(app: &AppHandle) -> Result<PathBuf, String> {
+    let dir = app
+        .path()
+        .app_config_dir()
+        .map_err(|e| format!("保存先ディレクトリの取得に失敗しました: {}", e))?;
+    fs::create_dir_all(&dir)
+        .map_err(|e| format!("設定フォルダの作成に失敗しました: {}", e))?;
+    Ok(dir.join(PLAYER_WINDOW_SIZE_FILE_NAME))
+}
+
+fn read_player_window_size(app: &AppHandle) -> Option<WindowSizeConfig> {
+    let path = player_window_size_file_path(app).ok()?;
+    let content = fs::read_to_string(path).ok()?;
+    serde_json::from_str(&content).ok()
+}
+
+fn write_player_window_size(app: &AppHandle, size: WindowSizeConfig) -> Result<(), String> {
+    let path = player_window_size_file_path(app)?;
+    let content = serde_json::to_string(&size)
+        .map_err(|e| format!("プレイヤーウィンドウサイズの保存に失敗しました: {}", e))?;
+    fs::write(&path, content)
+        .map_err(|e| format!("プレイヤーウィンドウサイズの保存に失敗しました: {}", e))?;
+    Ok(())
+}
+
+#[tauri::command]
+fn get_player_window_size(app: AppHandle) -> Option<WindowSizeConfig> {
+    read_player_window_size(&app)
 }
 
 fn parse_video_metadata_value(value: &serde_json::Value) -> VideoMetadata {
@@ -4055,9 +4092,11 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::default().build())
         .manage(DownloadProcessState::default())
         .manage(WindowSizeState::default())
+        .manage(PlayerWindowSizeState::default())
         .manage(VideoIndexState::default())
         .manage(PendingPlayerOpenState::default())
         .invoke_handler(tauri::generate_handler![
+            get_player_window_size,
             start_download,
             stop_download,
             start_comments_download,
@@ -4150,6 +4189,12 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            let label = window.label();
+            if label != "main" && label != "player" {
+                return;
+            }
+            let is_player = label == "player";
+
             if let WindowEvent::Resized(size) = event {
                 if size.width == 0 || size.height == 0 {
                     return;
@@ -4157,45 +4202,84 @@ pub fn run() {
 
                 let width = size.width as u32;
                 let height = size.height as u32;
-                let state = window.state::<WindowSizeState>();
-                let mut last_saved = state.last_saved.lock().unwrap();
-                if let Some((last_w, last_h)) = *last_saved {
-                    if last_w == width && last_h == height {
-                        return;
-                    }
-                }
-                *last_saved = Some((width, height));
 
-                let position = window.outer_position().ok();
-                let config = WindowSizeConfig {
-                    width,
-                    height,
-                    x: position.map(|p| p.x),
-                    y: position.map(|p| p.y),
-                };
-                let _ = write_window_size(&window.app_handle(), config);
+                if is_player {
+                    let state = window.state::<PlayerWindowSizeState>();
+                    let mut last_saved = state.last_saved.lock().unwrap();
+                    if let Some((last_w, last_h)) = *last_saved {
+                        if last_w == width && last_h == height {
+                            return;
+                        }
+                    }
+                    *last_saved = Some((width, height));
+                    let position = window.outer_position().ok();
+                    let config = WindowSizeConfig {
+                        width,
+                        height,
+                        x: position.map(|p| p.x),
+                        y: position.map(|p| p.y),
+                    };
+                    let _ = write_player_window_size(&window.app_handle(), config);
+                } else {
+                    let state = window.state::<WindowSizeState>();
+                    let mut last_saved = state.last_saved.lock().unwrap();
+                    if let Some((last_w, last_h)) = *last_saved {
+                        if last_w == width && last_h == height {
+                            return;
+                        }
+                    }
+                    *last_saved = Some((width, height));
+                    let position = window.outer_position().ok();
+                    let config = WindowSizeConfig {
+                        width,
+                        height,
+                        x: position.map(|p| p.x),
+                        y: position.map(|p| p.y),
+                    };
+                    let _ = write_window_size(&window.app_handle(), config);
+                }
             }
 
             if let WindowEvent::Moved(position) = event {
                 let x = position.x;
                 let y = position.y;
-                let state = window.state::<WindowSizeState>();
-                let mut last_position = state.last_position.lock().unwrap();
-                if let Some((last_x, last_y)) = *last_position {
-                    if last_x == x && last_y == y {
-                        return;
-                    }
-                }
-                *last_position = Some((x, y));
 
-                if let Ok(size) = window.outer_size() {
-                    let config = WindowSizeConfig {
-                        width: size.width as u32,
-                        height: size.height as u32,
-                        x: Some(x),
-                        y: Some(y),
-                    };
-                    let _ = write_window_size(&window.app_handle(), config);
+                if is_player {
+                    let state = window.state::<PlayerWindowSizeState>();
+                    let mut last_position = state.last_position.lock().unwrap();
+                    if let Some((last_x, last_y)) = *last_position {
+                        if last_x == x && last_y == y {
+                            return;
+                        }
+                    }
+                    *last_position = Some((x, y));
+                    if let Ok(size) = window.outer_size() {
+                        let config = WindowSizeConfig {
+                            width: size.width as u32,
+                            height: size.height as u32,
+                            x: Some(x),
+                            y: Some(y),
+                        };
+                        let _ = write_player_window_size(&window.app_handle(), config);
+                    }
+                } else {
+                    let state = window.state::<WindowSizeState>();
+                    let mut last_position = state.last_position.lock().unwrap();
+                    if let Some((last_x, last_y)) = *last_position {
+                        if last_x == x && last_y == y {
+                            return;
+                        }
+                    }
+                    *last_position = Some((x, y));
+                    if let Ok(size) = window.outer_size() {
+                        let config = WindowSizeConfig {
+                            width: size.width as u32,
+                            height: size.height as u32,
+                            x: Some(x),
+                            y: Some(y),
+                        };
+                        let _ = write_window_size(&window.app_handle(), config);
+                    }
                 }
             }
         })
