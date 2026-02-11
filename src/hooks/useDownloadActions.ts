@@ -16,6 +16,7 @@ type UseDownloadActionsParams<TVideo extends VideoLike> = {
   remoteComponents: "none" | "ejs:github" | "ejs:npm";
   ytDlpPath: string;
   ffmpegPath: string;
+  toolingStatus: { ytDlp: { ok: boolean } } | null;
   setErrorMessage: React.Dispatch<React.SetStateAction<string>>;
   setIsSettingsOpen: React.Dispatch<React.SetStateAction<boolean>>;
   setDownloadingIds: React.Dispatch<React.SetStateAction<string[]>>;
@@ -45,6 +46,7 @@ export function useDownloadActions<TVideo extends VideoLike>({
   remoteComponents,
   ytDlpPath,
   ffmpegPath,
+  toolingStatus,
   setErrorMessage,
   setIsSettingsOpen,
   setDownloadingIds,
@@ -69,6 +71,16 @@ export function useDownloadActions<TVideo extends VideoLike>({
       const outputDir = downloadDirRef.current.trim();
       if (!outputDir) {
         setErrorMessage("保存先フォルダが未設定です。設定から選択してください。");
+        setIsSettingsOpen(true);
+        return;
+      }
+      if (toolingStatus && !toolingStatus.ytDlp.ok) {
+        addFloatingNotice({
+          kind: "error",
+          title: "yt-dlpが見つかりません",
+          details:
+            "yt-dlpがインストールされていないか、パスが正しくありません。設定から確認してください。",
+        });
         setIsSettingsOpen(true);
         return;
       }
@@ -128,6 +140,7 @@ export function useDownloadActions<TVideo extends VideoLike>({
       remoteComponents,
       ytDlpPath,
       ffmpegPath,
+      toolingStatus,
       setErrorMessage,
       setIsSettingsOpen,
       setDownloadingIds,
@@ -136,6 +149,7 @@ export function useDownloadActions<TVideo extends VideoLike>({
       setProgressLines,
       onStartFailedRef,
       setQueuedDownloadIds,
+      addFloatingNotice,
     ]
   );
 
@@ -220,6 +234,16 @@ export function useDownloadActions<TVideo extends VideoLike>({
         setIsSettingsOpen(true);
         return;
       }
+      if (toolingStatus && !toolingStatus.ytDlp.ok) {
+        addFloatingNotice({
+          kind: "error",
+          title: "yt-dlpが見つかりません",
+          details:
+            "yt-dlpがインストールされていないか、パスが正しくありません。設定から確認してください。",
+        });
+        setIsSettingsOpen(true);
+        return;
+      }
       setPendingCommentIds((prev) => prev.filter((id) => id !== video.id));
       setCommentsDownloadingIds((prev) =>
         prev.includes(video.id) ? prev : [...prev, video.id]
@@ -268,6 +292,7 @@ export function useDownloadActions<TVideo extends VideoLike>({
       remoteComponents,
       ytDlpPath,
       ffmpegPath,
+      toolingStatus,
       setErrorMessage,
       setIsSettingsOpen,
       setPendingCommentIds,
@@ -276,6 +301,7 @@ export function useDownloadActions<TVideo extends VideoLike>({
       setCommentErrors,
       setCommentProgressLines,
       handleCommentsDownloadFinished,
+      addFloatingNotice,
     ]
   );
 

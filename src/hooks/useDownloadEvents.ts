@@ -2,6 +2,46 @@ import { useCallback, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 
+function classifyDownloadError(stderr: string, stdout: string): string {
+  const combined = (stderr + "\n" + stdout).toLowerCase();
+
+  if (
+    combined.includes("yt-dlpの起動に失敗しました") ||
+    combined.includes("no such file or directory") ||
+    combined.includes("指定されたファイルが見つかりません") ||
+    combined.includes("the system cannot find")
+  ) {
+    return "yt-dlpが見つかりません。設定からインストール先を確認してください。";
+  }
+
+  if (
+    combined.includes("unable to connect") ||
+    combined.includes("network is unreachable") ||
+    combined.includes("connection refused") ||
+    combined.includes("connection timed out") ||
+    combined.includes("timed out") ||
+    combined.includes("no route to host") ||
+    combined.includes("name or service not known") ||
+    combined.includes("temporary failure in name resolution") ||
+    combined.includes("failed to connect") ||
+    combined.includes("network error") ||
+    combined.includes("getaddrinfo") ||
+    combined.includes("nodename nor servname provided")
+  ) {
+    return "ネットワークエラーが発生しました。インターネット接続を確認してください。";
+  }
+
+  if (combined.includes("http error 429") || combined.includes("too many requests")) {
+    return "リクエスト制限に達しました。しばらく待ってから再試行してください。";
+  }
+
+  if (combined.includes("http error 403") || combined.includes("403 forbidden")) {
+    return "アクセスが拒否されました（403）。Cookieの設定を確認してください。";
+  }
+
+  return "ダウンロードに失敗しました。詳細を確認してください。";
+}
+
 type DownloadFinished = {
   id: string;
   success: boolean;
@@ -53,7 +93,12 @@ type UseDownloadEventsParams<TVideo extends VideoLike> = {
     phase: "video" | "comments" | "metadata",
     details: string
   ) => void;
-  setErrorMessage: React.Dispatch<React.SetStateAction<string>>;
+  addFloatingNotice: (notice: {
+    kind: "success" | "error" | "info";
+    title: string;
+    details?: string;
+    autoDismissMs?: number;
+  }) => void;
   applyMetadataUpdate?: (params: {
     id: string;
     metadata?: VideoMetadata | null;
@@ -80,7 +125,7 @@ export function useDownloadEvents<TVideo extends VideoLike>({
   handleBulkCompletion,
   maybeStartAutoCommentsDownload,
   addDownloadErrorItem,
-  setErrorMessage,
+  addFloatingNotice,
   applyMetadataUpdate,
   onVideoDownloadFinished,
   onCommentsDownloadFinished,
@@ -190,7 +235,7 @@ export function useDownloadEvents<TVideo extends VideoLike>({
               [id]: details,
             }));
             addDownloadErrorItem(id, "video", details);
-            setErrorMessage("ダウンロードに失敗しました。詳細を確認してください。");
+            addFloatingNotice({ kind: "error", title: classifyDownloadError(stderr, stdout) });
             onVideoDownloadFinished?.(id, false);
           }
           if (isBulkCurrent) {
@@ -211,7 +256,7 @@ export function useDownloadEvents<TVideo extends VideoLike>({
     onVideoDownloadFinished,
     onCommentsDownloadFinished,
     setDownloadingIds,
-    setErrorMessage,
+    addFloatingNotice,
     setProgressLines,
     setVideoErrors,
     setVideos,
@@ -308,9 +353,7 @@ export function useDownloadEvents<TVideo extends VideoLike>({
                 [id]: details,
               }));
               addDownloadErrorItem(id, "comments", details);
-              setErrorMessage(
-                "ライブチャット取得に失敗しました。詳細を確認してください。"
-              );
+              addFloatingNotice({ kind: "error", title: classifyDownloadError(stderr, stdout) });
             }
             setPendingCommentIds((prev: string[]) =>
               prev.filter((item: string) => item !== id)
@@ -340,7 +383,7 @@ export function useDownloadEvents<TVideo extends VideoLike>({
     setCommentErrors,
     setCommentProgressLines,
     setCommentsDownloadingIds,
-    setErrorMessage,
+    addFloatingNotice,
     setPendingCommentIds,
     setVideos,
     videosRef,

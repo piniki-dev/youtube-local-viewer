@@ -31,6 +31,7 @@ import { useThumbnailManager } from "./hooks/useThumbnailManager";
 import { useAddVideoActions } from "./hooks/useAddVideoActions";
 import { useDownloadActions } from "./hooks/useDownloadActions";
 import { usePersistedState } from "./hooks/usePersistedState";
+import { useTheme } from "./hooks/useTheme";
 import { useYtDlpUpdateNotices } from "./hooks/useYtDlpUpdateNotices";
 import {
   formatClock,
@@ -544,6 +545,7 @@ function App() {
       remoteComponents,
       ytDlpPath,
       ffmpegPath,
+      toolingStatus,
       setErrorMessage,
       setIsSettingsOpen,
       setDownloadingIds,
@@ -642,7 +644,7 @@ function App() {
     handleBulkCompletion,
     maybeStartAutoCommentsDownload,
     addDownloadErrorItem,
-    setErrorMessage,
+    addFloatingNotice,
     applyMetadataUpdate,
     onVideoDownloadFinished: handleVideoDownloadFinishedWithBulk,
     onCommentsDownloadFinished: handleCommentsDownloadFinished,
@@ -729,6 +731,7 @@ function App() {
     downloadErrorItems,
     setDownloadErrorIndex,
   });
+  const { themeMode, setThemeMode } = useTheme();
   const isCheckingFiles =
     isStateReady && !hasCheckedFiles && !!downloadDir && videos.length > 0;
   const addDisabled =
@@ -792,6 +795,8 @@ function App() {
         onOpenSettings={() => setIsSettingsOpen(true)}
         onOpenAdd={() => setIsAddOpen(true)}
         addDisabled={addDisabled}
+        themeMode={themeMode}
+        onThemeChange={setThemeMode}
       />
 
       <div className="app-body">
