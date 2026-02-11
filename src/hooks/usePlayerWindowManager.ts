@@ -36,6 +36,8 @@ export function usePlayerWindowManager<TVideo extends VideoLike>({
   setIsPlayerOpen,
 }: UsePlayerWindowManagerParams<TVideo>) {
   const isDev = import.meta.env.DEV;
+  const playerWindowMinWidth = 1280;
+  const playerWindowMinHeight = 720;
   const [playerWindowActiveId, setPlayerWindowActiveId] = useState<
     string | null
   >(null);
@@ -129,6 +131,8 @@ export function usePlayerWindowManager<TVideo extends VideoLike>({
         url,
         width: 1200,
         height: 800,
+        minWidth: playerWindowMinWidth,
+        minHeight: playerWindowMinHeight,
         resizable: true,
       });
       playerWindow.once("tauri://created", () => {
