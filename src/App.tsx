@@ -497,6 +497,7 @@ function App() {
     scheduleBackgroundMetadataFetch,
     checkAndStartMetadataRecovery,
     retryMetadataFetch,
+    applyMetadataUpdate,
   } = useMetadataFetch({
     videosRef,
     downloadDirRef,
@@ -642,6 +643,7 @@ function App() {
     maybeStartAutoCommentsDownload,
     addDownloadErrorItem,
     setErrorMessage,
+    applyMetadataUpdate,
     onVideoDownloadFinished: handleVideoDownloadFinishedWithBulk,
     onCommentsDownloadFinished: handleCommentsDownloadFinished,
   });

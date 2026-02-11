@@ -111,11 +111,14 @@ struct DownloadFinished {
 }
 
 #[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct CommentsFinished {
     id: String,
     success: bool,
     stdout: String,
     stderr: String,
+    metadata: Option<VideoMetadata>,
+    has_live_chat: Option<bool>,
 }
 
 #[derive(Clone, Serialize)]
@@ -1125,7 +1128,7 @@ fn start_comments_download(
     yt_dlp_path: Option<String>,
     ffmpeg_path: Option<String>,
 ) -> Result<(), String> {
-    let output_dir_path = library_comments_dir(&output_dir);
+    let output_dir_path = library_metadata_dir(&output_dir);
     let output_path = output_dir_path
         .join("%(uploader_id)s/%(title)s [%(id)s].%(ext)s")
         .to_string_lossy()
@@ -1185,6 +1188,8 @@ fn start_comments_download(
                             success: false,
                             stdout: "".to_string(),
                             stderr: format!("yt-dlpの起動に失敗しました: {}", err),
+                            metadata: None,
+                            has_live_chat: None,
                         },
                     );
                     return;
@@ -1257,6 +1262,8 @@ fn start_comments_download(
                             success: false,
                             stdout: "".to_string(),
                             stderr: format!("yt-dlpの実行に失敗しました: {}", err),
+                            metadata: None,
+                            has_live_chat: None,
                         },
                     );
                     return;
@@ -1315,6 +1322,21 @@ fn start_comments_download(
             let _ = write_error_log(&app, "comments_download", &id, &last_stdout, &last_stderr);
         }
 
+        let mut metadata: Option<VideoMetadata> = None;
+        let mut has_live_chat: Option<bool> = None;
+
+        if last_success {
+            let dir = library_metadata_dir(&output_dir);
+            if let Some(info_path) = find_info_json(&dir, &id) {
+                if let Ok(content) = fs::read_to_string(&info_path) {
+                    if let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) {
+                        metadata = Some(parse_video_metadata_value(&value));
+                    }
+                }
+            }
+            has_live_chat = comments_file_exists(id.clone(), output_dir.clone()).ok();
+        }
+
         let _ = app.emit(
             "comments-finished",
             CommentsFinished {
@@ -1322,6 +1344,8 @@ fn start_comments_download(
                 success: last_success,
                 stdout: last_stdout,
                 stderr: last_stderr,
+                metadata,
+                has_live_chat,
             },
         );
     });

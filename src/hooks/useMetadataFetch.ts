@@ -592,5 +592,6 @@ export function useMetadataFetch<TVideo extends VideoLike>({
     scheduleBackgroundMetadataFetch,
     checkAndStartMetadataRecovery,
     retryMetadataFetch,
+    applyMetadataUpdate,
   };
 }

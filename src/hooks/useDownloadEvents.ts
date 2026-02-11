@@ -10,11 +10,15 @@ type DownloadFinished = {
   cancelled?: boolean;
 };
 
+type VideoMetadata = Record<string, unknown>;
+
 type CommentFinished = {
   id: string;
   success: boolean;
   stdout: string;
   stderr: string;
+  metadata?: VideoMetadata | null;
+  hasLiveChat?: boolean | null;
 };
 
 type VideoLike = {
@@ -50,6 +54,13 @@ type UseDownloadEventsParams<TVideo extends VideoLike> = {
     details: string
   ) => void;
   setErrorMessage: React.Dispatch<React.SetStateAction<string>>;
+  applyMetadataUpdate?: (params: {
+    id: string;
+    metadata?: VideoMetadata | null;
+    hasLiveChat?: boolean | null;
+    currentVideo?: TVideo | null;
+    markMetadataFetched?: boolean;
+  }) => void;
   onVideoDownloadFinished?: (id: string, waitForComments: boolean) => void;
   onCommentsDownloadFinished?: (id: string) => void;
 };
@@ -70,6 +81,7 @@ export function useDownloadEvents<TVideo extends VideoLike>({
   maybeStartAutoCommentsDownload,
   addDownloadErrorItem,
   setErrorMessage,
+  applyMetadataUpdate,
   onVideoDownloadFinished,
   onCommentsDownloadFinished,
 }: UseDownloadEventsParams<TVideo>) {
@@ -233,7 +245,7 @@ export function useDownloadEvents<TVideo extends VideoLike>({
         "comments-finished",
         (event) => {
           void (async () => {
-            const { id, success, stderr, stdout } = event.payload;
+            const { id, success, stderr, stdout, metadata, hasLiveChat } = event.payload;
             setCommentsDownloadingIds((prev: string[]) =>
               prev.filter((item: string) => item !== id)
             );
@@ -262,6 +274,16 @@ export function useDownloadEvents<TVideo extends VideoLike>({
                     : v
                 )
               );
+              if (applyMetadataUpdate && (metadata || typeof hasLiveChat === "boolean")) {
+                const currentVideo = videosRef.current.find((v: TVideo) => v.id === id);
+                applyMetadataUpdate({
+                  id,
+                  metadata: metadata ?? null,
+                  hasLiveChat: typeof hasLiveChat === "boolean" ? hasLiveChat : null,
+                  currentVideo,
+                  markMetadataFetched: true,
+                });
+              }
               setCommentErrors((prev: Record<string, string>) => {
                 const next = { ...prev };
                 delete next[id];
@@ -311,6 +333,7 @@ export function useDownloadEvents<TVideo extends VideoLike>({
     };
   }, [
     addDownloadErrorItem,
+    applyMetadataUpdate,
     bulkDownloadRef,
     downloadDirRef,
     handleBulkCompletion,
@@ -320,6 +343,7 @@ export function useDownloadEvents<TVideo extends VideoLike>({
     setErrorMessage,
     setPendingCommentIds,
     setVideos,
+    videosRef,
     onCommentsDownloadFinished,
   ]);
 }
