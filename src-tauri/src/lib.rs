@@ -3,6 +3,7 @@ use tauri::{Manager, WindowEvent};
 mod models;
 mod paths;
 mod tooling;
+mod tool_download;
 mod window;
 mod thumbnails;
 mod state;
@@ -74,6 +75,7 @@ pub fn run() {
             thumbnails::save_thumbnail,
             tooling::update_yt_dlp,
             tooling::check_tooling,
+            tool_download::download_tools,
             window::open_devtools_window,
             window::set_pending_player_open,
             window::take_pending_player_open

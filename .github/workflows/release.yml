@@ -1,0 +1,54 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: 'src-tauri -> target'
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'YouTube Local Viewer ${{ github.ref_name }}'
+          releaseBody: |
+            YouTube Local Viewer ${{ github.ref_name }} をリリースしました。
+
+            ## インストール方法
+            1. 下記の `.exe` ファイルをダウンロード
+            2. インストーラーを実行（管理者権限不要）
+            3. 初回起動時にyt-dlp/ffmpegの自動ダウンロードが案内されます
+
+            ## 注意事項
+            - Windows 10/11 64bit対応
+            - 未署名のため、SmartScreenの警告が表示される場合があります
+          releaseDraft: true
+          prerelease: false

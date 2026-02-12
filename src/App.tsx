@@ -33,6 +33,8 @@ import { useDownloadActions } from "./hooks/useDownloadActions";
 import { usePersistedState } from "./hooks/usePersistedState";
 import { useTheme } from "./hooks/useTheme";
 import { useYtDlpUpdateNotices } from "./hooks/useYtDlpUpdateNotices";
+import { useToolSetup } from "./hooks/useToolSetup";
+import { SetupDialog } from "./components/SetupDialog";
 import {
   formatClock,
   formatDuration,
@@ -346,6 +348,16 @@ function App() {
     downloadDirRef.current = downloadDir;
   }, [downloadDir]);
 
+  const refreshTooling = useCallback(() => {
+    void invoke<ToolingCheckResult>("check_tooling", {
+      ytDlpPath: ytDlpPath || null,
+      ffmpegPath: ffmpegPath || null,
+      ffprobePath: ffprobePath || null,
+    })
+      .then((result) => setToolingStatus(result))
+      .catch(() => setToolingStatus(null));
+  }, [ytDlpPath, ffmpegPath, ffprobePath]);
+
   useEffect(() => {
     if (!isStateReady) return;
     let cancelled = false;
@@ -368,6 +380,19 @@ function App() {
       cancelled = true;
     };
   }, [isStateReady, ytDlpPath, ffmpegPath, ffprobePath]);
+
+  const {
+    isSetupOpen,
+    downloadState: toolDownloadState,
+    missingTools,
+    startDownload: startToolDownload,
+    skipSetup,
+    closeSetup,
+  } = useToolSetup({
+    toolingStatus,
+    isStateReady,
+    refreshTooling,
+  });
 
   const addDownloadErrorItem = useCallback(
     (id: string, phase: "video" | "comments" | "metadata", details: string) => {
@@ -800,6 +825,14 @@ function App() {
 
   return (
     <main className="app">
+      <SetupDialog
+        isOpen={isSetupOpen}
+        missingTools={missingTools}
+        downloadState={toolDownloadState}
+        onStartDownload={startToolDownload}
+        onSkip={skipSetup}
+        onClose={closeSetup}
+      />
       <LoadingOverlay isOpen={isCheckingFiles} message="データチェック中..." />
       <AppHeader
         onOpenSettings={() => { setSettingsErrorMessage(""); setIsSettingsOpen(true); }}
