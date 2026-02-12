@@ -10,6 +10,17 @@ use crate::paths::{library_videos_dir, write_error_log};
 use crate::tooling::{apply_cookies_args, resolve_yt_dlp, resolve_override, resolve_ffmpeg};
 use crate::{YTDLP_TITLE_WARNING, YTDLP_WARNING_RETRY_MAX, YTDLP_WARNING_RETRY_SLEEP_MS};
 
+fn quality_to_format(quality: Option<&str>) -> String {
+    match quality {
+        Some("1080p") => "bestvideo[height<=1080][ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/best[height<=1080][ext=mp4][vcodec^=avc1]".to_string(),
+        Some("720p")  => "bestvideo[height<=720][ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/best[height<=720][ext=mp4][vcodec^=avc1]".to_string(),
+        Some("480p")  => "bestvideo[height<=480][ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/best[height<=480][ext=mp4][vcodec^=avc1]".to_string(),
+        Some("360p")  => "bestvideo[height<=360][ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/best[height<=360][ext=mp4][vcodec^=avc1]".to_string(),
+        Some("audio") => "bestaudio[ext=m4a]/bestaudio".to_string(),
+        _ => "bestvideo[ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/best[ext=mp4][vcodec^=avc1]".to_string(),
+    }
+}
+
 #[tauri::command]
 pub fn start_download(
     app: AppHandle,
@@ -23,6 +34,7 @@ pub fn start_download(
     remote_components: Option<String>,
     yt_dlp_path: Option<String>,
     ffmpeg_path: Option<String>,
+    quality: Option<String>,
 ) -> Result<(), String> {
     let output_dir_path = library_videos_dir(&output_dir);
     let output_path = output_dir_path
@@ -34,6 +46,7 @@ pub fn start_download(
     }
     let yt_dlp = resolve_override(yt_dlp_path).unwrap_or_else(resolve_yt_dlp);
     let ffmpeg_location = resolve_override(ffmpeg_path).or_else(|| Some(resolve_ffmpeg()));
+    let format_str = quality_to_format(quality.as_deref());
     let state = state.inner().clone();
 
     std::thread::spawn(move || {
@@ -58,7 +71,7 @@ pub fn start_download(
                 .arg("--max-sleep-interval")
                 .arg("20")
                 .arg("-f")
-                .arg("bestvideo[ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/best[ext=mp4][vcodec^=avc1]")
+                .arg(&format_str)
                 .arg("--merge-output-format")
                 .arg("mp4")
                 .arg("-o")

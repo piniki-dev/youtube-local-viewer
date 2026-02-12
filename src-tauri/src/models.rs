@@ -207,6 +207,7 @@ pub struct PersistedState {
     pub yt_dlp_path: Option<String>,
     pub ffmpeg_path: Option<String>,
     pub ffprobe_path: Option<String>,
+    pub download_quality: Option<String>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Default)]
@@ -220,6 +221,7 @@ pub struct PersistedSettings {
     pub yt_dlp_path: Option<String>,
     pub ffmpeg_path: Option<String>,
     pub ffprobe_path: Option<String>,
+    pub download_quality: Option<String>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Default)]

@@ -74,6 +74,7 @@ pub fn load_state(app: AppHandle) -> Result<PersistedState, String> {
         yt_dlp_path: settings.yt_dlp_path,
         ffmpeg_path: settings.ffmpeg_path,
         ffprobe_path: settings.ffprobe_path,
+        download_quality: settings.download_quality,
     })
 }
 
@@ -102,6 +103,7 @@ pub fn save_state(app: AppHandle, state: PersistedState) -> Result<(), String> {
             yt_dlp_path: state.yt_dlp_path,
             ffmpeg_path: state.ffmpeg_path,
             ffprobe_path: state.ffprobe_path,
+            download_quality: state.download_quality,
         },
     };
     let settings_content = serde_json::to_string_pretty(&settings)

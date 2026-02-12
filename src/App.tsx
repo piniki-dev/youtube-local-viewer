@@ -149,6 +149,7 @@ const REMOTE_COMPONENTS_KEY = "ytlv_remote_components";
 const YTDLP_PATH_KEY = "ytlv_yt_dlp_path";
 const FFMPEG_PATH_KEY = "ytlv_ffmpeg_path";
 const FFPROBE_PATH_KEY = "ytlv_ffprobe_path";
+const DOWNLOAD_QUALITY_KEY = "ytlv_download_quality";
 const INTEGRITY_CHECK_PENDING_KEY = "ytlv_integrity_check_pending";
 
 const GRID_CARD_WIDTH = 240;
@@ -184,6 +185,7 @@ function App() {
       ytDlpPathKey: YTDLP_PATH_KEY,
       ffmpegPathKey: FFMPEG_PATH_KEY,
       ffprobePathKey: FFPROBE_PATH_KEY,
+      downloadQualityKey: DOWNLOAD_QUALITY_KEY,
     }),
     []
   );
@@ -195,6 +197,7 @@ function App() {
   const [ytDlpPath, setYtDlpPath] = useState<string>("");
   const [ffmpegPath, setFfmpegPath] = useState<string>("");
   const [ffprobePath, setFfprobePath] = useState<string>("");
+  const [downloadQuality, setDownloadQuality] = useState<string>("");
   const [progressLines, setProgressLines] = useState<Record<string, string>>({});
   const [commentsDownloadingIds, setCommentsDownloadingIds] = useState<string[]>(
     []
@@ -314,6 +317,7 @@ function App() {
     setYtDlpPath,
     setFfmpegPath,
     setFfprobePath,
+    setDownloadQuality,
     setIsStateReady,
     isStateReady,
     videos,
@@ -325,6 +329,7 @@ function App() {
     ytDlpPath,
     ffmpegPath,
     ffprobePath,
+    downloadQuality,
     storageKeys,
   });
 
@@ -481,6 +486,10 @@ function App() {
     storageKeys,
   });
 
+  const updateDownloadQuality = useCallback((value: string) => {
+    setDownloadQuality(value === "best" ? "" : value);
+  }, []);
+
   const { exportBackup, importBackup } = useBackupActions({
     persistSettings,
     setSettingsErrorMessage,
@@ -545,6 +554,7 @@ function App() {
       remoteComponents,
       ytDlpPath,
       ffmpegPath,
+      downloadQuality,
       toolingStatus,
       setErrorMessage,
       setIsSettingsOpen,
@@ -911,6 +921,8 @@ function App() {
         onClearFfprobePath={clearFfprobePath}
         remoteComponents={remoteComponents}
         onUpdateRemoteComponents={updateRemoteComponents}
+        downloadQuality={downloadQuality}
+        onUpdateDownloadQuality={updateDownloadQuality}
         integritySummary={integritySummary}
         integrityRunning={integrityRunning}
         onRunIntegrityCheck={() => void runIntegrityCheck(true)}

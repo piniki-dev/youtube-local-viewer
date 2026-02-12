@@ -39,6 +39,8 @@ type SettingsModalProps = {
   onClearFfprobePath: () => void;
   remoteComponents: "none" | "ejs:github" | "ejs:npm";
   onUpdateRemoteComponents: (value: "none" | "ejs:github" | "ejs:npm") => void;
+  downloadQuality: string;
+  onUpdateDownloadQuality: (value: string) => void;
   integritySummary: IntegritySummary | null;
   integrityRunning: boolean;
   onRunIntegrityCheck: () => void;
@@ -75,6 +77,8 @@ export function SettingsModal({
   onClearFfprobePath,
   remoteComponents,
   onUpdateRemoteComponents,
+  downloadQuality,
+  onUpdateDownloadQuality,
   integritySummary,
   integrityRunning,
   onRunIntegrityCheck,
@@ -122,6 +126,32 @@ export function SettingsModal({
             <button className="ghost" onClick={onPickDownloadDir}>
               フォルダを選択
             </button>
+          </div>
+          <div className="setting-row">
+            <div>
+              <p className="setting-label">ダウンロード品質</p>
+              <p className="setting-value">
+                {downloadQuality === "1080p" ? "1080p (フルHD)"
+                  : downloadQuality === "720p" ? "720p (HD)"
+                  : downloadQuality === "480p" ? "480p"
+                  : downloadQuality === "360p" ? "360p"
+                  : downloadQuality === "audio" ? "音声のみ"
+                  : "最高画質 (デフォルト)"}
+              </p>
+            </div>
+            <div className="select-wrap">
+              <select
+                value={downloadQuality || "best"}
+                onChange={(e) => onUpdateDownloadQuality(e.target.value)}
+              >
+                <option value="best">最高画質 (デフォルト)</option>
+                <option value="1080p">1080p (フルHD)</option>
+                <option value="720p">720p (HD)</option>
+                <option value="480p">480p</option>
+                <option value="360p">360p</option>
+                <option value="audio">音声のみ</option>
+              </select>
+            </div>
           </div>
           <div className="setting-row">
             <div>

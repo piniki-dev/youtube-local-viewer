@@ -16,6 +16,7 @@ type UseDownloadActionsParams<TVideo extends VideoLike> = {
   remoteComponents: "none" | "ejs:github" | "ejs:npm";
   ytDlpPath: string;
   ffmpegPath: string;
+  downloadQuality: string;
   toolingStatus: { ytDlp: { ok: boolean } } | null;
   setErrorMessage: React.Dispatch<React.SetStateAction<string>>;
   setIsSettingsOpen: React.Dispatch<React.SetStateAction<boolean>>;
@@ -46,6 +47,7 @@ export function useDownloadActions<TVideo extends VideoLike>({
   remoteComponents,
   ytDlpPath,
   ffmpegPath,
+  downloadQuality,
   toolingStatus,
   setErrorMessage,
   setIsSettingsOpen,
@@ -108,6 +110,7 @@ export function useDownloadActions<TVideo extends VideoLike>({
           remoteComponents: remoteComponents === "none" ? null : remoteComponents,
           ytDlpPath: ytDlpPath || null,
           ffmpegPath: ffmpegPath || null,
+          quality: downloadQuality || null,
         });
       } catch {
         setVideos((prev) =>
@@ -140,6 +143,7 @@ export function useDownloadActions<TVideo extends VideoLike>({
       remoteComponents,
       ytDlpPath,
       ffmpegPath,
+      downloadQuality,
       toolingStatus,
       setErrorMessage,
       setIsSettingsOpen,

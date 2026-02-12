@@ -11,6 +11,7 @@ type PersistedState<TVideo> = {
   ytDlpPath?: string | null;
   ffmpegPath?: string | null;
   ffprobePath?: string | null;
+  downloadQuality?: string | null;
 };
 
 type StorageKeys = {
@@ -23,6 +24,7 @@ type StorageKeys = {
   ytDlpPathKey: string;
   ffmpegPathKey: string;
   ffprobePathKey: string;
+  downloadQualityKey: string;
 };
 
 type UsePersistedStateParams<TVideo> = {
@@ -39,6 +41,7 @@ type UsePersistedStateParams<TVideo> = {
   setYtDlpPath: React.Dispatch<React.SetStateAction<string>>;
   setFfmpegPath: React.Dispatch<React.SetStateAction<string>>;
   setFfprobePath: React.Dispatch<React.SetStateAction<string>>;
+  setDownloadQuality: React.Dispatch<React.SetStateAction<string>>;
   setIsStateReady: React.Dispatch<React.SetStateAction<boolean>>;
   isStateReady: boolean;
   videos: TVideo[];
@@ -50,6 +53,7 @@ type UsePersistedStateParams<TVideo> = {
   ytDlpPath: string;
   ffmpegPath: string;
   ffprobePath: string;
+  downloadQuality: string;
   storageKeys: StorageKeys;
 };
 
@@ -63,6 +67,7 @@ export function usePersistedState<TVideo>({
   setYtDlpPath,
   setFfmpegPath,
   setFfprobePath,
+  setDownloadQuality,
   setIsStateReady,
   isStateReady,
   videos,
@@ -74,6 +79,7 @@ export function usePersistedState<TVideo>({
   ytDlpPath,
   ffmpegPath,
   ffprobePath,
+  downloadQuality,
   storageKeys,
 }: UsePersistedStateParams<TVideo>) {
   useEffect(() => {
@@ -87,6 +93,7 @@ export function usePersistedState<TVideo>({
       let loadedYtDlpPath: string | null = null;
       let loadedFfmpegPath: string | null = null;
       let loadedFfprobePath: string | null = null;
+      let loadedDownloadQuality: string | null = null;
       try {
         const state = await invoke<PersistedState<TVideo>>("load_state");
         if (Array.isArray(state?.videos) && state.videos.length > 0) {
@@ -100,6 +107,7 @@ export function usePersistedState<TVideo>({
         loadedYtDlpPath = state?.ytDlpPath ?? null;
         loadedFfmpegPath = state?.ffmpegPath ?? null;
         loadedFfprobePath = state?.ffprobePath ?? null;
+        loadedDownloadQuality = state?.downloadQuality ?? null;
       } catch {
         loadedVideos = [];
       }
@@ -177,6 +185,7 @@ export function usePersistedState<TVideo>({
       if (loadedYtDlpPath) setYtDlpPath(loadedYtDlpPath);
       if (loadedFfmpegPath) setFfmpegPath(loadedFfmpegPath);
       if (loadedFfprobePath) setFfprobePath(loadedFfprobePath);
+      if (loadedDownloadQuality) setDownloadQuality(loadedDownloadQuality);
 
       try {
         await invoke("save_state", {
@@ -190,6 +199,7 @@ export function usePersistedState<TVideo>({
             ytDlpPath: loadedYtDlpPath,
             ffmpegPath: loadedFfmpegPath,
             ffprobePath: loadedFfprobePath,
+            downloadQuality: loadedDownloadQuality,
           } satisfies PersistedState<TVideo>,
         });
       } catch {
@@ -230,6 +240,7 @@ export function usePersistedState<TVideo>({
             ytDlpPath: ytDlpPath || null,
             ffmpegPath: ffmpegPath || null,
             ffprobePath: ffprobePath || null,
+            downloadQuality: downloadQuality || null,
           } satisfies PersistedState<TVideo>,
         });
       } catch {
@@ -247,6 +258,7 @@ export function usePersistedState<TVideo>({
     ytDlpPath,
     ffmpegPath,
     ffprobePath,
+    downloadQuality,
     isStateReady,
     storageKeys.videoStorageKey,
   ]);

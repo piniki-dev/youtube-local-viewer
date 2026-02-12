@@ -73,6 +73,8 @@ type AppModalsProps = {
   onClearFfprobePath: () => void;
   remoteComponents: "none" | "ejs:github" | "ejs:npm";
   onUpdateRemoteComponents: (value: "none" | "ejs:github" | "ejs:npm") => void;
+  downloadQuality: string;
+  onUpdateDownloadQuality: (value: string) => void;
   integritySummary: IntegritySummary | null;
   integrityRunning: boolean;
   onRunIntegrityCheck: () => void;
@@ -150,6 +152,8 @@ export function AppModals({
   onClearFfprobePath,
   remoteComponents,
   onUpdateRemoteComponents,
+  downloadQuality,
+  onUpdateDownloadQuality,
   integritySummary,
   integrityRunning,
   onRunIntegrityCheck,
@@ -226,6 +230,8 @@ export function AppModals({
         onClearFfprobePath={onClearFfprobePath}
         remoteComponents={remoteComponents}
         onUpdateRemoteComponents={onUpdateRemoteComponents}
+        downloadQuality={downloadQuality}
+        onUpdateDownloadQuality={onUpdateDownloadQuality}
         integritySummary={integritySummary}
         integrityRunning={integrityRunning}
         onRunIntegrityCheck={onRunIntegrityCheck}
