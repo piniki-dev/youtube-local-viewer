@@ -71,12 +71,16 @@ export function usePlayerWindowManager<TVideo extends VideoLike>({
             title: video.title,
             outputDir: downloadDir,
           });
-          console.log(
-            `[player-open] resolved filePath=${result ? "yes" : "no"}`
-          );
+          if (isDev) {
+            console.log(
+              `[player-open] resolved filePath=${result ? "yes" : "no"}`
+            );
+          }
           return result;
         } catch {
-          console.log("[player-open] resolve_video_file failed");
+          if (isDev) {
+            console.log("[player-open] resolve_video_file failed");
+          }
           return null;
         }
       };

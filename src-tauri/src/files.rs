@@ -599,6 +599,7 @@ pub fn resolve_video_file(
     let started = std::time::Instant::now();
     let dir = library_videos_dir(&output_dir);
     if !dir.exists() {
+        #[cfg(debug_assertions)]
         println!(
             "[resolve_video_file] missing dir id={} trace={}",
             id,
@@ -613,6 +614,7 @@ pub fn resolve_video_file(
         if let Some(found) = index.get(&id_lower).cloned() {
             let cached = PathBuf::from(&found);
             if cached.exists() {
+                #[cfg(debug_assertions)]
                 println!(
                     "[resolve_video_file] cache hit id={} trace={} elapsedMs={}",
                     id,
@@ -624,6 +626,7 @@ pub fn resolve_video_file(
             index.remove(&id_lower);
         }
     }
+    #[cfg(debug_assertions)]
     println!(
         "[resolve_video_file] cache miss id={} trace={}",
         id,
@@ -740,6 +743,7 @@ pub fn resolve_video_file(
             index.insert(id_lower, path.clone());
         }
     }
+    #[cfg(debug_assertions)]
     println!(
         "[resolve_video_file] done id={} trace={} found={} elapsedMs={}",
         id,

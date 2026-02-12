@@ -5,7 +5,7 @@ use zip::write::FileOptions;
 use zip::{ZipArchive, ZipWriter};
 use serde::{Deserialize, Serialize};
 use crate::models::{PersistedState, PersistedSettings, PersistedVideos, VersionedSettings, VersionedVideos};
-use crate::paths::{settings_file_path, videos_file_path};
+use crate::paths::{atomic_write, settings_file_path, videos_file_path};
 use crate::{SETTINGS_SCHEMA_VERSION, VIDEOS_SCHEMA_VERSION, BACKUP_SCHEMA_VERSION};
 
 pub(crate) fn parse_versioned_settings(content: &str) -> PersistedSettings {
@@ -108,8 +108,7 @@ pub fn save_state(app: AppHandle, state: PersistedState) -> Result<(), String> {
     };
     let settings_content = serde_json::to_string_pretty(&settings)
         .map_err(|e| format!("設定データの整形に失敗しました: {}", e))?;
-    fs::write(&settings_path, settings_content)
-        .map_err(|e| format!("設定ファイルの保存に失敗しました: {}", e))?;
+    atomic_write(&settings_path, settings_content.as_bytes())?;
 
     let videos = VersionedVideos {
         version: VIDEOS_SCHEMA_VERSION,
@@ -119,8 +118,7 @@ pub fn save_state(app: AppHandle, state: PersistedState) -> Result<(), String> {
     };
     let videos_content = serde_json::to_string_pretty(&videos)
         .map_err(|e| format!("動画インデックスの整形に失敗しました: {}", e))?;
-    fs::write(&videos_path, videos_content)
-        .map_err(|e| format!("動画インデックスの保存に失敗しました: {}", e))?;
+    atomic_write(&videos_path, videos_content.as_bytes())?;
     Ok(())
 }
 
@@ -227,8 +225,7 @@ pub fn import_state(app: AppHandle, input_path: String) -> Result<(), String> {
         entry
             .read_to_end(&mut buffer)
             .map_err(|e| format!("zipの読み込みに失敗しました: {}", e))?;
-        fs::write(&target_path, buffer)
-            .map_err(|e| format!("ファイルの保存に失敗しました: {}", e))?;
+        atomic_write(&target_path, &buffer)?;
     }
 
     Ok(())

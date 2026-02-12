@@ -79,7 +79,7 @@ export function VideoCard({
         }
       >
         <div className="thumbnail">
-          {thumbnailSrc && <img src={thumbnailSrc} alt={video.title} />}
+          {thumbnailSrc && <img src={thumbnailSrc} alt={video.title} loading="lazy" />}
           <span className={`thumbnail-overlay ${overlayClass}`} aria-hidden="true">
             {overlayIcon}
           </span>

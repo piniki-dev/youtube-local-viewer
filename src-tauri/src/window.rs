@@ -33,8 +33,7 @@ pub(crate) fn write_window_size(app: &AppHandle, size: WindowSizeConfig) -> Resu
     let path = window_size_file_path(app)?;
     let content = serde_json::to_string(&size)
         .map_err(|e| format!("ウィンドウサイズの保存に失敗しました: {}", e))?;
-    fs::write(&path, content)
-        .map_err(|e| format!("ウィンドウサイズの保存に失敗しました: {}", e))?;
+    crate::paths::atomic_write(&path, content.as_bytes())?;
     Ok(())
 }
 
@@ -48,8 +47,7 @@ pub(crate) fn write_player_window_size(app: &AppHandle, size: WindowSizeConfig) 
     let path = player_window_size_file_path(app)?;
     let content = serde_json::to_string(&size)
         .map_err(|e| format!("プレイヤーウィンドウサイズの保存に失敗しました: {}", e))?;
-    fs::write(&path, content)
-        .map_err(|e| format!("プレイヤーウィンドウサイズの保存に失敗しました: {}", e))?;
+    crate::paths::atomic_write(&path, content.as_bytes())?;
     Ok(())
 }
 
@@ -86,6 +84,7 @@ pub fn take_pending_player_open(
 }
 
 #[tauri::command]
+#[allow(unused_variables)]
 pub fn open_devtools_window(app: AppHandle, label: String) -> Result<(), String> {
     #[cfg(debug_assertions)]
     {

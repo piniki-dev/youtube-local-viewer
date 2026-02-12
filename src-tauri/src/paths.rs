@@ -1,4 +1,4 @@
-use std::{fs, path::{Path, PathBuf}};
+use std::{fs, io::Write, path::{Path, PathBuf}};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Manager};
 use crate::{SETTINGS_DIR_NAME, SETTINGS_FILE_NAME, INDEX_DIR_NAME, VIDEOS_FILE_NAME,
@@ -159,5 +159,20 @@ pub(crate) fn write_error_log(
     );
     fs::write(&file_path, content)
         .map_err(|e| format!("ログの保存に失敗しました: {}", e))?;
+    Ok(())
+}
+
+/// Write data to a file atomically: write to a .tmp sibling, then rename.
+/// Prevents data corruption if the app crashes mid-write.
+pub(crate) fn atomic_write(path: &Path, data: &[u8]) -> Result<(), String> {
+    let tmp_path = path.with_extension("tmp");
+    let mut file = fs::File::create(&tmp_path)
+        .map_err(|e| format!("一時ファイルの作成に失敗しました: {}", e))?;
+    file.write_all(data)
+        .map_err(|e| format!("一時ファイルへの書き込みに失敗しました: {}", e))?;
+    file.sync_all()
+        .map_err(|e| format!("一時ファイルの同期に失敗しました: {}", e))?;
+    fs::rename(&tmp_path, path)
+        .map_err(|e| format!("ファイルの置き換えに失敗しました: {}", e))?;
     Ok(())
 }

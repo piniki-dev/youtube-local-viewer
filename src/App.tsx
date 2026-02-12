@@ -694,11 +694,11 @@ function App() {
 
   const showAddSkeleton = isAdding && addMode === "video";
 
-  const renderSkeletonCard = () => (
+  const renderSkeletonCard = useCallback(() => (
     <VideoSkeletonCard />
-  );
+  ), []);
 
-  const renderVideoCard = (video: VideoItem) => {
+  const renderVideoCard = useCallback((video: VideoItem) => {
     return (
       <VideoCardItem
         video={video}
@@ -716,7 +716,7 @@ function App() {
         formatDuration={formatDuration}
       />
     );
-  };
+  }, [downloadingIds, commentsDownloadingIds, queuedDownloadIds, openPlayer, startDownload, mediaInfoById, formatPublishedAt, formatDuration]);
 
   const activeActivityItems = useActiveActivityItems({
     bulkDownloadActive: bulkDownload.active && !bulkDownload.waitingForSingles,
@@ -792,7 +792,7 @@ function App() {
 
   if (isPlayerWindow) {
     return (
-      <PlayerWindow title={playerTitle} isOpen={isPlayerOpen}>
+      <PlayerWindow title={playerTitle}>
         {playerContent}
       </PlayerWindow>
     );
@@ -802,8 +802,8 @@ function App() {
     <main className="app">
       <LoadingOverlay isOpen={isCheckingFiles} message="データチェック中..." />
       <AppHeader
-        onOpenSettings={() => setIsSettingsOpen(true)}
-        onOpenAdd={() => setIsAddOpen(true)}
+        onOpenSettings={() => { setSettingsErrorMessage(""); setIsSettingsOpen(true); }}
+        onOpenAdd={() => { setErrorMessage(""); setIsAddOpen(true); }}
         addDisabled={addDisabled}
         themeMode={themeMode}
         onThemeChange={setThemeMode}
@@ -836,8 +836,8 @@ function App() {
           gridGap={GRID_GAP}
           gridRowHeight={GRID_ROW_HEIGHT}
           downloadDir={downloadDir}
-          onOpenSettings={() => setIsSettingsOpen(true)}
-          onOpenAdd={() => setIsAddOpen(true)}
+          onOpenSettings={() => { setSettingsErrorMessage(""); setIsSettingsOpen(true); }}
+          onOpenAdd={() => { setErrorMessage(""); setIsAddOpen(true); }}
           addDisabled={addDisabled}
         />
       </div>

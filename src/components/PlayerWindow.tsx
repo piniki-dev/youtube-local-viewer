@@ -2,11 +2,10 @@ import type { ReactNode } from "react";
 
 type PlayerWindowProps = {
   title: string;
-  isOpen: boolean;
   children: ReactNode;
 };
 
-export function PlayerWindow({ title, isOpen, children }: PlayerWindowProps) {
+export function PlayerWindow({ title, children }: PlayerWindowProps) {
   return (
     <main className="app player-window">
       <header className="app-header">

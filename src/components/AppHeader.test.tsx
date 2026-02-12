@@ -5,7 +5,7 @@ import { AppHeader } from "./AppHeader";
 describe("AppHeader", () => {
   it("renders title and buttons", () => {
     render(
-      <AppHeader onOpenSettings={() => {}} onOpenAdd={() => {}} addDisabled={false} />
+      <AppHeader onOpenSettings={() => {}} onOpenAdd={() => {}} addDisabled={false} themeMode="system" onThemeChange={() => {}} />
     );
 
     expect(
@@ -27,6 +27,8 @@ describe("AppHeader", () => {
         onOpenSettings={onOpenSettings}
         onOpenAdd={onOpenAdd}
         addDisabled={false}
+        themeMode="system"
+        onThemeChange={() => {}}
       />
     );
 

@@ -48,7 +48,7 @@ type PlayerContentProps = {
 };
 
 export function PlayerContent({
-  title,
+  title: _title,
   loading,
   error,
   src,

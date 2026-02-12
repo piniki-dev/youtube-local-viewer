@@ -156,8 +156,18 @@ export function useAddVideoActions<TVideo extends VideoBase>({
       }
       setVideoUrl("");
       setIsAddOpen(false);
-    } catch {
-      setErrorMessage("動画情報の取得に失敗しました。");
+    } catch (err) {
+      const detail =
+        err instanceof Error
+          ? err.message
+          : typeof err === "string"
+            ? err
+            : "";
+      setErrorMessage(
+        detail
+          ? `動画情報の取得に失敗しました。${detail}`
+          : "動画情報の取得に失敗しました。"
+      );
       setIsAddOpen(true);
     } finally {
       setIsAdding(false);
