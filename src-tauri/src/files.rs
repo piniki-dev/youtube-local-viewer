@@ -2,6 +2,8 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::{fs, path::{Path, PathBuf}};
 use std::process::Command;
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 use std::time::SystemTime;
 use tauri::State;
 use crate::models::{VideoIndexState, LocalFileCheckItem, LocalFileCheckResult, MetadataIndex, LocalMetadataItem, MediaInfo};
@@ -757,7 +759,10 @@ pub fn resolve_video_file(
 #[tauri::command]
 pub fn probe_media(file_path: String, ffprobe_path: Option<String>) -> Result<MediaInfo, String> {
     let ffprobe = resolve_override(ffprobe_path).unwrap_or_else(resolve_ffprobe);
-    let output = Command::new(ffprobe)
+    let mut command = Command::new(ffprobe);
+    #[cfg(windows)]
+    command.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    let output = command
         .arg("-v")
         .arg("error")
         .arg("-show_entries")

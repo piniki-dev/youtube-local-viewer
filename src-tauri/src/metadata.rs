@@ -3,6 +3,8 @@ use std::fs;
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 use crate::models::{VideoMetadata, ChannelVideoItem, MetadataFinished};
@@ -146,6 +148,8 @@ pub(crate) fn fetch_channel_section(
     limit: Option<u32>,
 ) -> Result<Vec<ChannelVideoItem>, String> {
     let mut command = Command::new(yt_dlp);
+    #[cfg(windows)]
+    command.creation_flags(0x08000000); // CREATE_NO_WINDOW
     command
         .arg("--flat-playlist")
         .arg("--yes-playlist")
@@ -400,6 +404,8 @@ pub fn start_metadata_download(
         for attempt in 1..=YTDLP_WARNING_RETRY_MAX {
             let warning_seen = Arc::new(AtomicBool::new(false));
             let mut command = Command::new(&yt_dlp);
+            #[cfg(windows)]
+            command.creation_flags(0x08000000); // CREATE_NO_WINDOW
             command
                 .arg("--no-playlist")
                 .arg("--newline")
@@ -602,6 +608,8 @@ pub fn get_video_metadata(
 ) -> Result<VideoMetadata, String> {
     let yt_dlp = resolve_override(yt_dlp_path).unwrap_or_else(resolve_yt_dlp);
     let mut command = Command::new(yt_dlp);
+    #[cfg(windows)]
+    command.creation_flags(0x08000000); // CREATE_NO_WINDOW
     command
         .arg("--dump-single-json")
         .arg("--skip-download")
@@ -651,6 +659,8 @@ pub fn get_channel_metadata(
 ) -> Result<Vec<VideoMetadata>, String> {
     let yt_dlp = resolve_override(yt_dlp_path).unwrap_or_else(resolve_yt_dlp);
     let mut command = Command::new(yt_dlp);
+    #[cfg(windows)]
+    command.creation_flags(0x08000000); // CREATE_NO_WINDOW
     command
         .arg("--dump-single-json")
         .arg("--yes-playlist")

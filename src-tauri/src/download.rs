@@ -3,6 +3,8 @@ use std::fs;
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, State};
 use crate::models::{DownloadProcessState, DownloadFinished};
@@ -58,6 +60,8 @@ pub fn start_download(
         for attempt in 1..=YTDLP_WARNING_RETRY_MAX {
             let warning_seen = Arc::new(AtomicBool::new(false));
             let mut command = Command::new(&yt_dlp);
+            #[cfg(windows)]
+            command.creation_flags(0x08000000); // CREATE_NO_WINDOW
             command
                 .arg("--no-playlist")
                 .arg("--newline")

@@ -1,6 +1,8 @@
 use std::env;
 use std::process::{Command, Stdio};
 use std::path::{Path, PathBuf};
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 use tauri::{AppHandle, Emitter};
 use crate::models::{ToolingCheckResult, ToolingCheckStatus};
 use crate::state::load_state;
@@ -320,7 +322,10 @@ pub(crate) fn resolve_ffprobe() -> String {
 }
 
 pub(crate) fn can_run_tool(tool: &str, args: &[&str]) -> bool {
-    Command::new(tool)
+    let mut command = Command::new(tool);
+    #[cfg(windows)]
+    command.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    command
         .args(args)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -361,7 +366,10 @@ pub(crate) fn update_yt_dlp_if_available(app: &AppHandle, yt_dlp: String) {
         );
         return;
     }
-    let output = Command::new(&yt_dlp).arg("-U").output();
+    let mut command = Command::new(&yt_dlp);
+    #[cfg(windows)]
+    command.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    let output = command.arg("-U").output();
     let output = match output {
         Ok(output) => output,
         Err(err) => {
