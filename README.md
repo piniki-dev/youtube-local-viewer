@@ -1,78 +1,104 @@
-# YouTube Local Viewer (Tauri)
+# YouTube Local Viewer
 
-Tauri + React + TypeScript で作るデスクトップアプリのベースです。
+YouTube動画をローカルに保存・管理・再生するためのWindowsデスクトップアプリケーションです。
 
-## Scripts
+Tauri 2 + React 19 + TypeScript で構築されています。
 
-- npm run dev
-- npm run build
-- npm run tauri dev
-- npm run tauri build
-- npm run test
-- npm run test:watch
-- npm run test:e2e
+## 主な機能
 
-## Testing
+- YouTube動画のローカルダウンロード（品質選択対応）
+- ライブチャット同期再生
+- チャンネル一括登録・動画メタデータ取得
+- 動画の検索・フィルタリング（ダウンロード状態、種類、公開日ソート）
+- ダークモード対応
+- バックアップ・リストア機能
+- サムネイルのローカルキャッシュ
+- 別ウィンドウでの動画再生（プレーヤーウィンドウ）
+- ブラウザCookie連携によるダウンロード
+- yt-dlp / ffmpeg の初回起動時自動ダウンロード
+- エラーログの自動保存
 
-Unit/Component tests:
+## 動作環境
 
-```
-npm run test
-```
+- Windows 10/11（64bit）
+- WebView2ランタイム（通常はプリインストール済み）
 
-E2E smoke test (Vite dev + Playwright):
+## インストール
 
-```
-npm run test:e2e
-```
+1. [GitHub Releases](https://github.com/piniki-dev/youtube-local-viewer/releases) から最新の `.exe` インストーラをダウンロード
+2. インストーラを実行（管理者権限不要、ユーザー単位でインストール）
+3. 初回起動時に yt-dlp と ffmpeg の自動ダウンロードが案内されます
 
-Playwright runs against the Vite dev server (`npm run dev`).
-If this is the first time, install browsers:
+> **注意:** 未署名アプリのため、Windows SmartScreen の警告が表示される場合があります。
+> 「詳細情報」→「実行」で起動できます。
 
-```
-npx playwright install
-```
+## 外部ツール
 
-## Notes
+本アプリはダウンロード・メディア処理に以下の外部ツールを使用します。
+初回起動時に自動的にダウンロードされます。
 
-TauriのビルドにはRustとOS依存のライブラリが必要です。
+| ツール | 用途 | ライセンス |
+|--------|------|-----------|
+| [yt-dlp](https://github.com/yt-dlp/yt-dlp) | 動画・メタデータのダウンロード | Unlicense |
+| [ffmpeg](https://ffmpeg.org/) / ffprobe | メディア処理・コーデック確認 | LGPL 2.1+ / GPL |
 
-## Data storage
+## データ保存先
 
-アプリ設定やインデックスはユーザーデータ配下に保存されます。
+### アプリ設定（ユーザーデータディレクトリ）
 
-- settings/app.json
-- index/videos.json
+- `settings/app.json` — アプリ設定
+- `index/videos.json` — 動画インデックス
 
-動画/コメント/メタ情報は、設定で選択した「保存先フォルダ」の直下に
-videos/comments/metadata を作成して保存します。
-
-例:
+### 動画データ（ユーザー指定フォルダ）
 
 ```
 <保存先フォルダ>/
-	videos/
-		youtube_handle/
-			title [video_id].mp4
-	metadata/
-		youtube_handle/
-			title [video_id].info.json
-            title [video_id].live_chat.json
-	thumbnails/
-		youtube_handle/
-			title [video_id].png
+  videos/<youtube_handle>/<タイトル> [video_id].mp4
+  metadata/<youtube_handle>/<タイトル> [video_id].info.json
+  metadata/<youtube_handle>/<タイトル> [video_id].live_chat.json
+  thumbnails/<youtube_handle>/<タイトル> [video_id].png
 ```
 
-### Download tools
+## 開発環境セットアップ
 
-ダウンロード機能には `yt-dlp` が必要です。
+### 必要なツール
 
-- Windows: `yt-dlp.exe` をPATHに入れるか、`YTDLP_PATH` 環境変数でフルパスを指定してください。
+- [Node.js](https://nodejs.org/) 20+
+- [Rust](https://rustup.rs/)（stable）
+- Windows SDK / Visual Studio Build Tools
 
-### Codec/Media tools
+### 手順
 
-再生時のコーデック確認には `ffprobe` が必要です。
+```bash
+# 依存パッケージのインストール
+npm install
 
-- Ubuntu/Debian: `sudo apt install ffmpeg`
-- Arch: `sudo pacman -S ffmpeg`
-- Fedora: `sudo dnf install ffmpeg`
+# 開発サーバー起動（Tauri + Vite）
+npm run tauri dev
+
+# リリースビルド
+npm run tauri build
+```
+
+### テスト
+
+```bash
+# ユニット/コンポーネントテスト
+npm run test
+
+# E2Eテスト（初回は npx playwright install が必要）
+npm run test:e2e
+```
+
+## 既知の制限事項
+
+- Windows専用（macOS / Linux 未対応）
+- コード署名なし（SmartScreen警告あり）
+- YouTubeの仕様変更によりダウンロードが失敗する場合があります（yt-dlpの更新で対応）
+- アクセシビリティ・キーボード操作は限定的
+
+## ライセンス
+
+[MIT License](LICENSE)
+
+Copyright (c) 2026 piniki
