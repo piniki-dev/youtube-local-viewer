@@ -18,6 +18,7 @@ type VideoItem = {
   thumbnail?: string;
   publishedAt?: string;
   sourceUrl: string;
+  favorite?: boolean;
   downloadStatus: DownloadStatus;
   commentsStatus: CommentStatus;
   addedAt: string;
@@ -41,6 +42,7 @@ type VideoCardItemProps = {
   onDownload: (video: VideoItem) => Promise<void> | void;
   onDelete: (video: VideoItem) => void;
   onRefreshMetadata: (video: VideoItem) => void;
+  onToggleFavorite: (id: string) => void;
   mediaInfo?: MediaInfo | null;
   formatPublishedAt: (value?: string) => string;
   formatDuration: (value?: number | null) => string;
@@ -55,6 +57,7 @@ export function VideoCardItem({
   onDownload,
   onDelete,
   onRefreshMetadata,
+  onToggleFavorite,
   mediaInfo,
   formatPublishedAt,
   formatDuration,
@@ -81,6 +84,8 @@ export function VideoCardItem({
       onDownload={() => onDownload(video)}
       onDelete={() => onDelete(video)}
       onRefreshMetadata={() => onRefreshMetadata(video)}
+      isFavorite={!!video.favorite}
+      onToggleFavorite={() => onToggleFavorite(video.id)}
       onOpenInBrowser={() => void openUrl(video.sourceUrl)}
       onCopyUrl={() => void navigator.clipboard.writeText(video.sourceUrl)}
       mediaInfo={mediaInfo}

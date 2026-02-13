@@ -10,6 +10,7 @@ type VideoLike = {
   publishedAt?: string;
   addedAt: string;
   contentType?: "video" | "live" | "shorts";
+  favorite?: boolean;
   downloadStatus: "pending" | "downloading" | "downloaded" | "failed";
 };
 
@@ -23,6 +24,7 @@ type UseVideoFilteringParams<TVideo extends VideoLike> = {
   downloadFilter: "all" | "downloaded" | "undownloaded";
   typeFilter: "all" | "video" | "live" | "shorts";
   publishedSort: "published-desc" | "published-asc";
+  favoriteFilter: "all" | "favorite";
   deferredSearchQuery: string;
   indexedVideosRef: React.RefObject<IndexedVideo<TVideo>[]>;
   sortedVideosRef: React.RefObject<IndexedVideo<TVideo>[]>;
@@ -35,6 +37,7 @@ export function useVideoFiltering<TVideo extends VideoLike>({
   downloadFilter,
   typeFilter,
   publishedSort,
+  favoriteFilter,
   deferredSearchQuery,
   indexedVideosRef,
   sortedVideosRef,
@@ -89,15 +92,17 @@ export function useVideoFiltering<TVideo extends VideoLike>({
             : video.downloadStatus !== "downloaded";
       const type = video.contentType ?? "video";
       const matchesType = typeFilter === "all" ? true : type === typeFilter;
+      const matchesFavorite =
+        favoriteFilter === "all" ? true : !!video.favorite;
       const matchesQuery =
         tokens.length === 0
           ? true
           : tokens.every((token) => video.searchText.includes(token));
-      return matchesDownload && matchesType && matchesQuery;
+      return matchesDownload && matchesType && matchesFavorite && matchesQuery;
     });
     filteredVideosRef.current = next;
     return next;
-  }, [sortedVideos, downloadFilter, typeFilter, deferredSearchQuery, filteredVideosRef]);
+  }, [sortedVideos, downloadFilter, typeFilter, favoriteFilter, deferredSearchQuery, filteredVideosRef]);
 
   const hasUndownloaded = useMemo(
     () => videos.some((video) => video.downloadStatus !== "downloaded"),

@@ -39,6 +39,8 @@ type VideoCardProps = {
   onDownload: () => void;
   onDelete: () => void;
   onRefreshMetadata: () => void;
+  isFavorite: boolean;
+  onToggleFavorite: () => void;
   onOpenInBrowser: () => void;
   onCopyUrl: () => void;
   mediaInfo?: MediaInfo | null;
@@ -58,6 +60,8 @@ export function VideoCard({
   onDownload,
   onDelete,
   onRefreshMetadata,
+  isFavorite,
+  onToggleFavorite,
   onOpenInBrowser,
   onCopyUrl,
   mediaInfo,
@@ -121,6 +125,14 @@ export function VideoCard({
       <div className="video-info">
         <div className="video-info-header">
           <h3>{video.title}</h3>
+          <button
+            className={`video-card-fav-btn${isFavorite ? " active" : ""}`}
+            type="button"
+            onClick={onToggleFavorite}
+            aria-label={isFavorite ? "お気に入り解除" : "お気に入りに追加"}
+          >
+            <i className={isFavorite ? "ri-heart-fill" : "ri-heart-line"} />
+          </button>
           <div className="video-card-menu" ref={menuRef}>
             <button
               className="video-card-menu-btn"

@@ -84,6 +84,7 @@ type VideoItem = {
   audioLanguage?: string;
   ageLimit?: number;
   metadataFetched?: boolean;
+  favorite?: boolean;
   downloadStatus: DownloadStatus;
   commentsStatus: CommentStatus;
   addedAt: string;
@@ -252,6 +253,9 @@ function App() {
   >("published-desc");
   const [searchQuery, setSearchQuery] = useState("");
   const deferredSearchQuery = useDeferredValue(searchQuery);
+  const [favoriteFilter, setFavoriteFilter] = useState<"all" | "favorite">(
+    "all"
+  );
   const [deleteTarget, setDeleteTarget] = useState<VideoItem | null>(null);
 
   const videosRef = useRef<VideoItem[]>([]);
@@ -712,6 +716,7 @@ function App() {
     downloadFilter,
     typeFilter,
     publishedSort,
+    favoriteFilter,
     deferredSearchQuery,
     indexedVideosRef,
     sortedVideosRef,
@@ -724,6 +729,12 @@ function App() {
   const renderSkeletonCard = useCallback(() => (
     <VideoSkeletonCard />
   ), []);
+
+  const toggleFavorite = useCallback((id: string) => {
+    setVideos((prev) =>
+      prev.map((v) => (v.id === id ? { ...v, favorite: !v.favorite } : v))
+    );
+  }, []);
 
   const handleDeleteVideo = useCallback((video: VideoItem) => {
     setDeleteTarget(video);
@@ -773,12 +784,13 @@ function App() {
         onDownload={startDownload}
         onDelete={handleDeleteVideo}
         onRefreshMetadata={handleRefreshMetadata}
+        onToggleFavorite={toggleFavorite}
         mediaInfo={mediaInfoById[video.id]}
         formatPublishedAt={formatPublishedAt}
         formatDuration={formatDuration}
       />
     );
-  }, [downloadingIds, commentsDownloadingIds, queuedDownloadIds, openPlayer, startDownload, handleDeleteVideo, handleRefreshMetadata, mediaInfoById, formatPublishedAt, formatDuration]);
+  }, [downloadingIds, commentsDownloadingIds, queuedDownloadIds, openPlayer, startDownload, handleDeleteVideo, handleRefreshMetadata, toggleFavorite, mediaInfoById, formatPublishedAt, formatDuration]);
 
   const activeActivityItems = useActiveActivityItems({
     bulkDownloadActive: bulkDownload.active && !bulkDownload.waitingForSingles,
@@ -887,6 +899,8 @@ function App() {
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
           onClearSearch={() => setSearchQuery("")}
+          favoriteFilter={favoriteFilter}
+          onChangeFavoriteFilter={setFavoriteFilter}
           downloadFilter={downloadFilter}
           onChangeDownloadFilter={setDownloadFilter}
           typeFilter={typeFilter}

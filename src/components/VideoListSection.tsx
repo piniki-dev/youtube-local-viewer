@@ -6,6 +6,7 @@ import { VideoGrid } from "./VideoGrid";
 type DownloadFilter = "all" | "downloaded" | "undownloaded";
 type TypeFilter = "all" | "video" | "live" | "shorts";
 type PublishedSort = "published-desc" | "published-asc";
+type FavoriteFilter = "all" | "favorite";
 
 type VideoListSectionProps<T> = {
   sortedCount: number;
@@ -14,6 +15,8 @@ type VideoListSectionProps<T> = {
   searchQuery: string;
   onSearchChange: (value: string) => void;
   onClearSearch: () => void;
+  favoriteFilter: FavoriteFilter;
+  onChangeFavoriteFilter: (value: FavoriteFilter) => void;
   downloadFilter: DownloadFilter;
   onChangeDownloadFilter: (value: DownloadFilter) => void;
   typeFilter: TypeFilter;
@@ -41,6 +44,8 @@ export function VideoListSection<T>({
   searchQuery,
   onSearchChange,
   onClearSearch,
+  favoriteFilter,
+  onChangeFavoriteFilter,
   downloadFilter,
   onChangeDownloadFilter,
   typeFilter,
@@ -95,6 +100,8 @@ export function VideoListSection<T>({
         searchQuery={searchQuery}
         onSearchChange={onSearchChange}
         onClearSearch={onClearSearch}
+        favoriteFilter={favoriteFilter}
+        onChangeFavoriteFilter={onChangeFavoriteFilter}
         downloadFilter={downloadFilter}
         onChangeDownloadFilter={onChangeDownloadFilter}
         typeFilter={typeFilter}

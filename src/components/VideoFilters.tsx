@@ -1,11 +1,14 @@
 type DownloadFilter = "all" | "downloaded" | "undownloaded";
 type TypeFilter = "all" | "video" | "live" | "shorts";
 type PublishedSort = "published-desc" | "published-asc";
+type FavoriteFilter = "all" | "favorite";
 
 type VideoFiltersProps = {
   searchQuery: string;
   onSearchChange: (value: string) => void;
   onClearSearch: () => void;
+  favoriteFilter: FavoriteFilter;
+  onChangeFavoriteFilter: (value: FavoriteFilter) => void;
   downloadFilter: DownloadFilter;
   onChangeDownloadFilter: (value: DownloadFilter) => void;
   typeFilter: TypeFilter;
@@ -22,6 +25,8 @@ export function VideoFilters({
   searchQuery,
   onSearchChange,
   onClearSearch,
+  favoriteFilter,
+  onChangeFavoriteFilter,
   downloadFilter,
   onChangeDownloadFilter,
   typeFilter,
@@ -54,6 +59,25 @@ export function VideoFilters({
               クリア
             </button>
           )}
+        </div>
+      </div>
+      <div className="filter-group">
+        <span className="filter-label">お気に入り</span>
+        <div className="segmented">
+          <button
+            className={favoriteFilter === "all" ? "active" : ""}
+            onClick={() => onChangeFavoriteFilter("all")}
+            type="button"
+          >
+            すべて
+          </button>
+          <button
+            className={favoriteFilter === "favorite" ? "active" : ""}
+            onClick={() => onChangeFavoriteFilter("favorite")}
+            type="button"
+          >
+            <i className="ri-heart-fill" /> お気に入り
+          </button>
         </div>
       </div>
       <div className="filter-group">

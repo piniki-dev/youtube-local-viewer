@@ -1395,6 +1395,33 @@ html[data-theme="dark"] .error-details {
   min-width: 0;
 }
 
+.video-card-fav-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--c-text-muted);
+  font-size: 16px;
+  padding: 0;
+  flex-shrink: 0;
+  transition: background 0.15s, color 0.15s;
+}
+.video-card-fav-btn:hover {
+  background: var(--c-border);
+  color: #ef4444;
+}
+.video-card-fav-btn.active {
+  color: #ef4444;
+}
+.video-card-fav-btn.active:hover {
+  background: var(--c-border);
+}
+
 .video-card-menu {
   position: relative;
   flex-shrink: 0;
