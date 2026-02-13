@@ -13,6 +13,7 @@ import { AppModals } from "./components/AppModals";
 import { FloatingStatusStack } from "./components/FloatingStatusStack";
 import { PlayerContent } from "./components/PlayerContent";
 import { VideoCardItem } from "./components/VideoCardItem";
+import { DeleteConfirmModal } from "./components/DeleteConfirmModal";
 import { VideoSkeletonCard } from "./components/VideoSkeletonCard";
 import { LoadingOverlay } from "./components/LoadingOverlay";
 import { PlayerWindow } from "./components/PlayerWindow";
@@ -251,6 +252,7 @@ function App() {
   >("published-desc");
   const [searchQuery, setSearchQuery] = useState("");
   const deferredSearchQuery = useDeferredValue(searchQuery);
+  const [deleteTarget, setDeleteTarget] = useState<VideoItem | null>(null);
 
   const videosRef = useRef<VideoItem[]>([]);
   const bulkDownloadRef = useRef<BulkDownloadState>(bulkDownload);
@@ -723,6 +725,39 @@ function App() {
     <VideoSkeletonCard />
   ), []);
 
+  const handleDeleteVideo = useCallback((video: VideoItem) => {
+    setDeleteTarget(video);
+  }, []);
+
+  const handleDeleteListOnly = useCallback(() => {
+    if (!deleteTarget) return;
+    const id = deleteTarget.id;
+    setVideos((prev) => prev.filter((v) => v.id !== id));
+    setDeleteTarget(null);
+  }, [deleteTarget]);
+
+  const handleDeleteWithFiles = useCallback(() => {
+    if (!deleteTarget) return;
+    const id = deleteTarget.id;
+    const dir = downloadDirRef.current.trim();
+    if (dir) {
+      void invoke("delete_video_files", { id, outputDir: dir });
+    }
+    setVideos((prev) => prev.filter((v) => v.id !== id));
+    setDeleteTarget(null);
+  }, [deleteTarget]);
+
+  const handleRefreshMetadata = useCallback((video: VideoItem) => {
+    setVideos((prev) =>
+      prev.map((v) =>
+        v.id === video.id ? { ...v, metadataFetched: false } : v
+      )
+    );
+    scheduleBackgroundMetadataFetch([
+      { id: video.id, sourceUrl: video.sourceUrl },
+    ]);
+  }, [scheduleBackgroundMetadataFetch]);
+
   const renderVideoCard = useCallback((video: VideoItem) => {
     return (
       <VideoCardItem
@@ -736,12 +771,14 @@ function App() {
           }
         }}
         onDownload={startDownload}
+        onDelete={handleDeleteVideo}
+        onRefreshMetadata={handleRefreshMetadata}
         mediaInfo={mediaInfoById[video.id]}
         formatPublishedAt={formatPublishedAt}
         formatDuration={formatDuration}
       />
     );
-  }, [downloadingIds, commentsDownloadingIds, queuedDownloadIds, openPlayer, startDownload, mediaInfoById, formatPublishedAt, formatDuration]);
+  }, [downloadingIds, commentsDownloadingIds, queuedDownloadIds, openPlayer, startDownload, handleDeleteVideo, handleRefreshMetadata, mediaInfoById, formatPublishedAt, formatDuration]);
 
   const activeActivityItems = useActiveActivityItems({
     bulkDownloadActive: bulkDownload.active && !bulkDownload.waitingForSingles,
@@ -985,6 +1022,14 @@ function App() {
         isPlayerOpen={isPlayerOpen}
         onClosePlayer={closePlayer}
         playerContent={playerContent}
+      />
+
+      <DeleteConfirmModal
+        isOpen={deleteTarget !== null}
+        videoTitle={deleteTarget?.title ?? ""}
+        onCancel={() => setDeleteTarget(null)}
+        onDeleteListOnly={handleDeleteListOnly}
+        onDeleteWithFiles={handleDeleteWithFiles}
       />
     </main>
   );

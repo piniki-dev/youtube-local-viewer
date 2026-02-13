@@ -7,7 +7,7 @@ use std::os::windows::process::CommandExt;
 use std::time::SystemTime;
 use tauri::State;
 use crate::models::{VideoIndexState, LocalFileCheckItem, LocalFileCheckResult, MetadataIndex, LocalMetadataItem, MediaInfo};
-use crate::paths::{collect_files_recursive, normalized_library_root, library_videos_dir, library_metadata_dir, library_comments_dir};
+use crate::paths::{collect_files_recursive, normalized_library_root, library_videos_dir, library_metadata_dir, library_comments_dir, library_thumbnails_dir};
 use crate::metadata::parse_video_metadata_value;
 use crate::tooling::{resolve_override, resolve_ffprobe};
 
@@ -862,4 +862,48 @@ pub fn probe_media(file_path: String, ffprobe_path: Option<String>) -> Result<Me
     }
 
     Ok(info)
+}
+
+#[tauri::command]
+pub fn delete_video_files(
+    id: String,
+    output_dir: String,
+    state: State<VideoIndexState>,
+) -> Result<u32, String> {
+    let id_lower = id.to_lowercase();
+    let mut deleted: u32 = 0;
+
+    let dirs = [
+        library_videos_dir(&output_dir),
+        library_metadata_dir(&output_dir),
+        library_comments_dir(&output_dir),
+        library_thumbnails_dir(&output_dir),
+    ];
+
+    for dir in &dirs {
+        if !dir.exists() {
+            continue;
+        }
+        for path in collect_files_recursive(dir) {
+            if !path.is_file() {
+                continue;
+            }
+            let name = match path.file_name().and_then(|n| n.to_str()) {
+                Some(name) => name.to_lowercase(),
+                None => continue,
+            };
+            if name.contains(&id_lower) {
+                if fs::remove_file(&path).is_ok() {
+                    deleted += 1;
+                }
+            }
+        }
+    }
+
+    // Remove from video index cache
+    if let Ok(mut index) = state.index.lock() {
+        index.remove(&id_lower);
+    }
+
+    Ok(deleted)
 }

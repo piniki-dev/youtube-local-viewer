@@ -1,3 +1,5 @@
+import { useEffect, useRef, useState } from "react";
+
 type DownloadStatus = "pending" | "downloading" | "downloaded" | "failed";
 type CommentStatus =
   | "pending"
@@ -35,6 +37,10 @@ type VideoCardProps = {
   displayStatus: DownloadStatus;
   onPlay: () => void;
   onDownload: () => void;
+  onDelete: () => void;
+  onRefreshMetadata: () => void;
+  onOpenInBrowser: () => void;
+  onCopyUrl: () => void;
   mediaInfo?: MediaInfo | null;
   formatPublishedAt: (value?: string) => string;
   formatDuration: (value?: number | null) => string;
@@ -50,10 +56,17 @@ export function VideoCard({
   displayStatus,
   onPlay,
   onDownload,
+  onDelete,
+  onRefreshMetadata,
+  onOpenInBrowser,
+  onCopyUrl,
   mediaInfo,
   formatPublishedAt,
   formatDuration,
 }: VideoCardProps) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
   const isDownloaded = displayStatus === "downloaded";
   const overlayClass = isDownloaded ? "play-overlay" : "download-overlay";
   const overlayIcon = isDownloaded ? (
@@ -62,6 +75,26 @@ export function VideoCard({
     <i className="ri-download-2-line" />
   );
   const isActionDisabled = isDownloaded ? !isPlayable : isDownloading || isQueued;
+  const canDownload = !isDownloaded && !isDownloading && !isQueued;
+  const canDelete = !isDownloading && !isQueued;
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMenuOpen(false);
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleEscape);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [menuOpen]);
 
   return (
     <article className="video-card">
@@ -86,7 +119,67 @@ export function VideoCard({
         </div>
       </button>
       <div className="video-info">
-        <h3>{video.title}</h3>
+        <div className="video-info-header">
+          <h3>{video.title}</h3>
+          <div className="video-card-menu" ref={menuRef}>
+            <button
+              className="video-card-menu-btn"
+              type="button"
+              onClick={() => setMenuOpen((prev) => !prev)}
+              aria-label="メニュー"
+            >
+              <i className="ri-menu-line" />
+            </button>
+            {menuOpen && (
+              <div className="video-card-dropdown">
+                {canDownload && (
+                  <button
+                    className="video-card-dropdown-item"
+                    type="button"
+                    onClick={() => { setMenuOpen(false); onDownload(); }}
+                  >
+                    <i className="ri-download-2-line" />
+                    ダウンロード
+                  </button>
+                )}
+                <button
+                  className="video-card-dropdown-item"
+                  type="button"
+                  onClick={() => { setMenuOpen(false); onRefreshMetadata(); }}
+                >
+                  <i className="ri-refresh-line" />
+                  メタデータの再取得
+                </button>
+                <button
+                  className="video-card-dropdown-item"
+                  type="button"
+                  onClick={() => { setMenuOpen(false); onOpenInBrowser(); }}
+                >
+                  <i className="ri-external-link-line" />
+                  YouTubeで開く
+                </button>
+                <button
+                  className="video-card-dropdown-item"
+                  type="button"
+                  onClick={() => { setMenuOpen(false); onCopyUrl(); }}
+                >
+                  <i className="ri-file-copy-line" />
+                  URLをコピー
+                </button>
+                {canDelete && (
+                  <button
+                    className="video-card-dropdown-item danger"
+                    type="button"
+                    onClick={() => { setMenuOpen(false); onDelete(); }}
+                  >
+                    <i className="ri-delete-bin-line" />
+                    削除
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
         <p>{video.channel}</p>
         {video.publishedAt && <p>配信日: {formatPublishedAt(video.publishedAt)}</p>}
         <span

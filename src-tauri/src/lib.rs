@@ -67,6 +67,7 @@ pub fn run() {
             files::get_metadata_index,
             files::get_local_metadata_by_ids,
             files::probe_media,
+            files::delete_video_files,
             state::load_state,
             state::save_state,
             state::export_state,

@@ -1,4 +1,5 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { VideoCard } from "./VideoCard";
 
 type DownloadStatus = "pending" | "downloading" | "downloaded" | "failed";
@@ -38,6 +39,8 @@ type VideoCardItemProps = {
   queuedDownloadIds: string[];
   onPlay: (video: VideoItem) => void;
   onDownload: (video: VideoItem) => Promise<void> | void;
+  onDelete: (video: VideoItem) => void;
+  onRefreshMetadata: (video: VideoItem) => void;
   mediaInfo?: MediaInfo | null;
   formatPublishedAt: (value?: string) => string;
   formatDuration: (value?: number | null) => string;
@@ -50,6 +53,8 @@ export function VideoCardItem({
   queuedDownloadIds,
   onPlay,
   onDownload,
+  onDelete,
+  onRefreshMetadata,
   mediaInfo,
   formatPublishedAt,
   formatDuration,
@@ -74,6 +79,10 @@ export function VideoCardItem({
       displayStatus={displayStatus}
       onPlay={() => onPlay(video)}
       onDownload={() => onDownload(video)}
+      onDelete={() => onDelete(video)}
+      onRefreshMetadata={() => onRefreshMetadata(video)}
+      onOpenInBrowser={() => void openUrl(video.sourceUrl)}
+      onCopyUrl={() => void navigator.clipboard.writeText(video.sourceUrl)}
       mediaInfo={mediaInfo}
       formatPublishedAt={formatPublishedAt}
       formatDuration={formatDuration}
