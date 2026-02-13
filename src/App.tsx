@@ -12,7 +12,6 @@ import { VideoListSection } from "./components/VideoListSection";
 import { AppModals } from "./components/AppModals";
 import { FloatingStatusStack } from "./components/FloatingStatusStack";
 import { PlayerContent } from "./components/PlayerContent";
-import { VideoCardItem } from "./components/VideoCardItem";
 import { DeleteConfirmModal } from "./components/DeleteConfirmModal";
 import { VideoSkeletonCard } from "./components/VideoSkeletonCard";
 import { LoadingOverlay } from "./components/LoadingOverlay";
@@ -769,28 +768,11 @@ function App() {
     ]);
   }, [scheduleBackgroundMetadataFetch]);
 
-  const renderVideoCard = useCallback((video: VideoItem) => {
-    return (
-      <VideoCardItem
-        video={video}
-        downloadingIds={downloadingIds}
-        commentsDownloadingIds={commentsDownloadingIds}
-        queuedDownloadIds={queuedDownloadIds}
-        onPlay={(target) => {
-          if (target.downloadStatus === "downloaded") {
-            void openPlayer(target);
-          }
-        }}
-        onDownload={startDownload}
-        onDelete={handleDeleteVideo}
-        onRefreshMetadata={handleRefreshMetadata}
-        onToggleFavorite={toggleFavorite}
-        mediaInfo={mediaInfoById[video.id]}
-        formatPublishedAt={formatPublishedAt}
-        formatDuration={formatDuration}
-      />
-    );
-  }, [downloadingIds, commentsDownloadingIds, queuedDownloadIds, openPlayer, startDownload, handleDeleteVideo, handleRefreshMetadata, toggleFavorite, mediaInfoById, formatPublishedAt, formatDuration]);
+  const handlePlay = useCallback((video: VideoItem) => {
+    if (video.downloadStatus === "downloaded") {
+      void openPlayer(video);
+    }
+  }, [openPlayer]);
 
   const activeActivityItems = useActiveActivityItems({
     bulkDownloadActive: bulkDownload.active && !bulkDownload.waitingForSingles,
@@ -915,7 +897,17 @@ function App() {
           }
           filteredVideos={filteredVideos}
           renderSkeletonCard={renderSkeletonCard}
-          renderVideoCard={renderVideoCard}
+          downloadingIds={downloadingIds}
+          commentsDownloadingIds={commentsDownloadingIds}
+          queuedDownloadIds={queuedDownloadIds}
+          onPlay={handlePlay}
+          onDownload={startDownload}
+          onDelete={handleDeleteVideo}
+          onRefreshMetadata={handleRefreshMetadata}
+          onToggleFavorite={toggleFavorite}
+          mediaInfoById={mediaInfoById}
+          formatPublishedAt={formatPublishedAt}
+          formatDuration={formatDuration}
           gridCardWidth={GRID_CARD_WIDTH}
           gridGap={GRID_GAP}
           gridRowHeight={GRID_ROW_HEIGHT}

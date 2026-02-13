@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, memo } from "react";
 
 type DownloadStatus = "pending" | "downloading" | "downloaded" | "failed";
 type CommentStatus =
@@ -48,7 +48,7 @@ type VideoCardProps = {
   formatDuration: (value?: number | null) => string;
 };
 
-export function VideoCard({
+const VideoCardComponent = ({
   video,
   thumbnailSrc,
   isPlayable,
@@ -67,7 +67,7 @@ export function VideoCard({
   mediaInfo,
   formatPublishedAt,
   formatDuration,
-}: VideoCardProps) {
+}: VideoCardProps) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -252,4 +252,7 @@ export function VideoCard({
       </div>
     </article>
   );
-}
+};
+
+export const VideoCard = memo(VideoCardComponent);
+

@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { memo, type ReactNode } from "react";
 import { EmptyState } from "./EmptyState";
 import { VideoFilters } from "./VideoFilters";
 import { VideoGrid } from "./VideoGrid";
@@ -7,6 +7,15 @@ type DownloadFilter = "all" | "downloaded" | "undownloaded";
 type TypeFilter = "all" | "video" | "live" | "shorts";
 type PublishedSort = "published-desc" | "published-asc";
 type FavoriteFilter = "all" | "favorite";
+
+type MediaInfo = {
+  videoCodec?: string | null;
+  audioCodec?: string | null;
+  width?: number | null;
+  height?: number | null;
+  duration?: number | null;
+  container?: string | null;
+};
 
 type VideoListSectionProps<T> = {
   sortedCount: number;
@@ -27,7 +36,17 @@ type VideoListSectionProps<T> = {
   bulkDownloadDisabled: boolean;
   filteredVideos: T[];
   renderSkeletonCard: () => ReactNode;
-  renderVideoCard: (video: T) => ReactNode;
+  downloadingIds: string[];
+  commentsDownloadingIds: string[];
+  queuedDownloadIds: string[];
+  onPlay: (video: T) => void;
+  onDownload: (video: T) => Promise<void> | void;
+  onDelete: (video: T) => void;
+  onRefreshMetadata: (video: T) => void;
+  onToggleFavorite: (id: string) => void;
+  mediaInfoById: Record<string, MediaInfo | null>;
+  formatPublishedAt: (value?: string) => string;
+  formatDuration: (value?: number | null) => string;
   gridCardWidth: number;
   gridGap: number;
   gridRowHeight: number;
@@ -37,7 +56,7 @@ type VideoListSectionProps<T> = {
   addDisabled: boolean;
 };
 
-export function VideoListSection<T>({
+const VideoListSectionComponent = <T extends { id: string }>({
   sortedCount,
   filteredCount,
   showAddSkeleton,
@@ -56,7 +75,17 @@ export function VideoListSection<T>({
   bulkDownloadDisabled,
   filteredVideos,
   renderSkeletonCard,
-  renderVideoCard,
+  downloadingIds,
+  commentsDownloadingIds,
+  queuedDownloadIds,
+  onPlay,
+  onDownload,
+  onDelete,
+  onRefreshMetadata,
+  onToggleFavorite,
+  mediaInfoById,
+  formatPublishedAt,
+  formatDuration,
   gridCardWidth,
   gridGap,
   gridRowHeight,
@@ -64,7 +93,7 @@ export function VideoListSection<T>({
   onOpenSettings,
   onOpenAdd,
   addDisabled,
-}: VideoListSectionProps<T>) {
+}: VideoListSectionProps<T>) => {
   if (sortedCount === 0) {
     return (
       <EmptyState>
@@ -121,7 +150,17 @@ export function VideoListSection<T>({
           filteredVideos={filteredVideos}
           showAddSkeleton={showAddSkeleton}
           renderSkeletonCard={renderSkeletonCard}
-          renderVideoCard={renderVideoCard}
+          downloadingIds={downloadingIds}
+          commentsDownloadingIds={commentsDownloadingIds}
+          queuedDownloadIds={queuedDownloadIds}
+          onPlay={onPlay}
+          onDownload={onDownload}
+          onDelete={onDelete}
+          onRefreshMetadata={onRefreshMetadata}
+          onToggleFavorite={onToggleFavorite}
+          mediaInfoById={mediaInfoById}
+          formatPublishedAt={formatPublishedAt}
+          formatDuration={formatDuration}
           gridCardWidth={gridCardWidth}
           gridGap={gridGap}
           gridRowHeight={gridRowHeight}
@@ -129,4 +168,6 @@ export function VideoListSection<T>({
       )}
     </>
   );
-}
+};
+
+export const VideoListSection = memo(VideoListSectionComponent) as typeof VideoListSectionComponent;
