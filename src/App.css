@@ -387,7 +387,7 @@ body {
 .video-card {
   background: var(--c-surface);
   border-radius: 12px;
-  overflow: hidden;
+  overflow: visible;
   display: flex;
   flex-direction: column;
   box-shadow: 0 6px 18px rgba(15, 20, 30, 0.08);
@@ -442,6 +442,8 @@ body {
   cursor: pointer;
   display: block;
   width: 100%;
+  overflow: hidden;
+  border-radius: 12px 12px 0 0;
 }
 
 .thumbnail-button:disabled {
