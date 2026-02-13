@@ -101,6 +101,12 @@ type UseMetadataFetchParams<TVideo extends VideoLike> = {
     phase: "video" | "comments" | "metadata",
     details: string
   ) => void;
+  addFloatingNotice: (notice: {
+    kind: "success" | "error" | "info";
+    title: string;
+    details?: string;
+    autoDismissMs?: number;
+  }) => void;
   buildMetadataFields: BuildMetadataFields<TVideo>;
   buildThumbnailCandidates: (
     id: string,
@@ -132,6 +138,7 @@ export function useMetadataFetch<TVideo extends VideoLike>({
   ytDlpPath,
   ffmpegPath,
   addDownloadErrorItem,
+  addFloatingNotice,
   buildMetadataFields,
   buildThumbnailCandidates,
   resolveThumbnailPath,
@@ -166,6 +173,12 @@ export function useMetadataFetch<TVideo extends VideoLike>({
   const autoMetadataCheckRef = useRef(false);
   const autoMetadataStartupRef = useRef(false);
   const prevMetadataActiveRef = useRef(false);
+  const startNextMetadataDownloadRef = useRef<(() => Promise<void>) | null>(null);
+  const applyMetadataUpdateRef = useRef<((params: any) => void) | null>(null);
+  const addDownloadErrorItemRef = useRef<((id: string, phase: "video" | "comments" | "metadata", details: string) => void) | null>(null);
+  const addFloatingNoticeRef = useRef<((notice: any) => void) | null>(null);
+  const scheduleMetadataFlushRef = useRef<(() => void) | null>(null);
+  const metadataListenerSetupRef = useRef(false);
 
   const flushMetadataUpdates = useCallback(() => {
     if (metadataFlushTimerRef.current !== null) {
@@ -232,8 +245,26 @@ export function useMetadataFetch<TVideo extends VideoLike>({
           audioLanguage: metadata.audioLanguage ?? null,
           ageLimit: metadata.ageLimit ?? null,
         });
-        patch.title = (metadata.title ?? currentVideo?.title) || "Untitled";
+        
+        // ライブ配信のタイトルからタイムスタンプを削除
+        let cleanTitle = (metadata.title ?? currentVideo?.title) || "Untitled";
+        // パターン: " YYYY-MM-DD HH:MM" を削除
+        cleanTitle = cleanTitle.replace(/\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}$/, "");
+        
+        patch.title = cleanTitle;
         patch.channel = (metadata.channel ?? currentVideo?.channel) || "YouTube";
+        
+        // ライブ配信検出時に通知
+        if (metadata.isLive || metadata.liveStatus === "is_live") {
+          if (addFloatingNoticeRef.current) {
+            addFloatingNoticeRef.current({
+              kind: "info",
+              title: i18n.t('errors.liveStreamDetected'),
+              details: i18n.t('errors.liveStreamDetectedDetails'),
+              autoDismissMs: 10000,
+            });
+          }
+        }
         patch.sourceUrl =
           metadata.webpageUrl ?? metadata.url ?? currentVideo?.sourceUrl ?? "";
         patch.thumbnail =
@@ -348,6 +379,26 @@ export function useMetadataFetch<TVideo extends VideoLike>({
     downloadDirRef,
   ]);
 
+  useEffect(() => {
+    startNextMetadataDownloadRef.current = startNextMetadataDownload;
+  }, [startNextMetadataDownload]);
+
+  useEffect(() => {
+    applyMetadataUpdateRef.current = applyMetadataUpdate;
+  }, [applyMetadataUpdate]);
+
+  useEffect(() => {
+    addDownloadErrorItemRef.current = addDownloadErrorItem;
+  }, [addDownloadErrorItem]);
+
+  useEffect(() => {
+    addFloatingNoticeRef.current = addFloatingNotice;
+  }, [addFloatingNotice]);
+
+  useEffect(() => {
+    scheduleMetadataFlushRef.current = scheduleMetadataFlush;
+  }, [scheduleMetadataFlush]);
+
   const scheduleBackgroundMetadataFetch = useCallback(
     (items: Array<{ id: string; sourceUrl?: string | null }>) => {
       const outputDir = downloadDirRef.current.trim();
@@ -375,7 +426,11 @@ export function useMetadataFetch<TVideo extends VideoLike>({
         completed: prev.completed,
       }));
 
-      const start = () => startNextMetadataDownload();
+      const start = () => {
+        if (startNextMetadataDownloadRef.current) {
+          void startNextMetadataDownloadRef.current();
+        }
+      };
       if (typeof window.requestIdleCallback === "function") {
         window.requestIdleCallback(() => start(), { timeout: 1500 });
         return;
@@ -386,7 +441,7 @@ export function useMetadataFetch<TVideo extends VideoLike>({
         });
       });
     },
-    [downloadDirRef, startNextMetadataDownload]
+    [downloadDirRef]
   );
 
   const checkAndStartMetadataRecovery = useCallback(
@@ -423,6 +478,10 @@ export function useMetadataFetch<TVideo extends VideoLike>({
           if (!video?.id) continue;
           if (pendingMetadataIdsRef.current.has(video.id)) continue;
           if (metadataActiveIdRef.current === video.id) continue;
+          // 処理中の更新を確認
+          const hasPendingUpdate = pendingMetadataUpdatesRef.current.has(video.id);
+          const pendingUpdate = hasPendingUpdate ? pendingMetadataUpdatesRef.current.get(video.id) : null;
+          const effectiveMetadataFetched = video.metadataFetched || pendingUpdate?.metadataFetched === true;
 
           const isPending = video.commentsStatus === "pending";
           const needsLiveChatRetry = isPending || video.commentsStatus === "failed";
@@ -442,6 +501,11 @@ export function useMetadataFetch<TVideo extends VideoLike>({
 
           if (isPending && hasInfo) {
             infoLookupIds.push(video.id);
+          }
+
+          // メタデータ取得済みの場合はスキップ
+          if (effectiveMetadataFetched) {
+            continue;
           }
 
           if (!hasInfo || (needsLiveChatRetry && !hasChat)) {
@@ -499,6 +563,9 @@ export function useMetadataFetch<TVideo extends VideoLike>({
   }, [metadataPaused]);
 
   useEffect(() => {
+    if (metadataListenerSetupRef.current) return;
+    metadataListenerSetupRef.current = true;
+    
     let unlisten: (() => void) | null = null;
     const setup = async () => {
       unlisten = await listen<MetadataFinished>(
@@ -514,16 +581,20 @@ export function useMetadataFetch<TVideo extends VideoLike>({
             const currentVideo = videosRef.current.find(
               (item: TVideo) => item.id === id
             );
-            applyMetadataUpdate({
-              id,
-              metadata: metadata ?? null,
-              hasLiveChat: typeof hasLiveChat === "boolean" ? hasLiveChat : null,
-              currentVideo,
-              markMetadataFetched: true,
-            });
+            if (applyMetadataUpdateRef.current) {
+              applyMetadataUpdateRef.current({
+                id,
+                metadata: metadata ?? null,
+                hasLiveChat: typeof hasLiveChat === "boolean" ? hasLiveChat : null,
+                currentVideo,
+                markMetadataFetched: true,
+              });
+            }
           } else {
             const details = stderr || stdout || i18n.t('errors.unknownError');
-            addDownloadErrorItem(id, "metadata", details);
+            if (addDownloadErrorItemRef.current) {
+              addDownloadErrorItemRef.current(id, "metadata", details);
+            }
             const activeItem = metadataActiveItemRef.current;
             if (activeItem) {
               metadataQueueRef.current.unshift(activeItem);
@@ -540,25 +611,19 @@ export function useMetadataFetch<TVideo extends VideoLike>({
           });
 
           if (!metadataPausedRef.current && metadataQueueRef.current.length > 0) {
-            window.setTimeout(startNextMetadataDownload, 250);
+            window.setTimeout(() => startNextMetadataDownloadRef.current?.(), 250);
           }
         }
       );
     };
     void setup();
     return () => {
-      if (unlisten) unlisten();
+      if (unlisten) {
+        unlisten();
+        metadataListenerSetupRef.current = false;
+      }
     };
-  }, [
-    addDownloadErrorItem,
-    buildMetadataFields,
-    buildThumbnailCandidates,
-    resolveThumbnailPath,
-    scheduleMetadataFlush,
-    startNextMetadataDownload,
-    videosRef,
-    applyMetadataUpdate,
-  ]);
+  }, []);
 
   useEffect(() => {
     if (!isStateReady || autoMetadataStartupRef.current) return;
@@ -583,8 +648,12 @@ export function useMetadataFetch<TVideo extends VideoLike>({
   const retryMetadataFetch = useCallback(() => {
     setMetadataPaused(false);
     setMetadataPauseReason("");
-    window.setTimeout(startNextMetadataDownload, 0);
-  }, [startNextMetadataDownload]);
+    window.setTimeout(() => {
+      if (startNextMetadataDownloadRef.current) {
+        void startNextMetadataDownloadRef.current();
+      }
+    }, 0);
+  }, []);
 
   return {
     metadataFetch,

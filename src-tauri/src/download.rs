@@ -37,6 +37,7 @@ pub fn start_download(
     yt_dlp_path: Option<String>,
     ffmpeg_path: Option<String>,
     quality: Option<String>,
+    is_live: Option<bool>,
 ) -> Result<(), String> {
     let output_dir_path = library_videos_dir(&output_dir);
     let output_path = output_dir_path
@@ -80,6 +81,15 @@ pub fn start_download(
                 .arg("mp4")
                 .arg("-o")
                 .arg(&output_path);
+            
+            // Live recording mode options
+            if is_live.unwrap_or(false) {
+                command
+                    .arg("--live-from-start")
+                    .arg("--wait-for-video")
+                    .arg("60");
+            }
+            
             if let Some(location) = &ffmpeg_location {
                 command.arg("--ffmpeg-location").arg(location);
             }

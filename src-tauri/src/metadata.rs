@@ -384,6 +384,7 @@ pub fn start_metadata_download(
         let mut last_stdout = String::new();
         let mut last_stderr = String::new();
         let mut last_success = false;
+        let mut live_detected = false;
 
         if let Err(err) = fs::create_dir_all(&output_dir_path) {
             let _ = app.emit(
@@ -403,6 +404,9 @@ pub fn start_metadata_download(
 
         for attempt in 1..=YTDLP_WARNING_RETRY_MAX {
             let warning_seen = Arc::new(AtomicBool::new(false));
+            let live_stream_detected = Arc::new(AtomicBool::new(false));
+            
+            // Step 1: Download info.json only (fast, no comments)
             let mut command = Command::new(&yt_dlp);
             #[cfg(windows)]
             command.creation_flags(0x08000000); // CREATE_NO_WINDOW
@@ -411,12 +415,6 @@ pub fn start_metadata_download(
                 .arg("--newline")
                 .arg("--progress")
                 .arg("--skip-download")
-                .arg("--write-comments")
-                .arg("--write-subs")
-                .arg("--sub-langs")
-                .arg("live_chat")
-                .arg("--sub-format")
-                .arg("json")
                 .arg("--write-info-json")
                 .arg("-o")
                 .arg(&output_path);
@@ -469,11 +467,21 @@ pub fn start_metadata_download(
                 let id_clone = id.clone();
                 let stdout_acc_clone = stdout_acc.clone();
                 let warning_seen_clone = warning_seen.clone();
+                let live_stream_detected_clone = live_stream_detected.clone();
                 std::thread::spawn(move || {
                     let reader = BufReader::new(stdout);
                     for line in reader.lines().flatten() {
                         if line.contains(YTDLP_TITLE_WARNING) {
                             warning_seen_clone.store(true, Ordering::Relaxed);
+                        }
+                        // Detect live streaming patterns in stdout
+                        if line.contains("live/1") 
+                            || line.contains("live_broadcast") 
+                            || line.contains("/live_")
+                            || line.contains("playlist_type/DVR")
+                            || line.starts_with("frame=")
+                            || line.contains("Output #0, mpegts,") {
+                            live_stream_detected_clone.store(true, Ordering::Relaxed);
                         }
                         if let Ok(mut buf) = stdout_acc_clone.lock() {
                             buf.push_str(&line);
@@ -492,11 +500,20 @@ pub fn start_metadata_download(
                 let id_clone = id.clone();
                 let stderr_acc_clone = stderr_acc.clone();
                 let warning_seen_clone = warning_seen.clone();
+                let live_stream_detected_clone = live_stream_detected.clone();
                 std::thread::spawn(move || {
                     let reader = BufReader::new(stderr);
                     for line in reader.lines().flatten() {
                         if line.contains(YTDLP_TITLE_WARNING) {
                             warning_seen_clone.store(true, Ordering::Relaxed);
+                        }
+                        // Detect live streaming patterns
+                        if line.contains("live/1") 
+                            || line.contains("live_broadcast") 
+                            || line.contains("/live_")
+                            || line.contains("playlist_type/DVR")
+                            || line.starts_with("frame=") {
+                            live_stream_detected_clone.store(true, Ordering::Relaxed);
                         }
                         if let Ok(mut buf) = stderr_acc_clone.lock() {
                             buf.push_str(&line);
@@ -510,28 +527,112 @@ pub fn start_metadata_download(
                 });
             }
 
-            let output = match child.wait() {
-                Ok(status) => status,
-                Err(err) => {
-                    let _ = write_error_log(
-                        &app,
-                        "metadata_download",
-                        &id,
-                        "",
-                        &format!("yt-dlpの実行に失敗しました: {}", err),
-                    );
-                    let _ = app.emit(
-                        "metadata-finished",
-                        MetadataFinished {
-                            id,
-                            success: false,
-                            stdout: "".to_string(),
-                            stderr: format!("yt-dlpの実行に失敗しました: {}", err),
-                            metadata: None,
-                            has_live_chat: None,
-                        },
-                    );
-                    return;
+            let start_time = std::time::Instant::now();
+            let timeout_duration = Duration::from_secs(15); // 15 second timeout for info.json only
+            let mut timed_out = false;
+
+            let output = loop {
+                // Check timeout
+                if start_time.elapsed() > timeout_duration {
+                    // Timeout reached, kill process
+                    let _ = child.kill();
+                    timed_out = true;
+                    
+                    // Wait for process to finish after killing
+                    match child.wait() {
+                        Ok(status) => break status,
+                        Err(err) => {
+                            let _ = write_error_log(
+                                &app,
+                                "metadata_download",
+                                &id,
+                                "",
+                                &format!("タイムアウト後のプロセス終了に失敗: {}", err),
+                            );
+                            let _ = app.emit(
+                                "metadata-finished",
+                                MetadataFinished {
+                                    id: id.clone(),
+                                    success: false,
+                                    stdout: "".to_string(),
+                                    stderr: format!("タイムアウト後のプロセス終了に失敗: {}", err),
+                                    metadata: None,
+                                    has_live_chat: None,
+                                },
+                            );
+                            return;
+                        }
+                    }
+                }
+                
+                // Check if live stream is detected
+                if live_stream_detected.load(Ordering::Relaxed) {
+                    // Kill the process immediately
+                    let _ = child.kill();
+                    live_detected = true;
+                    
+                    // Wait briefly for process to terminate, but don't block forever
+                    let kill_wait_start = std::time::Instant::now();
+                    let kill_wait_timeout = Duration::from_secs(2);
+                    let mut final_status = None;
+                    while kill_wait_start.elapsed() < kill_wait_timeout {
+                        match child.try_wait() {
+                            Ok(Some(status)) => {
+                                final_status = Some(status);
+                                break;
+                            }
+                            Ok(None) => {
+                                std::thread::sleep(Duration::from_millis(50));
+                            }
+                            Err(_) => break,
+                        }
+                    }
+                    
+                    // Break with whatever status we have (or force success)
+                    break final_status.unwrap_or_else(|| {
+                        // Process didn't exit cleanly, but we detected live stream
+                        // Create a "success" status since we accomplished our goal
+                        #[cfg(unix)]
+                        {
+                            use std::os::unix::process::ExitStatusExt;
+                            std::process::ExitStatus::from_raw(0)
+                        }
+                        #[cfg(windows)]
+                        {
+                            use std::os::windows::process::ExitStatusExt;
+                            std::process::ExitStatus::from_raw(0)
+                        }
+                    });
+                } else {
+                    // Normal exit path - non-blocking check
+                    match child.try_wait() {
+                        Ok(Some(status)) => break status,
+                        Ok(None) => {
+                            // Process still running, sleep briefly and check again
+                            std::thread::sleep(Duration::from_millis(100));
+                        }
+                        Err(err) => {
+                            let _ = write_error_log(
+                                &app,
+                                "metadata_download",
+                                &id,
+                                "",
+                                &format!("プロセス待機中にエラー: {}", err),
+                            );
+                            let _ = app.emit(
+                                "metadata-finished",
+                                MetadataFinished {
+                                    id: id.clone(),
+                                    success: false,
+                                    stdout: "".to_string(),
+                                    stderr: format!("プロセス待機中にエラー: {}", err),
+                                    metadata: None,
+                                    has_live_chat: None,
+                                },
+                            );
+                            return;
+                        }
+                    }
                 }
             };
 
@@ -541,6 +642,76 @@ pub fn start_metadata_download(
             last_stdout = stdout;
             last_stderr = stderr;
             last_success = output.success();
+
+            // If timed out during info.json download, treat as error
+            if timed_out {
+                last_success = false;
+                last_stderr = format!("{}\nメタデータ取得がタイムアウトしました (15秒)", last_stderr);
+            }
+
+            // If live stream detected, exit retry loop immediately
+            if live_detected {
+                break;
+            }
+
+            // Step 2: Check if it's a live stream from info.json (inside retry loop)
+            
+            if last_success && !live_detected {
+                let info_path = find_info_json(&output_dir_path, &id);
+                if let Some(ref info_file) = info_path {
+                    
+                    match fs::read_to_string(&info_file) {
+                        Ok(info_data) => {
+                            match serde_json::from_str::<serde_json::Value>(&info_data) {
+                                Ok(json_value) => {
+                                    // Check both is_live (boolean) and live_status/liveStatus (string)
+                                    let is_live_bool = json_value.get("is_live").and_then(|v| v.as_bool()).unwrap_or(false);
+                                    let live_status_str = json_value.get("live_status")
+                                        .or_else(|| json_value.get("liveStatus"))
+                                        .and_then(|v| v.as_str());
+                                    let is_live_status = live_status_str
+                                        .map(|s| s == "is_live" || s == "is_upcoming")
+                                        .unwrap_or(false);
+                                    
+                                    if is_live_bool || is_live_status {
+                                        // It's a live stream, mark as detected and skip comments
+                                        live_detected = true;
+                                        let _ = app.emit(
+                                            "metadata-progress",
+                                            serde_json::json!({
+                                                "id": id.clone(),
+                                                "line": format!("ライブ配信を検出しました (is_live: {}, live_status: {:?}). コメント取得をスキップします。", 
+                                                    is_live_bool,
+                                                    live_status_str)
+                                            }),
+                                        );
+                                    } else {
+                                        let _ = app.emit(
+                                            "metadata-progress",
+                                            serde_json::json!({
+                                                "id": id.clone(),
+                                                "line": format!("通常動画を確認 (is_live: {}, live_status: {:?}). info.json取得完了。", 
+                                                    is_live_bool,
+                                                    live_status_str)
+                                            }),
+                                        );
+                                    }
+                                    // Exit retry loop immediately after successfully reading info.json
+                                    break;
+                                }
+                                Err(_e) => {
+                                    // Failed to parse JSON
+                                }
+                            }
+                        }
+                        Err(_e) => {
+                            // Failed to read file
+                        }
+                    }
+                } else {
+                    // info.json not found
+                }
+            }
 
             let warning_retry = warning_seen.load(Ordering::Relaxed);
             if warning_retry && attempt < YTDLP_WARNING_RETRY_MAX {
@@ -562,6 +733,114 @@ pub fn start_metadata_download(
             break;
         }
 
+        // Step 3: If not live, download comments (after retry loop)
+        if last_success && !live_detected {
+            let _ = app.emit(
+                "metadata-progress",
+                serde_json::json!({
+                    "id": id.clone(),
+                    "line": "コメントをダウンロード中..."
+                }),
+            );
+
+            let mut comment_command = Command::new(&yt_dlp);
+            #[cfg(windows)]
+            comment_command.creation_flags(0x08000000); // CREATE_NO_WINDOW
+            comment_command
+                .arg("--no-playlist")
+                .arg("--newline")
+                .arg("--progress")
+                .arg("--skip-download")
+                .arg("--write-comments")
+                .arg("--write-subs")
+                .arg("--sub-langs")
+                .arg("live_chat")
+                .arg("--sub-format")
+                .arg("json")
+                .arg("-o")
+                .arg(&output_path);
+            if let Some(location) = &ffmpeg_location {
+                comment_command.arg("--ffmpeg-location").arg(location);
+            }
+            apply_cookies_args(
+                &mut comment_command,
+                cookies_source.as_deref(),
+                cookies_file.as_deref(),
+                cookies_browser.as_deref(),
+            );
+            if let Some(remote) = &remote_components {
+                if !remote.trim().is_empty() {
+                    comment_command.arg("--remote-components").arg(remote);
+                }
+            }
+            comment_command.arg(&url).stdout(Stdio::piped()).stderr(Stdio::piped());
+
+            // Run comment download with timeout and live detection
+            if let Ok(mut child) = comment_command.spawn() {
+                let _stdout_acc = Arc::new(Mutex::new(String::new()));
+                let live_detected_flag = Arc::new(AtomicBool::new(false));
+
+                // Monitor stdout for live patterns
+                if let Some(stdout) = child.stdout.take() {
+                    let live_flag_clone = live_detected_flag.clone();
+                    std::thread::spawn(move || {
+                        let reader = BufReader::new(stdout);
+                        for line in reader.lines().flatten() {
+                            if line.contains("live/1") 
+                                || line.contains("live_broadcast") 
+                                || line.contains("/live_")
+                                || line.contains("playlist_type/DVR")
+                                || line.starts_with("frame=")
+                                || line.contains("Output #0, mpegts,") {
+                                live_flag_clone.store(true, Ordering::Relaxed);
+                            }
+                        }
+                    });
+                }
+
+                // Monitor stderr for live patterns
+                if let Some(stderr) = child.stderr.take() {
+                    let live_flag_clone = live_detected_flag.clone();
+                    std::thread::spawn(move || {
+                        let reader = BufReader::new(stderr);
+                        for line in reader.lines().flatten() {
+                            if line.contains("live/1") 
+                                || line.contains("live_broadcast") 
+                                || line.contains("/live_")
+                                || line.contains("playlist_type/DVR") {
+                                live_flag_clone.store(true, Ordering::Relaxed);
+                            }
+                        }
+                    });
+                }
+                
+                let start_time = std::time::Instant::now();
+                let comment_timeout = Duration::from_secs(60); // 60 second timeout for comments
+                
+                loop {
+                    // Check if live stream detected
+                    if live_detected_flag.load(Ordering::Relaxed) {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        live_detected = true;
+                        break;
+                    }
+
+                    if start_time.elapsed() > comment_timeout {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        break;
+                    }
+                    
+                    match child.try_wait() {
+                        Ok(Some(_)) => break,
+                        Ok(None) => std::thread::sleep(Duration::from_millis(100)),
+                        Err(_) => break,
+                    }
+                }
+            }
+        }
+
         if !last_success {
             let _ = write_error_log(&app, "metadata_download", &id, &last_stdout, &last_stderr);
         }
@@ -569,7 +848,39 @@ pub fn start_metadata_download(
         let mut metadata: Option<VideoMetadata> = None;
         let mut has_live_chat: Option<bool> = None;
 
-        if last_success {
+        // If live stream detected, create metadata with is_live flag
+        if live_detected {
+            metadata = Some(VideoMetadata {
+                id: Some(id.clone()),
+                title: None,
+                channel: None,
+                thumbnail: None,
+                url: None,
+                webpage_url: None,
+                duration_sec: None,
+                upload_date: None,
+                release_timestamp: None,
+                timestamp: None,
+                live_status: Some("is_live".to_string()),
+                is_live: Some(true),
+                was_live: None,
+                view_count: None,
+                like_count: None,
+                comment_count: None,
+                tags: None,
+                categories: None,
+                description: None,
+                channel_id: None,
+                uploader_id: None,
+                channel_url: None,
+                uploader_url: None,
+                availability: None,
+                language: None,
+                audio_language: None,
+                age_limit: None,
+            });
+            has_live_chat = None;
+        } else if last_success {
             let dir = library_metadata_dir(&output_dir);
             if let Some(info_path) = find_info_json(&dir, &id) {
                 if let Ok(content) = fs::read_to_string(&info_path) {
@@ -585,7 +896,7 @@ pub fn start_metadata_download(
             "metadata-finished",
             MetadataFinished {
                 id,
-                success: last_success,
+                success: live_detected || last_success,
                 stdout: last_stdout,
                 stderr: last_stderr,
                 metadata,

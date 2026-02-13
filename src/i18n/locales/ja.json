@@ -123,6 +123,9 @@
     "play": "再生",
     "download": "ダウンロード",
     "downloading": "ダウンロード中",
+    "liveStreaming": "ライブ配信中",
+    "liveStreamingNote": "配信終了後にダウンロード可能",
+    "liveStreamingTooltip": "配信終了後、メニュー → メタデータの再取得で最新情報に更新できます",
     "downloadStart": "ダウンロード開始",
     "delete": "削除",
     "openFolder": "フォルダを開く",
@@ -296,7 +299,13 @@
     "backupExportFailed": "バックアップの作成に失敗しました。",
     "selectBackupFile": "バックアップを選択",
     "backupImportSuccess": "バックアップのインポートが完了しました。再起動してください。",
-    "backupImportFailed": "バックアップの復元に失敗しました。"
+    "backupImportFailed": "バックアップの復元に失敗しました。",
+    "liveStreamCannotDownload": "ライブ配信中のためダウンロードできません",
+    "liveStreamCannotDownloadDetails": "この動画は現在ライブ配信中です。配信終了後にダウンロード可能になります。",
+    "liveStreamDetected": "ライブ配信を検出しました",
+    "liveStreamDetectedDetails": "配信終了後、メニュー → メタデータの再取得で最新情報に更新できます。",
+    "waitingForMetadata": "メタデータを取得中...",
+    "metadataTimeout": "メタデータ取得がタイムアウトしました"
   },
   "common": {
     "close": "閉じる",

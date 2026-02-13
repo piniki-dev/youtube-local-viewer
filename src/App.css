@@ -547,6 +547,14 @@ body {
   color: #7b8190;
 }
 
+.badge-live {
+  background: #fee;
+  color: #c00;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+}
+
 .modal-backdrop {
   position: fixed;
   inset: 0;

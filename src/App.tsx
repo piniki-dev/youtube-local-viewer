@@ -45,6 +45,7 @@ import {
 import {
   buildMetadataFields,
   buildThumbnailCandidates,
+  isCurrentlyLive,
 } from "./utils/metadataHelpers";
 import "./App.css";
 import "remixicon/fonts/remixicon.css";
@@ -566,6 +567,7 @@ function App() {
     ytDlpPath,
     ffmpegPath,
     addDownloadErrorItem,
+    addFloatingNotice,
     buildMetadataFields,
     buildThumbnailCandidates,
     resolveThumbnailPath,
@@ -596,6 +598,8 @@ function App() {
     handleCommentsDownloadFinished,
   } = useDownloadActions({
       downloadDirRef,
+      videosRef,
+      scheduleBackgroundMetadataFetch,
       cookiesFile,
       cookiesSource,
       cookiesBrowser,
@@ -752,6 +756,22 @@ function App() {
       prev.map((v) => (v.id === id ? { ...v, favorite: !v.favorite } : v))
     );
   }, []);
+
+  const handleDownloadClick = useCallback((video: VideoItem) => {
+    // Block download if currently live streaming
+    const isLive = isCurrentlyLive({ 
+      liveStatus: video.liveStatus, 
+      isLive: video.isLive 
+    });
+    
+    if (isLive) {
+      // Don't allow download for live streams
+      return;
+    }
+    
+    // Normal download
+    startDownload(video);
+  }, [startDownload]);
 
   const handleDeleteVideo = useCallback((video: VideoItem) => {
     setDeleteTarget(video);
@@ -919,7 +939,7 @@ function App() {
           commentsDownloadingIds={commentsDownloadingIds}
           queuedDownloadIds={queuedDownloadIds}
           onPlay={handlePlay}
-          onDownload={startDownload}
+          onDownload={handleDownloadClick}
           onDelete={handleDeleteVideo}
           onRefreshMetadata={handleRefreshMetadata}
           onToggleFavorite={toggleFavorite}

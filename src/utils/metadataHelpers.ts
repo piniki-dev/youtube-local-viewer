@@ -119,6 +119,14 @@ export const deriveContentType = (input: {
   return "video" as const;
 };
 
+export const isCurrentlyLive = (input: {
+  liveStatus?: string | null;
+  isLive?: boolean | null;
+}) => {
+  const liveStatus = input.liveStatus?.toLowerCase();
+  return input.isLive === true || liveStatus === "is_live" || liveStatus === "upcoming";
+};
+
 export const buildMetadataFields = (input: MetadataInput): MetadataFields => {
   const publishedAt =
     parseTimestamp(input.releaseTimestamp) ??

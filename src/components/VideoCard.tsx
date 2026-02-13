@@ -35,6 +35,7 @@ type VideoCardProps = {
   isDownloading: boolean;
   isCommentsDownloading: boolean;
   isQueued: boolean;
+  isCurrentlyLive?: boolean;
   displayStatus: DownloadStatus;
   onPlay: () => void;
   onDownload: () => void;
@@ -56,6 +57,7 @@ const VideoCardComponent = ({
   isDownloading,
   isCommentsDownloading,
   isQueued,
+  isCurrentlyLive = false,
   displayStatus,
   onPlay,
   onDownload,
@@ -80,8 +82,8 @@ const VideoCardComponent = ({
   ) : (
     <i className="ri-download-2-line" />
   );
-  const isActionDisabled = isDownloaded ? !isPlayable : isDownloading || isQueued;
-  const canDownload = !isDownloaded && !isDownloading && !isQueued;
+  const isActionDisabled = isCurrentlyLive || (isDownloaded ? !isPlayable : isDownloading || isQueued);
+  const canDownload = !isDownloaded && !isDownloading && !isQueued && !isCurrentlyLive;
   const canDelete = !isDownloading && !isQueued;
 
   useEffect(() => {
@@ -196,27 +198,43 @@ const VideoCardComponent = ({
         </div>
         <p>{video.channel}</p>
         {video.publishedAt && <p>{t("videoCard.publishedDate")}: {formatPublishedAt(video.publishedAt)}</p>}
-        <span
-          className={`badge ${
-            displayStatus === "downloaded"
-              ? "badge-success"
-              : displayStatus === "downloading"
-                ? "badge-pending"
-                : displayStatus === "pending"
+        {isCurrentlyLive ? (
+          <>
+            <span 
+              className="badge badge-live"
+              title={t("videoCard.liveStreamingTooltip")}
+              style={{ cursor: "help" }}
+            >
+              <i className="ri-live-fill" style={{ marginRight: "0.25rem" }} />
+              {t("videoCard.liveStreaming")}
+            </span>
+            <p style={{ color: "var(--c-text-muted)", fontSize: "0.875rem", marginTop: "0.25rem" }}>
+              {t("videoCard.liveStreamingNote")}
+            </p>
+          </>
+        ) : (
+          <span
+            className={`badge ${
+              displayStatus === "downloaded"
+                ? "badge-success"
+                : displayStatus === "downloading"
                   ? "badge-pending"
-                  : "badge-muted"
-          }`}
-        >
-          {displayStatus === "downloaded"
-            ? t("videoCard.downloaded")
-            : displayStatus === "downloading" || isQueued
-              ? isQueued
-                ? t("videoCard.queued")
-                : t("videoCard.downloading")
-              : displayStatus === "pending"
-                ? t("videoCard.notDownloaded")
-                : t("videoCard.failed")}
-        </span>
+                  : displayStatus === "pending"
+                    ? "badge-pending"
+                    : "badge-muted"
+            }`}
+          >
+            {displayStatus === "downloaded"
+              ? t("videoCard.downloaded")
+              : displayStatus === "downloading" || isQueued
+                ? isQueued
+                  ? t("videoCard.queued")
+                  : t("videoCard.downloading")
+                : displayStatus === "pending"
+                  ? t("videoCard.notDownloaded")
+                  : t("videoCard.failed")}
+          </span>
+        )}
         {mediaInfo && (
           <p className="progress-line codec-line">
             {t("videoCard.videoCodec")}: {mediaInfo.videoCodec ?? t("videoCard.unknown")}

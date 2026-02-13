@@ -7,10 +7,15 @@ type VideoLike = {
   sourceUrl: string;
   downloadStatus: "pending" | "downloading" | "downloaded" | "failed";
   commentsStatus: "pending" | "downloading" | "downloaded" | "failed" | "unavailable";
+  metadataFetched?: boolean;
+  isLive?: boolean;
+  liveStatus?: string;
 };
 
 type UseDownloadActionsParams<TVideo extends VideoLike> = {
   downloadDirRef: React.RefObject<string>;
+  videosRef: React.RefObject<TVideo[]>;
+  scheduleBackgroundMetadataFetch: (items: Array<{ id: string; sourceUrl?: string | null }>) => void;
   cookiesFile: string;
   cookiesSource: "none" | "file" | "browser";
   cookiesBrowser: string;
@@ -42,6 +47,8 @@ type UseDownloadActionsParams<TVideo extends VideoLike> = {
 
 export function useDownloadActions<TVideo extends VideoLike>({
   downloadDirRef,
+  videosRef,
+  scheduleBackgroundMetadataFetch,
   cookiesFile,
   cookiesSource,
   cookiesBrowser,
@@ -111,6 +118,7 @@ export function useDownloadActions<TVideo extends VideoLike>({
           ytDlpPath: ytDlpPath || null,
           ffmpegPath: ffmpegPath || null,
           quality: downloadQuality || null,
+          isLive: null,
         });
       } catch {
         setVideos((prev) =>
@@ -183,6 +191,51 @@ export function useDownloadActions<TVideo extends VideoLike>({
       video: TVideo,
       options?: { allowDuringBulk?: boolean; trackSingleQueue?: boolean }
     ) => {
+      // メタデータ未取得の場合は先に取得
+      if (!video.metadataFetched) {
+        addFloatingNotice({
+          kind: "info",
+          title: i18n.t('errors.waitingForMetadata'),
+          autoDismissMs: 5000,
+        });
+        scheduleBackgroundMetadataFetch([{ id: video.id, sourceUrl: video.sourceUrl }]);
+        
+        // メタデータ取得完了を待機（最大15秒）
+        const maxWaitMs = 15000;
+        const checkIntervalMs = 200;
+        const startTime = Date.now();
+        
+        while (Date.now() - startTime < maxWaitMs) {
+          await new Promise(resolve => setTimeout(resolve, checkIntervalMs));
+          const currentVideo = videosRef.current.find(v => v.id === video.id);
+          if (currentVideo?.metadataFetched) {
+            video = currentVideo;
+            break;
+          }
+        }
+        
+        // タイムアウトチェック
+        if (!video.metadataFetched) {
+          addFloatingNotice({
+            kind: "error",
+            title: i18n.t('errors.metadataTimeout'),
+            details: i18n.t('errors.downloadFailedDetails'),
+          });
+          return;
+        }
+      }
+      
+      // ライブ配信チェック
+      if (video.isLive || video.liveStatus === "is_live") {
+        addFloatingNotice({
+          kind: "error",
+          title: i18n.t('errors.liveStreamCannotDownload'),
+          details: i18n.t('errors.liveStreamCannotDownloadDetails'),
+          autoDismissMs: 8000,
+        });
+        return;
+      }
+      
       if (activeDownloadIdRef.current === video.id) return;
       if (
         bulkDownloadRef?.current.active &&
