@@ -387,10 +387,11 @@ body {
 .video-card {
   background: var(--c-surface);
   border-radius: 12px;
-  overflow: visible;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   box-shadow: 0 6px 18px rgba(15, 20, 30, 0.08);
+  height: 100%;
 }
 
 .video-card.skeleton-card {
@@ -509,12 +510,22 @@ body {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
 }
 
 .video-info h3 {
   margin: 0;
   font-size: 14px;
   line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  height: calc(14px * 1.4 * 3);
 }
 
 .video-info p {

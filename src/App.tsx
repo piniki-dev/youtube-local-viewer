@@ -158,7 +158,7 @@ const DOWNLOAD_QUALITY_KEY = "ytlv_download_quality";
 const LANGUAGE_KEY = "ytlv_language";
 const INTEGRITY_CHECK_PENDING_KEY = "ytlv_integrity_check_pending";
 
-const GRID_CARD_WIDTH = 240;
+const GRID_CARD_WIDTH = 220;
 const GRID_GAP = 16;
 const GRID_ROW_HEIGHT = 420;
 
