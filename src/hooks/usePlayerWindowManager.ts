@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { emitTo, listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
+import i18n from "../i18n";
 
 type VideoLike = {
   id: string;
@@ -123,7 +124,7 @@ export function usePlayerWindowManager<TVideo extends VideoLike>({
           setPlayerWindowActiveId(video.id);
           setPlayerWindowActiveTitle(video.title);
         } catch {
-          setErrorMessage("プレイヤーウィンドウの起動に失敗しました。");
+          setErrorMessage(i18n.t('errors.playerWindowLaunchFailed'));
         }
         return;
       }
@@ -161,7 +162,7 @@ export function usePlayerWindowManager<TVideo extends VideoLike>({
         });
       });
       playerWindow.once("tauri://error", () => {
-        setErrorMessage("プレイヤーウィンドウの作成に失敗しました。");
+        setErrorMessage(i18n.t('errors.playerWindowCreateFailed'));
       });
       playerWindow.once("tauri://destroyed", () => {
         setPlayerWindowActiveId(null);

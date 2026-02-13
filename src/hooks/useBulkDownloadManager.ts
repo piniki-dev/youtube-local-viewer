@@ -1,5 +1,6 @@
 import { useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import i18n from "../i18n";
 
 type VideoLike = {
   id: string;
@@ -164,7 +165,7 @@ export function useBulkDownloadManager<TVideo extends VideoLike>({
   const startBulkDownload = useCallback(() => {
     const outputDir = downloadDirRef.current.trim();
     if (!outputDir) {
-      setErrorMessage("保存先フォルダが未設定です。設定から選択してください。");
+      setErrorMessage(i18n.t('errors.downloadDirNotSet'));
       setIsSettingsOpen(true);
       return;
     }
@@ -173,7 +174,7 @@ export function useBulkDownloadManager<TVideo extends VideoLike>({
       (video) => video.downloadStatus !== "downloaded"
     );
     if (targets.length === 0) {
-      setErrorMessage("未ダウンロードの動画がありません。");
+      setErrorMessage(i18n.t('errors.noVideosToDownload'));
       return;
     }
 
@@ -244,7 +245,7 @@ export function useBulkDownloadManager<TVideo extends VideoLike>({
     try {
       await invoke("stop_download", { id: state.currentId });
     } catch {
-      setErrorMessage("ダウンロード停止に失敗しました。");
+      setErrorMessage(i18n.t('errors.stopDownloadFailed'));
       const recoverState = { ...nextState, stopRequested: false };
       setBulkDownload(recoverState);
       bulkDownloadRef.current = recoverState;

@@ -1,5 +1,6 @@
 import { useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import i18n from "../i18n";
 
 type VideoLike = {
   id: string;
@@ -72,16 +73,15 @@ export function useDownloadActions<TVideo extends VideoLike>({
     async (video: TVideo, options?: { trackSingleQueue?: boolean }) => {
       const outputDir = downloadDirRef.current.trim();
       if (!outputDir) {
-        setErrorMessage("保存先フォルダが未設定です。設定から選択してください。");
+        setErrorMessage(i18n.t('errors.downloadDirNotSet'));
         setIsSettingsOpen(true);
         return;
       }
       if (toolingStatus && !toolingStatus.ytDlp.ok) {
         addFloatingNotice({
           kind: "error",
-          title: "yt-dlpが見つかりません",
-          details:
-            "yt-dlpがインストールされていないか、パスが正しくありません。設定から確認してください。",
+          title: i18n.t('errors.ytdlpNotFoundShort'),
+          details: i18n.t('errors.ytdlpNotFoundDetails'),
         });
         setIsSettingsOpen(true);
         return;
@@ -120,13 +120,13 @@ export function useDownloadActions<TVideo extends VideoLike>({
         );
         setVideoErrors((prev) => ({
           ...prev,
-          [video.id]: "yt-dlpの実行に失敗しました。",
+          [video.id]: i18n.t('errors.ytdlpExecFailed'),
         }));
         setProgressLines((prev) => ({
           ...prev,
-          [video.id]: "yt-dlpの実行に失敗しました。",
+          [video.id]: i18n.t('errors.ytdlpExecFailed'),
         }));
-        setErrorMessage("ダウンロードに失敗しました。詳細を確認してください。");
+        setErrorMessage(i18n.t('errors.downloadFailedDetails'));
         setDownloadingIds((prev) => prev.filter((id) => id !== video.id));
         if (shouldTrackSingle) {
           activeDownloadIdRef.current = null;
@@ -191,8 +191,8 @@ export function useDownloadActions<TVideo extends VideoLike>({
       ) {
         addFloatingNotice({
           kind: "error",
-          title: "一括ダウンロード中のため開始できません。",
-          details: "一括ダウンロードが完了してから再度お試しください。",
+          title: i18n.t('errors.bulkDownloadActive'),
+          details: i18n.t('errors.bulkDownloadActiveDetails'),
         });
         return;
       }
@@ -200,7 +200,7 @@ export function useDownloadActions<TVideo extends VideoLike>({
         if (enqueueDownload(video)) {
           addFloatingNotice({
             kind: "success",
-            title: "ダウンロードのキューに追加しました。",
+            title: i18n.t('errors.downloadQueued'),
             autoDismissMs: 10000,
           });
         }
@@ -234,16 +234,15 @@ export function useDownloadActions<TVideo extends VideoLike>({
       }
       const outputDir = downloadDirRef.current.trim();
       if (!outputDir) {
-        setErrorMessage("保存先フォルダが未設定です。設定から選択してください。");
+        setErrorMessage(i18n.t('errors.downloadDirNotSet'));
         setIsSettingsOpen(true);
         return;
       }
       if (toolingStatus && !toolingStatus.ytDlp.ok) {
         addFloatingNotice({
           kind: "error",
-          title: "yt-dlpが見つかりません",
-          details:
-            "yt-dlpがインストールされていないか、パスが正しくありません。設定から確認してください。",
+          title: i18n.t('errors.ytdlpNotFoundShort'),
+          details: i18n.t('errors.ytdlpNotFoundDetails'),
         });
         setIsSettingsOpen(true);
         return;
@@ -277,13 +276,13 @@ export function useDownloadActions<TVideo extends VideoLike>({
         );
         setCommentErrors((prev) => ({
           ...prev,
-          [video.id]: "yt-dlpの実行に失敗しました。",
+          [video.id]: i18n.t('errors.ytdlpExecFailed'),
         }));
         setCommentProgressLines((prev) => ({
           ...prev,
-          [video.id]: "yt-dlpの実行に失敗しました。",
+          [video.id]: i18n.t('errors.ytdlpExecFailed'),
         }));
-        setErrorMessage("ライブチャット取得に失敗しました。詳細を確認してください。");
+        setErrorMessage(i18n.t('errors.commentsFailedDetails'));
         setCommentsDownloadingIds((prev) => prev.filter((id) => id !== video.id));
         handleCommentsDownloadFinished(video.id);
       }

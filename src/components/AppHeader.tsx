@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import type { ThemeMode } from "../hooks/useTheme";
 
 const THEME_CYCLE: ThemeMode[] = ["light", "dark", "system"];
@@ -6,12 +7,6 @@ const THEME_ICON: Record<ThemeMode, string> = {
   light: "ri-sun-line",
   dark: "ri-moon-line",
   system: "ri-computer-line",
-};
-
-const THEME_LABEL: Record<ThemeMode, string> = {
-  light: "ライト",
-  dark: "ダーク",
-  system: "システム",
 };
 
 type AppHeaderProps = {
@@ -29,6 +24,8 @@ export function AppHeader({
   themeMode,
   onThemeChange,
 }: AppHeaderProps) {
+  const { t } = useTranslation();
+  
   const handleThemeClick = () => {
     const idx = THEME_CYCLE.indexOf(themeMode);
     const next = THEME_CYCLE[(idx + 1) % THEME_CYCLE.length];
@@ -38,22 +35,22 @@ export function AppHeader({
   return (
     <header className="app-header">
       <div>
-        <h1>YouTube Local Viewer</h1>
-        <p className="subtitle">ローカル保存と再生のためのデスクトップアプリ</p>
+        <h1>{t("app.title")}</h1>
+        <p className="subtitle">{t("app.subtitle")}</p>
       </div>
       <div className="header-actions">
         <button
           className="ghost theme-toggle"
           onClick={handleThemeClick}
-          title={`テーマ: ${THEME_LABEL[themeMode]}`}
+          title={`${t("header.theme.label")}: ${t(`header.theme.${themeMode}`)}`}
         >
           <i className={THEME_ICON[themeMode]} />
         </button>
         <button className="ghost" onClick={onOpenSettings}>
-          設定
+          {t("header.settings")}
         </button>
         <button className="primary" onClick={onOpenAdd} disabled={addDisabled}>
-          ＋ 動画を追加
+          {t("header.addVideo")}
         </button>
       </div>
     </header>

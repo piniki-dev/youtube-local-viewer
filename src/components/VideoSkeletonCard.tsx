@@ -1,4 +1,7 @@
+import { useTranslation } from 'react-i18next';
+
 export function VideoSkeletonCard() {
+  const { t } = useTranslation();
   return (
     <article className="video-card skeleton-card" aria-live="polite">
       <div className="thumbnail skeleton thumbnail-skeleton" aria-hidden="true" />
@@ -8,7 +11,7 @@ export function VideoSkeletonCard() {
         <div className="skeleton-line small skeleton" />
         <div className="skeleton-pill skeleton" />
         <p className="skeleton-text" role="status">
-          読み込み中...
+          {t('player.loading')}
         </p>
       </div>
     </article>

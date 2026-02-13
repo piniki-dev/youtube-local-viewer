@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 
 type CookieBrowserOption = { value: string; label: string };
 
@@ -52,6 +53,8 @@ type SettingsModalProps = {
   onExportBackup: () => void;
   onImportBackup: () => void;
   settingsErrorMessage: string;
+  language: string;
+  onUpdateLanguage: (value: string) => void;
 };
 
 export function SettingsModal({
@@ -90,7 +93,10 @@ export function SettingsModal({
   onExportBackup,
   onImportBackup,
   settingsErrorMessage,
+  language,
+  onUpdateLanguage,
 }: SettingsModalProps) {
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<SettingsTab>("general");
 
   if (!isOpen) return null;
@@ -99,7 +105,7 @@ export function SettingsModal({
     if (!status) {
       return (
         <div className="setting-meta">
-          <span className="status-pill unknown">未確認</span>
+          <span className="status-pill unknown">{t("settings.tools.statusUnknown")}</span>
         </div>
       );
     }
@@ -107,9 +113,9 @@ export function SettingsModal({
     return (
       <div className="setting-meta">
         <span className={`status-pill ${status.ok ? "ok" : "missing"}`}>
-          {status.ok ? "検出済み" : "未検出"}
+          {status.ok ? t("settings.tools.statusDetected") : t("settings.tools.statusMissing")}
         </span>
-        <span className="setting-hint">検出: {status.path}</span>
+        <span className="setting-hint">{t("settings.tools.detected")}: {status.path}</span>
       </div>
     );
   };
@@ -118,7 +124,7 @@ export function SettingsModal({
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h2>設定</h2>
+          <h2>{t("settings.title")}</h2>
           <button className="icon" onClick={onClose}>
             ×
           </button>
@@ -128,19 +134,19 @@ export function SettingsModal({
             className={activeTab === "general" ? "active" : ""}
             onClick={() => setActiveTab("general")}
           >
-            基本
+            {t("settings.tabs.general")}
           </button>
           <button
             className={activeTab === "tools" ? "active" : ""}
             onClick={() => setActiveTab("tools")}
           >
-            ツール
+            {t("settings.tabs.tools")}
           </button>
           <button
             className={activeTab === "data" ? "active" : ""}
             onClick={() => setActiveTab("data")}
           >
-            データ
+            {t("settings.tabs.data")}
           </button>
         </div>
         <div className="modal-body">
@@ -148,23 +154,23 @@ export function SettingsModal({
             <>
               <div className="setting-row">
                 <div>
-                  <p className="setting-label">保存先フォルダ</p>
-                  <p className="setting-value">{downloadDir ? downloadDir : "未設定"}</p>
+                  <p className="setting-label">{t("settings.general.downloadDir")}</p>
+                  <p className="setting-value">{downloadDir ? downloadDir : t("settings.general.notSet")}</p>
                 </div>
                 <button className="ghost" onClick={onPickDownloadDir}>
-                  フォルダを選択
+                  {t("settings.general.selectFolder")}
                 </button>
               </div>
               <div className="setting-row">
                 <div>
-                  <p className="setting-label">ダウンロード品質</p>
+                  <p className="setting-label">{t("settings.general.downloadQuality")}</p>
                   <p className="setting-value">
-                    {downloadQuality === "1080p" ? "1080p (フルHD)"
-                      : downloadQuality === "720p" ? "720p (HD)"
-                      : downloadQuality === "480p" ? "480p"
-                      : downloadQuality === "360p" ? "360p"
-                      : downloadQuality === "audio" ? "音声のみ"
-                      : "最高画質 (デフォルト)"}
+                    {downloadQuality === "1080p" ? t("settings.general.quality1080p")
+                      : downloadQuality === "720p" ? t("settings.general.quality720p")
+                      : downloadQuality === "480p" ? t("settings.general.quality480p")
+                      : downloadQuality === "360p" ? t("settings.general.quality360p")
+                      : downloadQuality === "audio" ? t("settings.general.qualityAudio")
+                      : t("settings.general.qualityBest")}
                   </p>
                 </div>
                 <div className="select-wrap">
@@ -172,24 +178,41 @@ export function SettingsModal({
                     value={downloadQuality || "best"}
                     onChange={(e) => onUpdateDownloadQuality(e.target.value)}
                   >
-                    <option value="best">最高画質 (デフォルト)</option>
-                    <option value="1080p">1080p (フルHD)</option>
-                    <option value="720p">720p (HD)</option>
-                    <option value="480p">480p</option>
-                    <option value="360p">360p</option>
-                    <option value="audio">音声のみ</option>
+                    <option value="best">{t("settings.general.qualityBest")}</option>
+                    <option value="1080p">{t("settings.general.quality1080p")}</option>
+                    <option value="720p">{t("settings.general.quality720p")}</option>
+                    <option value="480p">{t("settings.general.quality480p")}</option>
+                    <option value="360p">{t("settings.general.quality360p")}</option>
+                    <option value="audio">{t("settings.general.qualityAudio")}</option>
                   </select>
                 </div>
               </div>
               <div className="setting-row">
                 <div>
-                  <p className="setting-label">Cookieの取得元</p>
+                  <p className="setting-label">{t("settings.general.language")}</p>
+                  <p className="setting-value">
+                    {language === "en" ? "English" : "日本語"}
+                  </p>
+                </div>
+                <div className="select-wrap">
+                  <select
+                    value={language}
+                    onChange={(e) => onUpdateLanguage(e.target.value)}
+                  >
+                    <option value="ja">日本語</option>
+                    <option value="en">English</option>
+                  </select>
+                </div>
+              </div>
+              <div className="setting-row">
+                <div>
+                  <p className="setting-label">{t("settings.general.cookiesSource")}</p>
                   <p className="setting-value">
                     {cookiesSource === "browser"
-                      ? "ブラウザ"
+                      ? t("settings.general.cookiesBrowser")
                       : cookiesSource === "file"
-                        ? "ファイル"
-                        : "未使用"}
+                        ? t("settings.general.cookiesFile")
+                        : t("settings.general.cookiesNone")}
                   </p>
                 </div>
                 <div className="select-wrap">
@@ -201,25 +224,25 @@ export function SettingsModal({
                       )
                     }
                   >
-                    <option value="none">使用しない</option>
-                    <option value="file">Cookieファイル（推奨）</option>
-                    <option value="browser">ブラウザ（非推奨）</option>
+                    <option value="none">{t("settings.general.cookiesNone")}</option>
+                    <option value="file">{t("settings.general.cookiesFile")}</option>
+                    <option value="browser">{t("settings.general.cookiesBrowser")}</option>
                   </select>
                 </div>
               </div>
               {cookiesSource === "file" && (
                 <div className="setting-row">
                   <div>
-                    <p className="setting-label">YouTube Cookieファイル</p>
-                    <p className="setting-value">{cookiesFile ? cookiesFile : "未設定"}</p>
+                    <p className="setting-label">{t("settings.general.cookiesFileLabel")}</p>
+                    <p className="setting-value">{cookiesFile ? cookiesFile : t("settings.general.notSet")}</p>
                   </div>
                   <div className="action-row">
                     <button className="ghost" onClick={onPickCookiesFile}>
-                      ファイルを選択
+                      {t("settings.general.selectFile")}
                     </button>
                     {cookiesFile && (
                       <button className="ghost" onClick={onClearCookiesFile}>
-                        クリア
+                        {t("settings.general.clear")}
                       </button>
                     )}
                   </div>
@@ -228,13 +251,13 @@ export function SettingsModal({
               {cookiesSource === "browser" && (
                 <div className="setting-row">
                   <div>
-                    <p className="setting-label">ブラウザ</p>
+                    <p className="setting-label">{t("settings.general.browserSelect")}</p>
                     <p className="setting-value">
                       {cookiesBrowser
                         ? cookieBrowserOptions.find(
                             (option) => option.value === cookiesBrowser
                           )?.label ?? cookiesBrowser
-                        : "未設定"}
+                        : t("settings.general.notSet")}
                     </p>
                   </div>
                   <div className="select-wrap">
@@ -242,7 +265,7 @@ export function SettingsModal({
                       value={cookiesBrowser}
                       onChange={(e) => onUpdateCookiesBrowser(e.target.value)}
                     >
-                      <option value="">選択してください</option>
+                      <option value="">{t("settings.general.notSet")}</option>
                       {cookieBrowserOptions.map((option) => (
                         <option key={option.value} value={option.value}>
                           {option.label}
@@ -258,66 +281,66 @@ export function SettingsModal({
             <>
               <div className="setting-row">
                 <div>
-                  <p className="setting-label">yt-dlp</p>
+                  <p className="setting-label">{t("settings.tools.ytDlp")}</p>
                   <p className="setting-value">
-                    {ytDlpPath ? ytDlpPath : "未設定（同梱/パス指定なら空でもOK）"}
+                    {ytDlpPath ? ytDlpPath : t("settings.tools.notSetOptional")}
                   </p>
                   {renderToolingStatus(ytDlpStatus)}
                 </div>
                 <div className="action-row">
                   <button className="ghost" onClick={onPickYtDlpPath}>
-                    ファイルを選択
+                    {t("settings.tools.selectPath")}
                   </button>
                   {ytDlpPath && (
                     <button className="ghost" onClick={onClearYtDlpPath}>
-                      クリア
+                      {t("settings.general.clear")}
                     </button>
                   )}
                 </div>
               </div>
               <div className="setting-row">
                 <div>
-                  <p className="setting-label">ffmpeg</p>
+                  <p className="setting-label">{t("settings.tools.ffmpeg")}</p>
                   <p className="setting-value">
-                    {ffmpegPath ? ffmpegPath : "未設定（同梱/パス指定なら空でもOK）"}
+                    {ffmpegPath ? ffmpegPath : t("settings.tools.notSetOptional")}
                   </p>
                   {renderToolingStatus(ffmpegStatus)}
                 </div>
                 <div className="action-row">
                   <button className="ghost" onClick={onPickFfmpegPath}>
-                    ファイルを選択
+                    {t("settings.tools.selectPath")}
                   </button>
                   {ffmpegPath && (
                     <button className="ghost" onClick={onClearFfmpegPath}>
-                      クリア
+                      {t("settings.general.clear")}
                     </button>
                   )}
                 </div>
               </div>
               <div className="setting-row">
                 <div>
-                  <p className="setting-label">ffprobe</p>
+                  <p className="setting-label">{t("settings.tools.ffprobe")}</p>
                   <p className="setting-value">
-                    {ffprobePath ? ffprobePath : "未設定（同梱/パス指定なら空でもOK）"}
+                    {ffprobePath ? ffprobePath : t("settings.tools.notSetOptional")}
                   </p>
                   {renderToolingStatus(ffprobeStatus)}
                 </div>
                 <div className="action-row">
                   <button className="ghost" onClick={onPickFfprobePath}>
-                    ファイルを選択
+                    {t("settings.tools.selectPath")}
                   </button>
                   {ffprobePath && (
                     <button className="ghost" onClick={onClearFfprobePath}>
-                      クリア
+                      {t("settings.general.clear")}
                     </button>
                   )}
                 </div>
               </div>
               <div className="setting-row">
                 <div>
-                  <p className="setting-label">Remote components (EJS)</p>
+                  <p className="setting-label">{t("settings.general.remoteComponents")}</p>
                   <p className="setting-value">
-                    {remoteComponents === "none" ? "無効" : remoteComponents}
+                    {remoteComponents === "none" ? t("settings.general.remoteNone") : remoteComponents}
                   </p>
                 </div>
                 <div className="select-wrap">
@@ -329,9 +352,9 @@ export function SettingsModal({
                       )
                     }
                   >
-                    <option value="none">無効</option>
-                    <option value="ejs:github">ejs:github</option>
-                    <option value="ejs:npm">ejs:npm</option>
+                    <option value="none">{t("settings.general.remoteNone")}</option>
+                    <option value="ejs:github">{t("settings.general.remoteGithub")}</option>
+                    <option value="ejs:npm">{t("settings.general.remoteNpm")}</option>
                   </select>
                 </div>
               </div>
@@ -341,11 +364,16 @@ export function SettingsModal({
             <>
               <div className="setting-row">
                 <div>
-                  <p className="setting-label">整合性チェック</p>
+                  <p className="setting-label">{t("settings.data.integrityCheck")}</p>
                   <p className="setting-value">
                     {integritySummary
-                      ? `欠損 ${integritySummary.total}件（動画:${integritySummary.videoMissing} / コメント:${integritySummary.commentsMissing} / メタデータ:${integritySummary.metadataMissing}）`
-                      : "ライブラリ内の欠損を検査"}
+                      ? t("settings.data.missingCount", {
+                          total: integritySummary.total,
+                          video: integritySummary.videoMissing,
+                          comments: integritySummary.commentsMissing,
+                          metadata: integritySummary.metadataMissing
+                        })
+                      : t("settings.data.integrityDesc")}
                   </p>
                 </div>
                 <div className="action-row">
@@ -354,26 +382,26 @@ export function SettingsModal({
                     onClick={onRunIntegrityCheck}
                     disabled={integrityRunning}
                   >
-                    {integrityRunning ? "チェック中..." : "チェック"}
+                    {integrityRunning ? t("settings.data.running") : t("settings.data.runCheck")}
                   </button>
                   {integritySummary && (
                     <button className="ghost" onClick={onOpenIntegrity}>
-                      結果
+                      {t("settings.data.viewDetails")}
                     </button>
                   )}
                 </div>
               </div>
               <div className="setting-row">
                 <div>
-                  <p className="setting-label">バックアップ</p>
-                  <p className="setting-value">設定とインデックスをzipで保存/復元</p>
+                  <p className="setting-label">{t("settings.data.backup")}</p>
+                  <p className="setting-value">{t("settings.data.backupDesc")}</p>
                 </div>
                 <div className="action-row">
                   <button className="ghost" onClick={onExportBackup}>
-                    エクスポート
+                    {t("settings.data.export")}
                   </button>
                   <button className="ghost" onClick={onImportBackup}>
-                    インポート
+                    {t("settings.data.import")}
                   </button>
                 </div>
               </div>

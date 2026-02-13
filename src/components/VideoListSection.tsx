@@ -1,4 +1,5 @@
 import { memo, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { EmptyState } from "./EmptyState";
 import { VideoFilters } from "./VideoFilters";
 import { VideoGrid } from "./VideoGrid";
@@ -94,29 +95,30 @@ const VideoListSectionComponent = <T extends { id: string }>({
   onOpenAdd,
   addDisabled,
 }: VideoListSectionProps<T>) => {
+  const { t } = useTranslation();
   if (sortedCount === 0) {
     return (
       <EmptyState>
         <div className="empty-guide">
-          <p className="empty-title">はじめに</p>
+          <p className="empty-title">{t("videoList.emptyTitle")}</p>
           <p className="empty-lead">
-            保存先フォルダを設定してから、動画URLを追加してください。
+            {t("videoList.emptyMessage")}
           </p>
           <ol className="empty-steps">
-            <li>右上の「設定」から保存先フォルダを選択</li>
-            <li>「＋ 動画を追加」から動画のURLかチャンネルのURLを登録</li>
-            <li>必要なら「追加と同時にダウンロード」を有効にする</li>
+            <li>{t("videoList.emptyStep1")}</li>
+            <li>{t("videoList.emptyStep2")}</li>
+            <li>{t("videoList.emptyStep3")}</li>
           </ol>
           <div className="empty-actions">
             <button className="ghost" onClick={onOpenSettings}>
-              設定を開く
+              {t("videoList.openSettings")}
             </button>
             <button className="primary" onClick={onOpenAdd} disabled={addDisabled}>
-              動画を追加
+              {t("videoList.addVideo")}
             </button>
           </div>
           <p className="empty-hint">
-            保存先フォルダ: {downloadDir ? downloadDir : "未設定"}
+            {t("videoList.downloadDir")}: {downloadDir ? downloadDir : t("videoList.notSet")}
           </p>
         </div>
       </EmptyState>
@@ -144,7 +146,7 @@ const VideoListSectionComponent = <T extends { id: string }>({
       />
 
       {filteredCount === 0 && !showAddSkeleton ? (
-        <EmptyState>条件に一致する動画がありません。</EmptyState>
+        <EmptyState>{t("videoList.noMatch")}</EmptyState>
       ) : (
         <VideoGrid
           filteredVideos={filteredVideos}

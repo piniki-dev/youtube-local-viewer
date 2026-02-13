@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import type { DownloadState, MissingTool } from "../hooks/useToolSetup";
 
 type SetupDialogProps = {
@@ -17,6 +18,7 @@ export function SetupDialog({
   onSkip,
   onClose,
 }: SetupDialogProps) {
+  const { t } = useTranslation();
   if (!isOpen) return null;
 
   const isDone = downloadState.status === "done";
@@ -35,10 +37,10 @@ export function SetupDialog({
         <div className="modal-header">
           <h2>
             <i className="ri-tools-line" style={{ marginRight: 8 }} />
-            外部ツールのセットアップ
+            {t("setup.title")}
           </h2>
           {!isActive && (
-            <button className="icon" onClick={onClose} title="閉じる">
+            <button className="icon" onClick={onClose} title={t("setup.close")}>
               <i className="ri-close-line" />
             </button>
           )}
@@ -48,7 +50,7 @@ export function SetupDialog({
           {!isDone && !isActive && (
             <>
               <p style={{ margin: 0, fontSize: 14 }}>
-                動画のダウンロードに必要なツールが見つかりません。自動でダウンロード・配置できます。
+                {t("setup.description")}
               </p>
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {missingTools.map((tool) => (
@@ -66,7 +68,7 @@ export function SetupDialog({
                       style={{ color: "#d32f2f" }}
                     />
                     <span>{tool.label}</span>
-                    <span style={{ color: "#9aa0ab" }}>— 未検出</span>
+                    <span style={{ color: "#9aa0ab" }}>— {t("setup.notDetected")}</span>
                   </div>
                 ))}
               </div>
@@ -114,7 +116,7 @@ export function SetupDialog({
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               <p className="error">{downloadState.error}</p>
               <p style={{ margin: 0, fontSize: 13, color: "#9aa0ab" }}>
-                手動でインストールするか、再試行してください。
+                {t("setup.manualInstall")}
               </p>
             </div>
           )}
@@ -124,26 +126,26 @@ export function SetupDialog({
           {!isDone && !isActive && (
             <>
               <button className="ghost" onClick={onSkip}>
-                スキップ
+                {t("setup.skip")}
               </button>
               <button className="primary" onClick={onStartDownload}>
                 <i className="ri-download-line" style={{ marginRight: 4 }} />
-                自動ダウンロード
+                {t("setup.autoDownload")}
               </button>
             </>
           )}
           {isDone && (
             <button className="primary" onClick={onClose}>
-              閉じる
+              {t("setup.close")}
             </button>
           )}
           {isError && !isActive && (
             <>
               <button className="ghost" onClick={onSkip}>
-                スキップ
+                {t("setup.skip")}
               </button>
               <button className="primary" onClick={onStartDownload}>
-                再試行
+                {t("setup.retry")}
               </button>
             </>
           )}

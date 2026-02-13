@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { useTranslation } from 'react-i18next';
 
 type PlayerModalProps = {
   isOpen: boolean;
@@ -7,13 +8,14 @@ type PlayerModalProps = {
 };
 
 export function PlayerModal({ isOpen, onClose, children }: PlayerModalProps) {
+  const { t } = useTranslation();
   if (!isOpen) return null;
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal modal-wide" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h2>動画再生</h2>
+          <h2>{t('player.videoPlayback')}</h2>
           <button className="icon" onClick={onClose}>
             ×
           </button>
@@ -21,7 +23,7 @@ export function PlayerModal({ isOpen, onClose, children }: PlayerModalProps) {
         <div className="modal-body">{children}</div>
         <div className="modal-footer">
           <button className="primary" onClick={onClose}>
-            閉じる
+            {t('common.close')}
           </button>
         </div>
       </div>

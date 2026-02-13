@@ -1,4 +1,5 @@
 import type { RefObject } from "react";
+import { useTranslation } from 'react-i18next';
 
 type CommentItem = {
   author: string;
@@ -71,6 +72,7 @@ export function PlayerContent({
   formatClock,
   timeMs,
 }: PlayerContentProps) {
+  const { t } = useTranslation();
   const renderCommentRuns = (comment: CommentItem) => {
     if (!comment.runs || comment.runs.length === 0) return comment.text;
     return comment.runs.map((run, index) => {
@@ -99,7 +101,7 @@ export function PlayerContent({
 
   return (
     <>
-      {loading && <p className="progress-line">読み込み中...</p>}
+      {loading && <p className="progress-line">{t('player.loading')}</p>}
       {error && <p className="error">{error}</p>}
       <div className="player-layout">
         <div className="player-media">
@@ -126,7 +128,7 @@ export function PlayerContent({
             {src && !error && !canPlay && (
               <div className="player-video-overlay">
                 <div className="player-video-shimmer" />
-                <div className="player-video-label">再生準備中...</div>
+                <div className="player-video-label">{t('player.preparing')}</div>
               </div>
             )}
           </div>
@@ -134,10 +136,10 @@ export function PlayerContent({
           {error && filePath && (
             <div className="action-row">
               <button className="ghost small" onClick={onOpenExternalPlayer}>
-                外部プレイヤーで開く
+                {t('player.openExternalPlayer')}
               </button>
               <button className="ghost small" onClick={onRevealInFolder}>
-                フォルダを開く
+                {t('player.revealInFolder')}
               </button>
             </div>
           )}
@@ -145,29 +147,29 @@ export function PlayerContent({
         <aside className="player-chat">
           <div className="player-chat-header">
             <div className="player-chat-title">
-              <span className="comment-title">チャット</span>
+              <span className="comment-title">{t('player.chat')}</span>
               <span
                 className={`badge ${
                   sortedComments.length > 0 ? "badge-success" : "badge-muted"
                 }`}
               >
-                {sortedComments.length > 0 ? "同期" : "同期不可"}
+                {sortedComments.length > 0 ? t('player.synced') : t('player.notSynced')}
               </span>
             </div>
             <div className="player-chat-actions">
               <button className="ghost tiny" onClick={onToggleChatAutoScroll}>
-                {isChatAutoScroll ? "自動スクロール: ON" : "自動スクロール: OFF"}
+                {isChatAutoScroll ? t('player.autoScrollOn') : t('player.autoScrollOff')}
               </button>
             </div>
           </div>
           <div className="player-chat-meta">
-            <span>再生位置 {formatClock(timeMs)}</span>
-            {commentsLoading && <span>読み込み中...</span>}
+            <span>{t('player.playbackPosition')} {formatClock(timeMs)}</span>
+            {commentsLoading && <span>{t('player.loading')}</span>}
           </div>
           {commentsError && <p className="error small">{commentsError}</p>}
           {!commentsLoading && !commentsError && sortedComments.length === 0 && (
             <p className="progress-line">
-              同期可能なチャットがありません。ライブチャットリプレイのみ対応しています。
+              {t('player.noSyncableChat')}
             </p>
           )}
           <div className="player-chat-list">

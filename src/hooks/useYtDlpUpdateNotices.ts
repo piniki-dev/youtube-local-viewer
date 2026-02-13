@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import i18n from "../i18n";
 
 type FloatingNoticeItem = {
   id: string;
@@ -75,8 +76,8 @@ export function useYtDlpUpdateNotices({
             details.trim() || undefined
           );
         } else if (status === "failed") {
-          const details = stderr || stdout || "不明なエラー";
-          addYtDlpNotice("error", "yt-dlpの更新に失敗しました。", details);
+          const details = stderr || stdout || i18n.t('errors.unknownError');
+          addYtDlpNotice("error", i18n.t('errors.ytdlpUpdateFailed'), details);
         }
       });
     };

@@ -1,3 +1,5 @@
+import { useTranslation } from "react-i18next";
+
 type SwitchConfirmModalProps = {
   isOpen: boolean;
   message: string;
@@ -11,13 +13,14 @@ export function SwitchConfirmModal({
   onCancel,
   onConfirm,
 }: SwitchConfirmModalProps) {
+  const { t } = useTranslation();
   if (!isOpen) return null;
 
   return (
     <div className="modal-backdrop" onClick={onCancel}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h2>再生切替</h2>
+          <h2>{t("switchConfirm.title")}</h2>
           <button className="icon" onClick={onCancel}>
             ×
           </button>
@@ -27,10 +30,10 @@ export function SwitchConfirmModal({
         </div>
         <div className="modal-footer">
           <button className="ghost" onClick={onCancel}>
-            キャンセル
+            {t("switchConfirm.cancel")}
           </button>
           <button className="primary" onClick={onConfirm}>
-            切り替える
+            {t("switchConfirm.confirm")}
           </button>
         </div>
       </div>

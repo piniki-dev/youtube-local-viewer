@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import i18n from "../i18n";
 
 type StorageKeys = {
   downloadDirKey: string;
@@ -127,7 +128,7 @@ export function useSettingsActions<TVideo>({
         await persistSettings(selected);
       }
     } catch {
-      setSettingsErrorMessage("保存先の設定に失敗しました。");
+      setSettingsErrorMessage(i18n.t('errors.downloadDirFailed'));
     }
   }, [setSettingsErrorMessage, setDownloadDir, storageKeys.downloadDirKey, persistSettings]);
 
@@ -146,7 +147,7 @@ export function useSettingsActions<TVideo>({
       await refreshThumbnailsForDir(selected);
       await runIntegrityCheck(true, selected);
     } catch {
-      setIntegrityMessage("再リンクに失敗しました。");
+      setIntegrityMessage(i18n.t('errors.relinkFailed'));
     }
   }, [
     setIntegrityMessage,
@@ -224,7 +225,7 @@ export function useSettingsActions<TVideo>({
         localStorage.setItem(storageKeys.cookiesSourceKey, "file");
       }
     } catch {
-      setSettingsErrorMessage("Cookieファイルの設定に失敗しました。");
+      setSettingsErrorMessage(i18n.t('errors.cookiesFileFailed'));
     }
   }, [
     setSettingsErrorMessage,
@@ -247,7 +248,7 @@ export function useSettingsActions<TVideo>({
         localStorage.setItem(storageKeys.ytDlpPathKey, selected);
       }
     } catch {
-      setSettingsErrorMessage("yt-dlpの設定に失敗しました。");
+      setSettingsErrorMessage(i18n.t('errors.ytdlpPathFailed'));
     }
   }, [setSettingsErrorMessage, setYtDlpPath, storageKeys.ytDlpPathKey]);
 
@@ -264,7 +265,7 @@ export function useSettingsActions<TVideo>({
         localStorage.setItem(storageKeys.ffmpegPathKey, selected);
       }
     } catch {
-      setSettingsErrorMessage("ffmpegの設定に失敗しました。");
+      setSettingsErrorMessage(i18n.t('errors.ffmpegPathFailed'));
     }
   }, [setSettingsErrorMessage, setFfmpegPath, storageKeys.ffmpegPathKey]);
 
@@ -281,7 +282,7 @@ export function useSettingsActions<TVideo>({
         localStorage.setItem(storageKeys.ffprobePathKey, selected);
       }
     } catch {
-      setSettingsErrorMessage("ffprobeの設定に失敗しました。");
+      setSettingsErrorMessage(i18n.t('errors.ffprobePathFailed'));
     }
   }, [setSettingsErrorMessage, setFfprobePath, storageKeys.ffprobePathKey]);
 

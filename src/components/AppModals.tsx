@@ -82,6 +82,8 @@ type AppModalsProps = {
   onExportBackup: () => void;
   onImportBackup: () => void;
   settingsErrorMessage: string;
+  language: string;
+  onUpdateLanguage: (value: string) => void;
 
   isIntegrityOpen: boolean;
   onCloseIntegrity: () => void;
@@ -161,6 +163,8 @@ export function AppModals({
   onExportBackup,
   onImportBackup,
   settingsErrorMessage,
+  language,
+  onUpdateLanguage,
   isIntegrityOpen,
   onCloseIntegrity,
   integrityMessage,
@@ -239,6 +243,8 @@ export function AppModals({
         onExportBackup={onExportBackup}
         onImportBackup={onImportBackup}
         settingsErrorMessage={settingsErrorMessage}
+        language={language}
+        onUpdateLanguage={onUpdateLanguage}
       />
 
       <IntegrityModal

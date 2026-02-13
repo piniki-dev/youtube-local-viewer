@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import i18n from "../i18n";
 
 type VideoLike = {
   id: string;
@@ -307,7 +308,7 @@ export function useIntegrityCheck<TVideo extends VideoLike>({
           onMetadataRecovery(true);
         }
       } catch {
-        setIntegrityMessage("整合性チェックに失敗しました。");
+        setIntegrityMessage(i18n.t('errors.integrityCheckFailed'));
       } finally {
         setIntegrityRunning(false);
         if (openModal) setIsIntegrityOpen(true);

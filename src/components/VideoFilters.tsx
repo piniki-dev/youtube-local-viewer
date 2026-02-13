@@ -1,3 +1,5 @@
+import { useTranslation } from "react-i18next";
+
 type DownloadFilter = "all" | "downloaded" | "undownloaded";
 type TypeFilter = "all" | "video" | "live" | "shorts";
 type PublishedSort = "published-desc" | "published-asc";
@@ -38,15 +40,16 @@ export function VideoFilters({
   onStartBulkDownload,
   bulkDownloadDisabled,
 }: VideoFiltersProps) {
+  const { t } = useTranslation();
   return (
     <section className="filter-bar">
       <div className="filter-group filter-search">
-        <span className="filter-label">検索</span>
+        <span className="filter-label">{t("filters.search")}</span>
         <div className="search-field">
           <input
             className="search-input"
             type="search"
-            placeholder="タイトル・チャンネル・タグで検索"
+            placeholder={t("filters.searchPlaceholder")}
             value={searchQuery}
             onChange={(e) => onSearchChange(e.target.value)}
           />
@@ -56,111 +59,111 @@ export function VideoFilters({
               type="button"
               onClick={onClearSearch}
             >
-              クリア
+              {t("filters.clear")}
             </button>
           )}
         </div>
       </div>
       <div className="filter-group">
-        <span className="filter-label">お気に入り</span>
+        <span className="filter-label">{t("filters.favorite")}</span>
         <div className="segmented">
           <button
             className={favoriteFilter === "all" ? "active" : ""}
             onClick={() => onChangeFavoriteFilter("all")}
             type="button"
           >
-            すべて
+            {t("filters.all")}
           </button>
           <button
             className={favoriteFilter === "favorite" ? "active" : ""}
             onClick={() => onChangeFavoriteFilter("favorite")}
             type="button"
           >
-            <i className="ri-heart-fill" /> お気に入り
+            <i className="ri-heart-fill" /> {t("filters.favoriteOnly")}
           </button>
         </div>
       </div>
       <div className="filter-group">
-        <span className="filter-label">ダウンロード</span>
+        <span className="filter-label">{t("filters.downloadFilter")}</span>
         <div className="segmented">
           <button
             className={downloadFilter === "all" ? "active" : ""}
             onClick={() => onChangeDownloadFilter("all")}
             type="button"
           >
-            すべて
+            {t("filters.all")}
           </button>
           <button
             className={downloadFilter === "downloaded" ? "active" : ""}
             onClick={() => onChangeDownloadFilter("downloaded")}
             type="button"
           >
-            ダウンロード済み
+            {t("filters.downloaded")}
           </button>
           <button
             className={downloadFilter === "undownloaded" ? "active" : ""}
             onClick={() => onChangeDownloadFilter("undownloaded")}
             type="button"
           >
-            未ダウンロード
+            {t("filters.notDownloaded")}
           </button>
         </div>
       </div>
       <div className="filter-group">
-        <span className="filter-label">種別</span>
+        <span className="filter-label">{t("filters.typeFilter")}</span>
         <div className="segmented">
           <button
             className={typeFilter === "all" ? "active" : ""}
             onClick={() => onChangeTypeFilter("all")}
             type="button"
           >
-            すべて
+            {t("filters.all")}
           </button>
           <button
             className={typeFilter === "video" ? "active" : ""}
             onClick={() => onChangeTypeFilter("video")}
             type="button"
           >
-            動画
+            {t("filters.video")}
           </button>
           <button
             className={typeFilter === "live" ? "active" : ""}
             onClick={() => onChangeTypeFilter("live")}
             type="button"
           >
-            配信
+            {t("filters.live")}
           </button>
           <button
             className={typeFilter === "shorts" ? "active" : ""}
             onClick={() => onChangeTypeFilter("shorts")}
             type="button"
           >
-            ショート
+            {t("filters.short")}
           </button>
         </div>
       </div>
       <div className="filter-group">
-        <span className="filter-label">配信日</span>
+        <span className="filter-label">{t("filters.publishedDate")}</span>
         <div className="segmented">
           <button
             className={publishedSort === "published-desc" ? "active" : ""}
             onClick={() => onChangePublishedSort("published-desc")}
             type="button"
           >
-            新しい順
+            {t("filters.newest")}
           </button>
           <button
             className={publishedSort === "published-asc" ? "active" : ""}
             onClick={() => onChangePublishedSort("published-asc")}
             type="button"
           >
-            古い順
+            {t("filters.oldest")}
           </button>
         </div>
       </div>
       <div className="filter-actions">
         <div className="filter-summary">
-          表示: {filteredCount} / {totalCount}
+          {t("filters.showing")}: {filteredCount} / {totalCount}
         </div>
         <div className="bulk-download-group">
           <button
@@ -169,7 +172,7 @@ export function VideoFilters({
             onClick={onStartBulkDownload}
             disabled={bulkDownloadDisabled}
           >
-            未ダウンロードを一括DL
+            {t("filters.bulkDownload")}
           </button>
         </div>
       </div>

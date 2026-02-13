@@ -1,3 +1,5 @@
+import { useTranslation } from "react-i18next";
+
 type BackupNoticeModalProps = {
   isOpen: boolean;
   message: string;
@@ -15,13 +17,14 @@ export function BackupNoticeModal({
   onClose,
   onRestart,
 }: BackupNoticeModalProps) {
+  const { t } = useTranslation();
   if (!isOpen || !message) return null;
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h2>完了</h2>
+          <h2>{t("backup.title")}</h2>
           <button className="icon" onClick={onClose}>
             ×
           </button>
@@ -30,18 +33,18 @@ export function BackupNoticeModal({
           <p>{message}</p>
           {restartRequired && countdown > 0 && (
             <p className="progress-line backup-countdown">
-              {countdown}秒後に自動で再起動します。
+              {t("backup.countdownMessage", { seconds: countdown })}
             </p>
           )}
         </div>
         <div className="modal-footer">
           {restartRequired ? (
             <button className="primary" onClick={onRestart}>
-              再起動
+              {t("backup.restart")}
             </button>
           ) : (
             <button className="primary" onClick={onClose}>
-              閉じる
+              {t("backup.close")}
             </button>
           )}
         </div>

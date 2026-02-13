@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import i18n from "../i18n";
 
 type VideoLike = {
   id: string;
@@ -47,12 +48,12 @@ export function useActiveActivityItems<TVideo extends VideoLike>({
       const isComment = commentsDownloadingIds.includes(id);
       const isQueued = queuedDownloadIds.includes(id);
       const status = isComment
-        ? "ライブチャット取得中"
+        ? i18n.t('status.liveChatFetching')
         : isVideo
-          ? "動画ダウンロード中"
+          ? i18n.t('status.videoDownloading')
           : isQueued
-            ? "ダウンロード待機中"
-          : "ライブチャット準備中";
+            ? i18n.t('status.downloadWaiting')
+          : i18n.t('status.liveChatPreparing');
       const line = isComment
         ? commentProgressLines[id] ?? ""
         : progressLines[id] ?? "";

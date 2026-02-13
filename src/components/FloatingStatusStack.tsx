@@ -1,3 +1,5 @@
+import { useTranslation } from 'react-i18next';
+
 type YtDlpNotice = {
   id: string;
   kind: "success" | "error";
@@ -104,6 +106,7 @@ export function FloatingStatusStack({
   isDownloadLogOpen,
   onToggleDownloadLogOpen,
 }: FloatingStatusStackProps) {
+  const { t } = useTranslation();
   const totalDownloadCount = activeDownloadCount + queuedDownloadCount;
   const displayTotalCount =
     totalDownloadCount > 0 ? totalDownloadCount : activeActivityItems.length;
@@ -139,7 +142,7 @@ export function FloatingStatusStack({
               type="button"
               onClick={() => onCloseFloatingNotice(notice.id)}
             >
-              閉じる
+              {t('floating.close')}
             </button>
           </div>
           {notice.details && (
@@ -166,7 +169,7 @@ export function FloatingStatusStack({
               type="button"
               onClick={() => onCloseNotice(notice.id)}
             >
-              閉じる
+              {t('floating.close')}
             </button>
           </div>
           {notice.details && (
@@ -183,7 +186,7 @@ export function FloatingStatusStack({
             <div className="bulk-status-title">
               <div className="spinner" />
               <span>
-                詳細情報取得中 ({metadataFetch.completed}/{metadataFetch.total})
+                {t('floating.metadataFetch')} ({metadataFetch.completed}/{metadataFetch.total})
               </span>
             </div>
           </div>
@@ -191,17 +194,17 @@ export function FloatingStatusStack({
             {metadataPaused ? (
               <div className="bulk-status-paused">
                 <p className="bulk-status-title-line">
-                  停止中: 再試行が必要です
+                  {t('floating.metadataPaused')}
                 </p>
                 {metadataPauseReason && (
                   <pre className="bulk-status-log">{metadataPauseReason}</pre>
                 )}
                 <button className="ghost small" type="button" onClick={onRetryMetadata}>
-                  再試行
+                  {t('floating.retry')}
                 </button>
               </div>
             ) : (
-              <pre className="bulk-status-log">バックグラウンドで取得しています…</pre>
+              <pre className="bulk-status-log">{t('floating.metadataBackground')}</pre>
             )}
           </div>
         </div>
@@ -224,7 +227,7 @@ export function FloatingStatusStack({
         >
           <div className="bulk-status-header">
             <div className="bulk-status-title">
-              <span>ダウンロードエラー ({downloadErrorSlides.length}件)</span>
+              <span>{t('floating.downloadErrors', { count: downloadErrorSlides.length })}</span>
             </div>
             <button
               className="ghost tiny"
@@ -234,7 +237,7 @@ export function FloatingStatusStack({
                 onClearDownloadErrors();
               }}
             >
-              クリア
+              {t('floating.clear')}
             </button>
           </div>
           {isDownloadErrorOpen && (
@@ -256,7 +259,7 @@ export function FloatingStatusStack({
                           <p className="bulk-status-title-line">{item.title}</p>
                           {item.video && (
                             <div className="download-error-section">
-                              <p className="bulk-status-title-line">動画</p>
+                              <p className="bulk-status-title-line">{t('floating.video')}</p>
                               <pre className="bulk-status-log">
                                 {item.video.details}
                               </pre>
@@ -265,7 +268,7 @@ export function FloatingStatusStack({
                           {item.comments && (
                             <div className="download-error-section">
                               <p className="bulk-status-title-line">
-                                ライブチャット
+                                {t('floating.liveChat')}
                               </p>
                               <pre className="bulk-status-log">
                                 {item.comments.details}
@@ -274,7 +277,7 @@ export function FloatingStatusStack({
                           )}
                           {item.metadata && (
                             <div className="download-error-section">
-                              <p className="bulk-status-title-line">詳細情報</p>
+                              <p className="bulk-status-title-line">{t('floating.detailedInfo')}</p>
                               <pre className="bulk-status-log">
                                 {item.metadata.details}
                               </pre>
@@ -294,7 +297,7 @@ export function FloatingStatusStack({
                       }}
                       disabled={downloadErrorIndex === 0}
                     >
-                      前へ
+                      {t('floating.prev')}
                     </button>
                     <span className="download-error-index">
                       {downloadErrorIndex + 1}/{downloadErrorSlides.length}
@@ -310,7 +313,7 @@ export function FloatingStatusStack({
                         downloadErrorIndex >= downloadErrorSlides.length - 1
                       }
                     >
-                      次へ
+                      {t('floating.next')}
                     </button>
                   </div>
                 </div>
@@ -338,8 +341,8 @@ export function FloatingStatusStack({
               <div className="spinner" />
               <span>
                 {bulkDownload.waitingForSingles
-                  ? `一括ダウンロード待機中 (${bulkDownload.completed}/${bulkDownload.total})`
-                  : `ダウンロード中 (${bulkDownload.completed}/${bulkDownload.total})`}
+                  ? t('floating.bulkDownloadWaiting', { completed: bulkDownload.completed, total: bulkDownload.total })
+                  : t('floating.downloading', { completed: bulkDownload.completed, total: bulkDownload.total })}
               </span>
             </div>
             <button
@@ -355,25 +358,25 @@ export function FloatingStatusStack({
                 bulkDownload.stopRequested
               }
             >
-              {bulkDownload.stopRequested ? "停止中..." : "停止"}
+              {bulkDownload.stopRequested ? t('floating.stopping') : t('floating.stop')}
             </button>
           </div>
           {isBulkLogOpen && (
             <div className="bulk-status-body">
               {bulkDownload.waitingForSingles ? (
                 <p className="bulk-status-title-line">
-                  個別ダウンロードの終了を待機中です。
+                  {t('floating.waitingForSingles')}
                 </p>
               ) : (
                 <>
                   {bulkDownload.currentTitle && (
                     <p className="bulk-status-title-line">
-                      現在: {bulkDownload.currentTitle}
+                      {t('floating.current')}: {bulkDownload.currentTitle}
                     </p>
                   )}
                   {bulkDownload.phase && (
                     <p className="bulk-status-title-line">
-                      状態: {bulkDownload.phase === "comments" ? "ライブチャット取得中" : "動画ダウンロード中"}
+                      {t('floating.status')}: {bulkDownload.phase === "comments" ? t('floating.liveChatFetching') : t('floating.videoDownloading')}
                     </p>
                   )}
                   <pre className="bulk-status-log">
@@ -384,7 +387,7 @@ export function FloatingStatusStack({
                       ? bulkDownload.phase === "comments"
                         ? commentProgressLines[bulkDownload.currentId]
                         : progressLines[bulkDownload.currentId]
-                      : "ログ待機中..."}
+                      : t('floating.logWaiting')}
                   </pre>
                 </>
               )}
@@ -412,7 +415,7 @@ export function FloatingStatusStack({
             <div className="bulk-status-title">
               {activeActivityItems.length > 0 && <div className="spinner" />}
               <span>
-                ダウンロード中 ({activeDownloadCount}/{displayTotalCount}件)
+                {t('floating.downloadingCount', { active: activeDownloadCount, total: displayTotalCount })}
               </span>
             </div>
           </div>
@@ -422,7 +425,7 @@ export function FloatingStatusStack({
                 <div key={item.id} className="download-status-item">
                   <p className="bulk-status-title-line">{item.title}</p>
                   <p className="bulk-status-title-line">{item.status}</p>
-                  <pre className="bulk-status-log">{item.line || "ログ待機中..."}</pre>
+                  <pre className="bulk-status-log">{item.line || t('floating.logWaiting')}</pre>
                 </div>
               ))}
             </div>

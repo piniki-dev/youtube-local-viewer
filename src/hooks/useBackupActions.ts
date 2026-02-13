@@ -2,6 +2,7 @@ import { useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { join } from "@tauri-apps/api/path";
+import i18n from "../i18n";
 
 type UseBackupActionsParams = {
   persistSettings: () => Promise<void>;
@@ -31,15 +32,15 @@ export function useBackupActions({
       const dir = await openDialog({
         directory: true,
         multiple: false,
-        title: "バックアップ保存先フォルダを選択",
+        title: i18n.t('errors.selectBackupFolder'),
       });
       if (typeof dir !== "string" || !dir) return;
       const target = await join(dir, "ytlv-backup.zip");
       await invoke("export_state", { outputPath: target });
-      setBackupMessage("バックアップのエクスポートが完了しました。");
+      setBackupMessage(i18n.t('errors.backupExportSuccess'));
       setIsBackupNoticeOpen(true);
     } catch {
-      setSettingsErrorMessage("バックアップの作成に失敗しました。");
+      setSettingsErrorMessage(i18n.t('errors.backupExportFailed'));
     }
   }, [
     persistSettings,
@@ -57,12 +58,12 @@ export function useBackupActions({
       const selected = await openDialog({
         directory: false,
         multiple: false,
-        title: "バックアップを選択",
+        title: i18n.t('errors.selectBackupFile'),
       });
       if (typeof selected !== "string" || !selected) return;
       await invoke("import_state", { inputPath: selected });
       localStorage.setItem(integrityCheckPendingKey, "1");
-      setBackupMessage("バックアップのインポートが完了しました。再起動してください。");
+      setBackupMessage(i18n.t('errors.backupImportSuccess'));
       setIsBackupNoticeOpen(true);
       setBackupRestartRequired(true);
       setBackupRestartCountdown(10);
@@ -79,7 +80,7 @@ export function useBackupActions({
         window.location.reload();
       }, 10_000);
     } catch {
-      setSettingsErrorMessage("バックアップの復元に失敗しました。");
+      setSettingsErrorMessage(i18n.t('errors.backupImportFailed'));
     }
   }, [
     setSettingsErrorMessage,

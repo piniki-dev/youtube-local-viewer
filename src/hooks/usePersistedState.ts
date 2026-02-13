@@ -12,6 +12,7 @@ type PersistedState<TVideo> = {
   ffmpegPath?: string | null;
   ffprobePath?: string | null;
   downloadQuality?: string | null;
+  language?: string | null;
 };
 
 type StorageKeys = {
@@ -25,6 +26,7 @@ type StorageKeys = {
   ffmpegPathKey: string;
   ffprobePathKey: string;
   downloadQualityKey: string;
+  languageKey: string;
 };
 
 type UsePersistedStateParams<TVideo> = {
@@ -42,6 +44,7 @@ type UsePersistedStateParams<TVideo> = {
   setFfmpegPath: React.Dispatch<React.SetStateAction<string>>;
   setFfprobePath: React.Dispatch<React.SetStateAction<string>>;
   setDownloadQuality: React.Dispatch<React.SetStateAction<string>>;
+  setLanguage: React.Dispatch<React.SetStateAction<string>>;
   setIsStateReady: React.Dispatch<React.SetStateAction<boolean>>;
   isStateReady: boolean;
   videos: TVideo[];
@@ -54,6 +57,7 @@ type UsePersistedStateParams<TVideo> = {
   ffmpegPath: string;
   ffprobePath: string;
   downloadQuality: string;
+  language: string;
   storageKeys: StorageKeys;
 };
 
@@ -68,6 +72,7 @@ export function usePersistedState<TVideo>({
   setFfmpegPath,
   setFfprobePath,
   setDownloadQuality,
+  setLanguage,
   setIsStateReady,
   isStateReady,
   videos,
@@ -80,6 +85,7 @@ export function usePersistedState<TVideo>({
   ffmpegPath,
   ffprobePath,
   downloadQuality,
+  language,
   storageKeys,
 }: UsePersistedStateParams<TVideo>) {
   useEffect(() => {
@@ -94,6 +100,7 @@ export function usePersistedState<TVideo>({
       let loadedFfmpegPath: string | null = null;
       let loadedFfprobePath: string | null = null;
       let loadedDownloadQuality: string | null = null;
+      let loadedLanguage: string | null = null;
       try {
         const state = await invoke<PersistedState<TVideo>>("load_state");
         if (Array.isArray(state?.videos) && state.videos.length > 0) {
@@ -108,6 +115,7 @@ export function usePersistedState<TVideo>({
         loadedFfmpegPath = state?.ffmpegPath ?? null;
         loadedFfprobePath = state?.ffprobePath ?? null;
         loadedDownloadQuality = state?.downloadQuality ?? null;
+        loadedLanguage = state?.language ?? null;
       } catch {
         loadedVideos = [];
       }
@@ -165,6 +173,10 @@ export function usePersistedState<TVideo>({
         const legacyFfprobe = localStorage.getItem(storageKeys.ffprobePathKey);
         if (legacyFfprobe) loadedFfprobePath = legacyFfprobe;
       }
+      if (!loadedLanguage) {
+        const legacyLanguage = localStorage.getItem(storageKeys.languageKey);
+        if (legacyLanguage) loadedLanguage = legacyLanguage;
+      }
 
       if (loadedDownloadDir) setDownloadDir(loadedDownloadDir);
       if (loadedCookiesFile) setCookiesFile(loadedCookiesFile);
@@ -186,6 +198,7 @@ export function usePersistedState<TVideo>({
       if (loadedFfmpegPath) setFfmpegPath(loadedFfmpegPath);
       if (loadedFfprobePath) setFfprobePath(loadedFfprobePath);
       if (loadedDownloadQuality) setDownloadQuality(loadedDownloadQuality);
+      if (loadedLanguage) setLanguage(loadedLanguage);
 
       try {
         await invoke("save_state", {
@@ -200,6 +213,7 @@ export function usePersistedState<TVideo>({
             ffmpegPath: loadedFfmpegPath,
             ffprobePath: loadedFfprobePath,
             downloadQuality: loadedDownloadQuality,
+            language: loadedLanguage,
           } satisfies PersistedState<TVideo>,
         });
       } catch {
@@ -220,6 +234,8 @@ export function usePersistedState<TVideo>({
     setYtDlpPath,
     setFfmpegPath,
     setFfprobePath,
+    setDownloadQuality,
+    setLanguage,
     setIsStateReady,
     storageKeys,
   ]);
@@ -241,6 +257,7 @@ export function usePersistedState<TVideo>({
             ffmpegPath: ffmpegPath || null,
             ffprobePath: ffprobePath || null,
             downloadQuality: downloadQuality || null,
+            language: language || null,
           } satisfies PersistedState<TVideo>,
         });
       } catch {
@@ -259,6 +276,7 @@ export function usePersistedState<TVideo>({
     ffmpegPath,
     ffprobePath,
     downloadQuality,
+    language,
     isStateReady,
     storageKeys.videoStorageKey,
   ]);

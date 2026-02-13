@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import i18n from "../i18n";
 
 type MetadataFetchState = {
   active: boolean;
@@ -521,7 +522,7 @@ export function useMetadataFetch<TVideo extends VideoLike>({
               markMetadataFetched: true,
             });
           } else {
-            const details = stderr || stdout || "不明なエラー";
+            const details = stderr || stdout || i18n.t('errors.unknownError');
             addDownloadErrorItem(id, "metadata", details);
             const activeItem = metadataActiveItemRef.current;
             if (activeItem) {

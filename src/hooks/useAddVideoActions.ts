@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { buildMetadataFields, parseVideoId } from "../utils/metadataHelpers";
+import i18n from "../i18n";
 
 type VideoBase = {
   id: string;
@@ -93,12 +94,12 @@ export function useAddVideoActions<TVideo extends VideoBase>({
     const trimmed = videoUrl.trim();
     const id = parseVideoId(trimmed);
     if (!id) {
-      setErrorMessage("YouTubeの動画URLを正しく入力してください。");
+      setErrorMessage(i18n.t('errors.invalidYouTubeUrl'));
       return;
     }
 
     if (videos.some((v) => v.id === id)) {
-      setErrorMessage("同じ動画がすでに追加されています。");
+      setErrorMessage(i18n.t('errors.videoAlreadyAdded'));
       return;
     }
 
@@ -108,7 +109,7 @@ export function useAddVideoActions<TVideo extends VideoBase>({
       const oembedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${id}&format=json`;
       const oembedRes = await fetch(oembedUrl);
       if (!oembedRes.ok) {
-        setErrorMessage("存在しない動画URLです。");
+        setErrorMessage(i18n.t('errors.videoNotFound'));
         setIsAddOpen(true);
         return;
       }
@@ -165,8 +166,8 @@ export function useAddVideoActions<TVideo extends VideoBase>({
             : "";
       setErrorMessage(
         detail
-          ? `動画情報の取得に失敗しました。${detail}`
-          : "動画情報の取得に失敗しました。"
+          ? i18n.t('errors.videoInfoFailedDetails', { detail })
+          : i18n.t('errors.videoInfoFailed')
       );
       setIsAddOpen(true);
     } finally {
@@ -189,17 +190,17 @@ export function useAddVideoActions<TVideo extends VideoBase>({
     setErrorMessage("");
     const trimmed = channelUrl.trim();
     if (!trimmed) {
-      setErrorMessage("チャンネルURLを入力してください。");
+      setErrorMessage(i18n.t('errors.enterChannelUrl'));
       return;
     }
 
     setIsAdding(true);
     setIsChannelFetchOpen(true);
     setChannelFetchProgress(0);
-    setChannelFetchMessage("チャンネル情報を取得中...");
+    setChannelFetchMessage(i18n.t('errors.fetchingChannelInfo'));
     try {
       setChannelFetchProgress(5);
-      setChannelFetchMessage("動画一覧を取得中...");
+      setChannelFetchMessage(i18n.t('errors.fetchingVideoList'));
       const result = await invoke<ChannelFeedItem[]>("list_channel_videos", {
         url: trimmed,
         cookiesFile: cookiesFile || null,
@@ -217,7 +218,7 @@ export function useAddVideoActions<TVideo extends VideoBase>({
       );
       const totalCandidates = candidates.length;
       setChannelFetchMessage(
-        `動画リストを整理中... (0/${Math.max(totalCandidates, 0)})`
+        i18n.t('errors.organizingVideoListStart', { total: Math.max(totalCandidates, 0) })
       );
 
       const baseTime = Date.now();
@@ -257,7 +258,7 @@ export function useAddVideoActions<TVideo extends VideoBase>({
           const progress = Math.min(95, Math.round(10 + ratio * 85));
           setChannelFetchProgress(progress);
           setChannelFetchMessage(
-            `動画リストを整理中... (${completed}/${totalCandidates})`
+            i18n.t('errors.organizingVideoList', { completed, total: totalCandidates })
           );
           return {
             id: item.id as string,
@@ -274,11 +275,11 @@ export function useAddVideoActions<TVideo extends VideoBase>({
       );
 
       if (newItems.length === 0) {
-        setErrorMessage("追加できる新しい動画が見つかりませんでした。");
+        setErrorMessage(i18n.t('errors.noNewVideosFound'));
         return;
       }
 
-      setChannelFetchMessage(`追加中... (${newItems.length}件)`);
+      setChannelFetchMessage(i18n.t('errors.addingVideos', { count: newItems.length }));
       setVideos((prev) => [...newItems, ...prev]);
       scheduleBackgroundMetadataFetch(
         newItems.map((item) => ({ id: item.id, sourceUrl: item.sourceUrl }))
@@ -286,7 +287,7 @@ export function useAddVideoActions<TVideo extends VideoBase>({
       setChannelUrl("");
       setIsAddOpen(false);
       setChannelFetchProgress(100);
-      setChannelFetchMessage("完了しました");
+      setChannelFetchMessage(i18n.t('errors.completed'));
     } catch (err) {
       const detail =
         err instanceof Error
@@ -296,8 +297,8 @@ export function useAddVideoActions<TVideo extends VideoBase>({
             : "";
       setErrorMessage(
         detail
-          ? `チャンネルの動画取得に失敗しました。${detail}`
-          : "チャンネルの動画取得に失敗しました。"
+          ? i18n.t('errors.channelVideosFailedDetails', { detail })
+          : i18n.t('errors.channelVideosFailed')
       );
     } finally {
       setIsAdding(false);

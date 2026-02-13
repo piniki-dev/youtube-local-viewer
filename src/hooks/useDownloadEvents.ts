@@ -1,6 +1,7 @@
 import { useCallback, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import i18n from "../i18n";
 
 function classifyDownloadError(stderr: string, stdout: string): string {
   const combined = (stderr + "\n" + stdout).toLowerCase();
@@ -11,7 +12,7 @@ function classifyDownloadError(stderr: string, stdout: string): string {
     combined.includes("指定されたファイルが見つかりません") ||
     combined.includes("the system cannot find")
   ) {
-    return "yt-dlpが見つかりません。設定からインストール先を確認してください。";
+    return i18n.t('errors.ytdlpNotFound');
   }
 
   if (
@@ -28,18 +29,18 @@ function classifyDownloadError(stderr: string, stdout: string): string {
     combined.includes("getaddrinfo") ||
     combined.includes("nodename nor servname provided")
   ) {
-    return "ネットワークエラーが発生しました。インターネット接続を確認してください。";
+    return i18n.t('errors.networkError');
   }
 
   if (combined.includes("http error 429") || combined.includes("too many requests")) {
-    return "リクエスト制限に達しました。しばらく待ってから再試行してください。";
+    return i18n.t('errors.rateLimitError');
   }
 
   if (combined.includes("http error 403") || combined.includes("403 forbidden")) {
-    return "アクセスが拒否されました（403）。Cookieの設定を確認してください。";
+    return i18n.t('errors.accessDeniedError');
   }
 
-  return "ダウンロードに失敗しました。詳細を確認してください。";
+  return i18n.t('errors.downloadFailed');
 }
 
 type DownloadFinished = {
@@ -229,7 +230,7 @@ export function useDownloadEvents<TVideo extends VideoLike>({
                   : v
               )
             );
-            const details = stderr || stdout || "不明なエラー";
+            const details = stderr || stdout || i18n.t('errors.unknownError');
             setVideoErrors((prev: Record<string, string>) => ({
               ...prev,
               [id]: details,
@@ -347,7 +348,7 @@ export function useDownloadEvents<TVideo extends VideoLike>({
                     : v
                 )
               );
-              const details = stderr || stdout || "不明なエラー";
+              const details = stderr || stdout || i18n.t('errors.unknownError');
               setCommentErrors((prev: Record<string, string>) => ({
                 ...prev,
                 [id]: details,

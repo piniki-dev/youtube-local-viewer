@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, memo } from "react";
+import { useTranslation } from "react-i18next";
 
 type DownloadStatus = "pending" | "downloading" | "downloaded" | "failed";
 type CommentStatus =
@@ -68,6 +69,7 @@ const VideoCardComponent = ({
   formatPublishedAt,
   formatDuration,
 }: VideoCardProps) => {
+  const { t } = useTranslation();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -109,10 +111,10 @@ const VideoCardComponent = ({
         disabled={isActionDisabled}
         aria-label={
           isDownloaded
-            ? `再生: ${video.title}`
+            ? `${t("videoCard.play")}: ${video.title}`
             : isDownloading
-              ? `ダウンロード中: ${video.title}`
-              : `ダウンロード開始: ${video.title}`
+              ? `${t("videoCard.downloading")}: ${video.title}`
+              : `${t("videoCard.downloadStart")}: ${video.title}`
         }
       >
         <div className="thumbnail">
@@ -129,7 +131,7 @@ const VideoCardComponent = ({
             className={`video-card-fav-btn${isFavorite ? " active" : ""}`}
             type="button"
             onClick={onToggleFavorite}
-            aria-label={isFavorite ? "お気に入り解除" : "お気に入りに追加"}
+            aria-label={isFavorite ? t("videoCard.removeFromFavorites") : t("videoCard.addToFavorites")}
           >
             <i className={isFavorite ? "ri-heart-fill" : "ri-heart-line"} />
           </button>
@@ -138,7 +140,7 @@ const VideoCardComponent = ({
               className="video-card-menu-btn"
               type="button"
               onClick={() => setMenuOpen((prev) => !prev)}
-              aria-label="メニュー"
+              aria-label={t("videoCard.menu")}
             >
               <i className="ri-menu-line" />
             </button>
@@ -151,7 +153,7 @@ const VideoCardComponent = ({
                     onClick={() => { setMenuOpen(false); onDownload(); }}
                   >
                     <i className="ri-download-2-line" />
-                    ダウンロード
+                    {t("videoCard.download")}
                   </button>
                 )}
                 <button
@@ -160,7 +162,7 @@ const VideoCardComponent = ({
                   onClick={() => { setMenuOpen(false); onRefreshMetadata(); }}
                 >
                   <i className="ri-refresh-line" />
-                  メタデータの再取得
+                  {t("videoCard.refreshMetadata")}
                 </button>
                 <button
                   className="video-card-dropdown-item"
@@ -168,7 +170,7 @@ const VideoCardComponent = ({
                   onClick={() => { setMenuOpen(false); onOpenInBrowser(); }}
                 >
                   <i className="ri-external-link-line" />
-                  YouTubeで開く
+                  {t("videoCard.openInBrowser")}
                 </button>
                 <button
                   className="video-card-dropdown-item"
@@ -176,7 +178,7 @@ const VideoCardComponent = ({
                   onClick={() => { setMenuOpen(false); onCopyUrl(); }}
                 >
                   <i className="ri-file-copy-line" />
-                  URLをコピー
+                  {t("videoCard.copyUrl")}
                 </button>
                 {canDelete && (
                   <button
@@ -185,7 +187,7 @@ const VideoCardComponent = ({
                     onClick={() => { setMenuOpen(false); onDelete(); }}
                   >
                     <i className="ri-delete-bin-line" />
-                    削除
+                    {t("videoCard.delete")}
                   </button>
                 )}
               </div>
@@ -193,7 +195,7 @@ const VideoCardComponent = ({
           </div>
         </div>
         <p>{video.channel}</p>
-        {video.publishedAt && <p>配信日: {formatPublishedAt(video.publishedAt)}</p>}
+        {video.publishedAt && <p>{t("videoCard.publishedDate")}: {formatPublishedAt(video.publishedAt)}</p>}
         <span
           className={`badge ${
             displayStatus === "downloaded"
@@ -206,24 +208,24 @@ const VideoCardComponent = ({
           }`}
         >
           {displayStatus === "downloaded"
-            ? "ダウンロード済"
+            ? t("videoCard.downloaded")
             : displayStatus === "downloading" || isQueued
               ? isQueued
-                ? "ダウンロード待機中"
-                : "ダウンロード中"
+                ? t("videoCard.queued")
+                : t("videoCard.downloading")
               : displayStatus === "pending"
-                ? "未ダウンロード"
-                : "失敗"}
+                ? t("videoCard.notDownloaded")
+                : t("videoCard.failed")}
         </span>
         {mediaInfo && (
           <p className="progress-line codec-line">
-            動画: {mediaInfo.videoCodec ?? "不明"}
+            {t("videoCard.videoCodec")}: {mediaInfo.videoCodec ?? t("videoCard.unknown")}
             {mediaInfo.width && mediaInfo.height
               ? ` ${mediaInfo.width}x${mediaInfo.height}`
               : ""}
             {mediaInfo.duration ? ` / ${formatDuration(mediaInfo.duration)}` : ""}
-            {mediaInfo.container ? ` / 容器: ${mediaInfo.container}` : ""}
-            {mediaInfo.audioCodec ? ` / 音声: ${mediaInfo.audioCodec}` : ""}
+            {mediaInfo.container ? ` / ${t("videoCard.container")}: ${mediaInfo.container}` : ""}
+            {mediaInfo.audioCodec ? ` / ${t("videoCard.audioCodec")}: ${mediaInfo.audioCodec}` : ""}
           </p>
         )}
         {video.commentsStatus !== "unavailable" && (
@@ -240,12 +242,12 @@ const VideoCardComponent = ({
               }`}
             >
               {isCommentsDownloading
-                ? "ライブチャット取得中"
+                ? t("videoCard.commentsDownloading")
                 : video.commentsStatus === "downloaded"
-                  ? "ライブチャット取得済"
+                  ? t("videoCard.commentsDownloaded")
                   : video.commentsStatus === "pending"
-                    ? "ライブチャット未取得"
-                    : "ライブチャット失敗"}
+                    ? t("videoCard.commentsNotDownloaded")
+                    : t("videoCard.commentsFailed")}
             </span>
           </div>
         )}

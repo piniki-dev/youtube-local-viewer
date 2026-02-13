@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { emitTo } from "@tauri-apps/api/event";
 import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
+import i18n from "../i18n";
 
 type CommentItem = {
   author: string;
@@ -159,7 +160,7 @@ export function usePlayerState({
           }
         })();
       } catch {
-        setPlayerCommentsError("ライブチャットの読み込みに失敗しました。");
+        setPlayerCommentsError(i18n.t('errors.liveChatLoadFailed'));
         setIsInitialCommentsReady(true);
       } finally {
         // keep loading state managed in the initial load path
@@ -267,7 +268,7 @@ export function usePlayerState({
           }
         })();
       } catch {
-        setPlayerError("動画ファイルの読み込みに失敗しました。");
+        setPlayerError(i18n.t('errors.videoFileLoadFailed'));
       } finally {
         setPlayerLoading(false);
         console.timeEnd(`player-open:${traceId}`);
@@ -337,7 +338,7 @@ export function usePlayerState({
     try {
       await openPath(playerFilePath);
     } catch {
-      setPlayerError("外部プレイヤーの起動に失敗しました。");
+      setPlayerError(i18n.t('errors.externalPlayerLaunchFailed'));
     }
   }, [playerFilePath]);
 
@@ -346,7 +347,7 @@ export function usePlayerState({
     try {
       await revealItemInDir(playerFilePath);
     } catch {
-      setPlayerError("フォルダの表示に失敗しました。");
+      setPlayerError(i18n.t('errors.folderOpenFailed'));
     }
   }, [playerFilePath]);
 

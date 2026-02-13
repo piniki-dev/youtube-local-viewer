@@ -7,6 +7,7 @@ import {
   useState,
 } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { useTranslation } from "react-i18next";
 import { AppHeader } from "./components/AppHeader";
 import { VideoListSection } from "./components/VideoListSection";
 import { AppModals } from "./components/AppModals";
@@ -153,6 +154,7 @@ const YTDLP_PATH_KEY = "ytlv_yt_dlp_path";
 const FFMPEG_PATH_KEY = "ytlv_ffmpeg_path";
 const FFPROBE_PATH_KEY = "ytlv_ffprobe_path";
 const DOWNLOAD_QUALITY_KEY = "ytlv_download_quality";
+const LANGUAGE_KEY = "ytlv_language";
 const INTEGRITY_CHECK_PENDING_KEY = "ytlv_integrity_check_pending";
 
 const GRID_CARD_WIDTH = 240;
@@ -160,6 +162,7 @@ const GRID_GAP = 16;
 const GRID_ROW_HEIGHT = 420;
 
 function App() {
+  const { i18n } = useTranslation();
   const [videos, setVideos] = useState<VideoItem[]>([]);
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -189,6 +192,7 @@ function App() {
       ffmpegPathKey: FFMPEG_PATH_KEY,
       ffprobePathKey: FFPROBE_PATH_KEY,
       downloadQualityKey: DOWNLOAD_QUALITY_KEY,
+      languageKey: LANGUAGE_KEY,
     }),
     []
   );
@@ -201,6 +205,7 @@ function App() {
   const [ffmpegPath, setFfmpegPath] = useState<string>("");
   const [ffprobePath, setFfprobePath] = useState<string>("");
   const [downloadQuality, setDownloadQuality] = useState<string>("");
+  const [language, setLanguage] = useState<string>("ja");
   const [progressLines, setProgressLines] = useState<Record<string, string>>({});
   const [commentsDownloadingIds, setCommentsDownloadingIds] = useState<string[]>(
     []
@@ -325,6 +330,7 @@ function App() {
     setFfmpegPath,
     setFfprobePath,
     setDownloadQuality,
+    setLanguage,
     setIsStateReady,
     isStateReady,
     videos,
@@ -337,8 +343,15 @@ function App() {
     ffmpegPath,
     ffprobePath,
     downloadQuality,
+    language,
     storageKeys,
   });
+
+  useEffect(() => {
+    if (language && isStateReady) {
+      i18n.changeLanguage(language);
+    }
+  }, [language, isStateReady, i18n]);
 
   useEffect(() => {
     videosRef.current = videos;
@@ -519,6 +532,11 @@ function App() {
   const updateDownloadQuality = useCallback((value: string) => {
     setDownloadQuality(value === "best" ? "" : value);
   }, []);
+
+  const updateLanguage = useCallback((value: string) => {
+    setLanguage(value);
+    i18n.changeLanguage(value);
+  }, [i18n]);
 
   const { exportBackup, importBackup } = useBackupActions({
     persistSettings,
@@ -1006,6 +1024,8 @@ function App() {
         onExportBackup={exportBackup}
         onImportBackup={importBackup}
         settingsErrorMessage={settingsErrorMessage}
+        language={language}
+        onUpdateLanguage={updateLanguage}
         isIntegrityOpen={isIntegrityOpen}
         onCloseIntegrity={() => setIsIntegrityOpen(false)}
         integrityMessage={integrityMessage}

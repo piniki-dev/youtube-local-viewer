@@ -1,3 +1,5 @@
+import { useTranslation } from "react-i18next";
+
 type IntegrityIssue = {
   id: string;
   title: string;
@@ -34,13 +36,14 @@ export function IntegrityModal({
   onRunIntegrityCheck,
   onRelink,
 }: IntegrityModalProps) {
+  const { t } = useTranslation();
   if (!isOpen) return null;
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h2>整合性チェック</h2>
+          <h2>{t("integrity.title")}</h2>
           <button className="icon" onClick={onClose}>
             ×
           </button>
@@ -50,15 +53,17 @@ export function IntegrityModal({
           {integritySummary && (
             <div className="integrity-summary">
               <p>
-                欠損合計: {integritySummary.total}件（動画:
-                {integritySummary.videoMissing} / コメント:
-                {integritySummary.commentsMissing} / メタデータ:
-                {integritySummary.metadataMissing}）
+                {t("integrity.summary", {
+                  total: integritySummary.total,
+                  video: integritySummary.videoMissing,
+                  comments: integritySummary.commentsMissing,
+                  metadata: integritySummary.metadataMissing
+                })}
               </p>
             </div>
           )}
           {!integrityMessage && integrityIssues.length === 0 && (
-            <p className="progress-line">欠損は見つかりませんでした。</p>
+            <p className="progress-line">{t("integrity.noIssues")}</p>
           )}
           {integrityIssues.length > 0 && (
             <div className="integrity-list">
@@ -67,13 +72,13 @@ export function IntegrityModal({
                   <div className="integrity-title">{item.title}</div>
                   <div className="integrity-badges">
                     {item.videoMissing && (
-                      <span className="integrity-badge">動画欠損</span>
+                      <span className="integrity-badge">{t("integrity.videoMissing")}</span>
                     )}
                     {item.commentsMissing && (
-                      <span className="integrity-badge">コメント欠損</span>
+                      <span className="integrity-badge">{t("integrity.commentsMissing")}</span>
                     )}
                     {item.metadataMissing && (
-                      <span className="integrity-badge">メタデータ欠損</span>
+                      <span className="integrity-badge">{t("integrity.metadataMissing")}</span>
                     )}
                   </div>
                 </div>
@@ -87,13 +92,13 @@ export function IntegrityModal({
             onClick={onRunIntegrityCheck}
             disabled={integrityRunning}
           >
-            {integrityRunning ? "チェック中..." : "再チェック"}
+            {integrityRunning ? t("integrity.checking") : t("integrity.recheck")}
           </button>
           <button className="ghost" onClick={onRelink}>
-            再リンク
+            {t("integrity.relink")}
           </button>
           <button className="primary" onClick={onClose}>
-            閉じる
+            {t("integrity.close")}
           </button>
         </div>
       </div>

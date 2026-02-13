@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import i18n from "../i18n";
 
 type ToolingCheckStatus = {
   ok: boolean;
@@ -140,7 +141,7 @@ export function useToolSetup({
         ...prev,
         active: false,
         status: "done",
-        message: "すべてのツールのセットアップが完了しました",
+        message: i18n.t('errors.setupComplete'),
       }));
     } catch (e) {
       setDownloadState((prev) => ({

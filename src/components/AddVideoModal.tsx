@@ -1,3 +1,5 @@
+import { useTranslation } from "react-i18next";
+
 type AddMode = "video" | "channel";
 
 type AddVideoModalProps = {
@@ -33,13 +35,14 @@ export function AddVideoModal({
   onAddVideo,
   onAddChannel,
 }: AddVideoModalProps) {
+  const { t } = useTranslation();
   if (!isOpen) return null;
   const canSubmit = addMode === "video" ? videoUrl.trim() : channelUrl.trim();
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h2>動画を追加</h2>
+          <h2>{t("addVideo.title")}</h2>
           <button className="icon" onClick={onClose}>
             ×
           </button>
@@ -51,32 +54,32 @@ export function AddVideoModal({
               onClick={() => onChangeAddMode("video")}
               type="button"
             >
-              動画
+              {t("addVideo.videoTab")}
             </button>
             <button
               className={addMode === "channel" ? "active" : ""}
               onClick={() => onChangeAddMode("channel")}
               type="button"
             >
-              チャンネル
+              {t("addVideo.channelTab")}
             </button>
           </div>
           {addMode === "video" ? (
             <label>
-              動画URL
+              {t("addVideo.videoUrl")}
               <input
                 type="url"
-                placeholder="https://www.youtube.com/watch?v=..."
+                placeholder={t("addVideo.videoUrlPlaceholder")}
                 value={videoUrl}
                 onChange={(e) => onChangeVideoUrl(e.target.value)}
               />
             </label>
           ) : (
             <label>
-              チャンネルURL
+              {t("addVideo.channelUrl")}
               <input
                 type="url"
-                placeholder="https://www.youtube.com/@channel"
+                placeholder={t("addVideo.channelUrlPlaceholder")}
                 value={channelUrl}
                 onChange={(e) => onChangeChannelUrl(e.target.value)}
               />
@@ -89,21 +92,21 @@ export function AddVideoModal({
                 checked={downloadOnAdd}
                 onChange={(e) => onToggleDownloadOnAdd(e.target.checked)}
               />
-              <span>追加と同時にダウンロードする</span>
+              <span>{t("addVideo.downloadOnAdd")}</span>
             </label>
           )}
           {errorMessage && <p className="error">{errorMessage}</p>}
         </div>
         <div className="modal-footer">
           <button className="ghost" onClick={onClose}>
-            キャンセル
+            {t("addVideo.cancel")}
           </button>
           <button
             className="primary"
             onClick={addMode === "video" ? onAddVideo : onAddChannel}
             disabled={isAdding || !canSubmit}
           >
-            {addMode === "video" ? "追加" : "まとめて追加"}
+            {t("addVideo.add")}
           </button>
         </div>
       </div>

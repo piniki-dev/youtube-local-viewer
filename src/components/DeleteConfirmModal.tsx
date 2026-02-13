@@ -1,3 +1,5 @@
+import { useTranslation } from "react-i18next";
+
 type DeleteConfirmModalProps = {
   isOpen: boolean;
   videoTitle: string;
@@ -13,34 +15,35 @@ export function DeleteConfirmModal({
   onDeleteListOnly,
   onDeleteWithFiles,
 }: DeleteConfirmModalProps) {
+  const { t } = useTranslation();
   if (!isOpen) return null;
 
   return (
     <div className="modal-backdrop" onClick={onCancel}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h2>動画の削除</h2>
+          <h2>{t("deleteConfirm.title")}</h2>
           <button className="icon" onClick={onCancel}>
             ×
           </button>
         </div>
         <div className="modal-body">
           <p>
-            「{videoTitle}」を削除します。
+            {t("deleteConfirm.message", { title: videoTitle })}
           </p>
           <p style={{ color: "var(--c-text-muted)", fontSize: 13 }}>
-            ダウンロード済みの動画ファイルやメタデータも削除しますか？
+            {t("deleteConfirm.question")}
           </p>
         </div>
         <div className="modal-footer">
           <button className="ghost" onClick={onCancel}>
-            キャンセル
+            {t("deleteConfirm.cancel")}
           </button>
           <button className="ghost" onClick={onDeleteListOnly}>
-            リストからのみ削除
+            {t("deleteConfirm.deleteListOnly")}
           </button>
           <button className="primary danger-btn" onClick={onDeleteWithFiles}>
-            ファイルも削除
+            {t("deleteConfirm.deleteWithFiles")}
           </button>
         </div>
       </div>
