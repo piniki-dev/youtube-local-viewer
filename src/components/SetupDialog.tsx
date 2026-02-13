@@ -123,26 +123,26 @@ export function SetupDialog({
         <div className="modal-footer">
           {!isDone && !isActive && (
             <>
-              <button className="btn" onClick={onSkip}>
+              <button className="ghost" onClick={onSkip}>
                 スキップ
               </button>
-              <button className="btn btn-primary" onClick={onStartDownload}>
+              <button className="primary" onClick={onStartDownload}>
                 <i className="ri-download-line" style={{ marginRight: 4 }} />
                 自動ダウンロード
               </button>
             </>
           )}
           {isDone && (
-            <button className="btn btn-primary" onClick={onClose}>
+            <button className="primary" onClick={onClose}>
               閉じる
             </button>
           )}
           {isError && !isActive && (
             <>
-              <button className="btn" onClick={onSkip}>
+              <button className="ghost" onClick={onSkip}>
                 スキップ
               </button>
-              <button className="btn btn-primary" onClick={onStartDownload}>
+              <button className="primary" onClick={onStartDownload}>
                 再試行
               </button>
             </>
