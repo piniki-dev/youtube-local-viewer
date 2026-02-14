@@ -41,7 +41,7 @@ jobs:
       - name: Sign MSI for updater
         shell: pwsh
         env:
-          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
+          TAURI_PRIVATE_KEY_BASE64: ${{ secrets.TAURI_PRIVATE_KEY }}
         run: |
           $msiPath = Get-ChildItem -Path "src-tauri\target\release\bundle\msi\*.msi" | Select-Object -First 1
           if ($msiPath) {
@@ -52,17 +52,11 @@ jobs:
             Compress-Archive -Path $msiPath.FullName -DestinationPath $zipPath -Force
             Write-Host "Created ZIP: $zipPath"
             
-            # Windows改行（CRLF）をUnix改行（LF）に統一
-            # 秘密鍵ファイルは2行構造なので改行が必要
-            $normalizedKey = $env:TAURI_PRIVATE_KEY -replace "`r`n", "`n" -replace "`r", "`n"
-            $newline = [System.Environment]::NewLine
-            Write-Host "Original key length: $($env:TAURI_PRIVATE_KEY.Length)"
-            Write-Host "Normalized key length: $($normalizedKey.Length)"
-            Write-Host "Key has newlines: $(if ($normalizedKey -match '\n') { 'YES' } else { 'NO' })"
-            
-            # 一時ファイルに保存（Unix改行）
+            # Base64デコードして秘密鍵ファイルを復元
             $keyPath = "$env:TEMP\tauri-private.key"
-            [System.IO.File]::WriteAllText($keyPath, $normalizedKey, [System.Text.UTF8Encoding]::new($false))
+            $keyBytes = [Convert]::FromBase64String($env:TAURI_PRIVATE_KEY_BASE64)
+            [System.IO.File]::WriteAllBytes($keyPath, $keyBytes)
+            Write-Host "Decoded private key, size: $($keyBytes.Length) bytes"
             
             # 署名を生成
             npx tauri signer sign "$zipPath" --private-key "$keyPath"
