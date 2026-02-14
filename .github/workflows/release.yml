@@ -47,9 +47,9 @@ jobs:
           if ($msiPath) {
             Write-Host "Creating updater bundle for $($msiPath.FullName)"
             
-            # 秘密鍵を一時ファイルに保存
+            # 秘密鍵を一時ファイルに保存（BOMなしUTF8）
             $keyPath = "$env:TEMP\tauri-private.key"
-            $env:TAURI_PRIVATE_KEY | Out-File -FilePath $keyPath -NoNewline -Encoding utf8
+            [System.IO.File]::WriteAllText($keyPath, $env:TAURI_PRIVATE_KEY, [System.Text.UTF8Encoding]::new($false))
             
             # ZIPファイルを作成
             $zipPath = "$($msiPath.FullName).zip"
