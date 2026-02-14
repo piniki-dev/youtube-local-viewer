@@ -345,6 +345,17 @@ export function useMetadataFetch<TVideo extends VideoLike>({
       next.sourceUrl?.trim() || `https://www.youtube.com/watch?v=${next.id}`;
     metadataActiveIdRef.current = next.id;
     metadataActiveItemRef.current = next;
+    
+    // 既存のライブ配信中のメタデータファイルを削除（再取得の場合）
+    try {
+      await invoke("delete_live_metadata_files", {
+        id: next.id,
+        outputDir,
+      });
+    } catch {
+      // 失敗しても続行
+    }
+    
     try {
       await invoke("start_metadata_download", {
         id: next.id,
@@ -503,12 +514,15 @@ export function useMetadataFetch<TVideo extends VideoLike>({
             infoLookupIds.push(video.id);
           }
 
-          // メタデータ取得済みの場合はスキップ
-          if (effectiveMetadataFetched) {
+          // ライブ配信中の動画は配信終了を検出するため再取得
+          const isCurrentlyLiveStream = video.isLive === true || video.liveStatus === "is_live";
+          
+          // メタデータ取得済みの場合はスキップ（ただしライブ配信中は除く）
+          if (effectiveMetadataFetched && !isCurrentlyLiveStream) {
             continue;
           }
 
-          if (!hasInfo || (needsLiveChatRetry && !hasChat)) {
+          if (!hasInfo || (needsLiveChatRetry && !hasChat) || isCurrentlyLiveStream) {
             candidates.push({ id: video.id, sourceUrl: video.sourceUrl });
           }
         }
@@ -527,6 +541,24 @@ export function useMetadataFetch<TVideo extends VideoLike>({
           for (const item of localMetadata) {
             const currentVideo = videoById.get(item.id);
             if (!currentVideo || currentVideo.commentsStatus !== "pending") {
+              continue;
+            }
+            // ローカルメタデータがライブ配信中の場合は適用せず、再取得対象に追加
+            const isLocalLive = item.metadata?.isLive === true || item.metadata?.liveStatus === "is_live";
+            if (isLocalLive) {
+              // 古いライブ配信中のメタデータファイルを削除
+              try {
+                await invoke("delete_live_metadata_files", {
+                  id: item.id,
+                  outputDir,
+                });
+              } catch (err) {
+                console.warn(`Failed to delete live metadata files for ${item.id}:`, err);
+              }
+              // ライブ配信終了を検出するため、再取得対象に追加
+              if (!pendingMetadataIdsRef.current.has(item.id)) {
+                candidates.push({ id: item.id, sourceUrl: currentVideo.sourceUrl });
+              }
               continue;
             }
             const hasChat = chatIds.has(item.id);

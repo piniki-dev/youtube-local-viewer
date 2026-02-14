@@ -907,3 +907,56 @@ pub fn delete_video_files(
 
     Ok(deleted)
 }
+
+#[tauri::command]
+pub fn delete_live_metadata_files(id: String, output_dir: String) -> Result<usize, String> {
+    let id_lower = id.to_lowercase();
+    let mut deleted = 0;
+
+    let dirs = vec![
+        library_metadata_dir(&output_dir),
+        library_comments_dir(&output_dir),
+    ];
+
+    for dir in &dirs {
+        if !dir.exists() {
+            continue;
+        }
+        for path in collect_files_recursive(dir) {
+            if !path.is_file() {
+                continue;
+            }
+            let name = match path.file_name().and_then(|n| n.to_str()) {
+                Some(name) => name.to_string(),
+                None => continue,
+            };
+            let name_lower = name.to_lowercase();
+            
+            // .info.jsonファイルのみを対象
+            if !name_lower.ends_with(".info.json") {
+                continue;
+            }
+            
+            // ファイル名にIDが含まれているかチェック
+            if !name_lower.contains(&id_lower) {
+                continue;
+            }
+            
+            // タイムスタンプパターンをチェック（YYYY-MM-DD HH_MM形式）
+            // 例: "... 2026-02-14 02_09 [videoId].info.json"
+            let has_timestamp = name.contains(|c: char| c.is_ascii_digit())
+                && (name.contains("_") || name.contains("-"))
+                && name.matches(char::is_numeric).count() >= 8;
+            
+            if has_timestamp {
+                if fs::remove_file(&path).is_ok() {
+                    deleted += 1;
+                    #[cfg(debug_assertions)]
+                    println!("[delete_live_metadata_files] deleted: {}", name);
+                }
+            }
+        }
+    }
+
+    Ok(deleted)
+}
