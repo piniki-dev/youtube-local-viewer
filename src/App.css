@@ -737,6 +737,47 @@ body {
   gap: 8px;
 }
 
+/* Update Modal Styles */
+.update-info {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.update-info p {
+  margin: 0;
+  font-size: 14px;
+  color: var(--c-text-body);
+}
+
+.update-changelog {
+  margin-top: 12px;
+  padding: 12px;
+  background: var(--c-surface-inset);
+  border: 1px solid var(--c-border-subtle);
+  border-radius: 8px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.update-changelog h3 {
+  margin: 0 0 8px 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--c-text-body);
+}
+
+.changelog-content {
+  white-space: pre-wrap;
+  font-size: 13px;
+  color: var(--c-text-body);
+  line-height: 1.5;
+}
+
+.update-progress {
+  margin-top: 12px;
+}
+
 .error {
   color: #d32f2f;
   font-size: 13px;

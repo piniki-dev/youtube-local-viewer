@@ -61,10 +61,18 @@ jobs:
               exit 1
             }
 
-            # ZIPファイルを作成
+            # ZIPファイルを作成（Deflate圧縮方式を使用）
             $zipPath = "$($msiPath.FullName).zip"
             if (-not (Test-Path $zipPath)) {
-              Compress-Archive -Path $msiPath.FullName -DestinationPath $zipPath -Force
+              # PowerShellのCompress-Archiveは互換性の問題があるため、.NET APIを直接使用
+              Add-Type -AssemblyName System.IO.Compression.FileSystem
+              Add-Type -AssemblyName System.IO.Compression
+              
+              $zip = [System.IO.Compression.ZipFile]::Open($zipPath, [System.IO.Compression.ZipArchiveMode]::Create)
+              $compressionLevel = [System.IO.Compression.CompressionLevel]::Optimal
+              [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $msiPath.FullName, $msiPath.Name, $compressionLevel)
+              $zip.Dispose()
+              
               Write-Host "Created ZIP: $zipPath"
             }
 

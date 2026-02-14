@@ -1,6 +1,6 @@
 [package]
 name = "youtube-local-viewer"
-version = "1.0.1"
+version = "1.0.2"
 description = "A local YouTube video viewer and manager"
 authors = ["piniki"]
 license = "MIT"

@@ -852,6 +852,7 @@ function App() {
     updateProgress,
     error: updateError,
     installUpdate,
+    dismissUpdate,
   } = useAppUpdater();
   const isCheckingFiles =
     isStateReady && !hasCheckedFiles && !!downloadDir && videos.length > 0;
@@ -1102,7 +1103,7 @@ function App() {
         updateProgress={updateProgress}
         error={updateError}
         onInstall={installUpdate}
-        onClose={() => {}}
+        onClose={dismissUpdate}
       />
     </main>
   );

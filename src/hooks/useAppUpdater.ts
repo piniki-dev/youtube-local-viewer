@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { check } from '@tauri-apps/plugin-updater';
+import { useEffect, useState, useRef } from 'react';
+import { check, Update } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
 
 export interface UpdateInfo {
@@ -20,6 +20,7 @@ export const useAppUpdater = () => {
   const [isUpdating, setIsUpdating] = useState(false);
   const [updateProgress, setUpdateProgress] = useState<UpdateProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const updateRef = useRef<Update | null>(null);
 
   const checkForUpdates = async (silent = false) => {
     setIsChecking(true);
@@ -29,6 +30,7 @@ export const useAppUpdater = () => {
       const update = await check();
 
       if (update) {
+        updateRef.current = update;
         setUpdateInfo({
           available: true,
           currentVersion: update.currentVersion,
@@ -37,6 +39,7 @@ export const useAppUpdater = () => {
         });
         return true;
       } else {
+        updateRef.current = null;
         setUpdateInfo({
           available: false,
           currentVersion: '', // Will be filled by app version
@@ -57,19 +60,29 @@ export const useAppUpdater = () => {
   };
 
   const installUpdate = async () => {
-    if (!updateInfo?.available) return;
+    if (!updateInfo?.available) {
+      const err = 'Update info not available';
+      console.error(err);
+      setError(err);
+      return;
+    }
+
+    if (!updateRef.current) {
+      const err = 'Update reference is null';
+      console.error(err);
+      setError(err);
+      return;
+    }
 
     setIsUpdating(true);
     setError(null);
 
     try {
-      const update = await check();
-      if (!update) {
-        throw new Error('No update available');
-      }
+      const update = updateRef.current;
 
       // Download and install
       let downloadedBytes = 0;
+      
       await update.downloadAndInstall((event) => {
         switch (event.event) {
           case 'Started':
@@ -91,16 +104,24 @@ export const useAppUpdater = () => {
       // Relaunch the app
       await relaunch();
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Update failed';
+      const message = err instanceof Error ? err.message : String(err);
+      console.error('Failed to install update:', message, err);
       setError(message);
-      console.error('Failed to install update:', err);
       setIsUpdating(false);
     }
   };
 
-  // Check for updates on mount
+  const dismissUpdate = () => {
+    setUpdateInfo(null);
+    updateRef.current = null;
+    setError(null);
+  };
+
+  // Check for updates on mount (only in production)
   useEffect(() => {
-    checkForUpdates(true);
+    if (import.meta.env.PROD) {
+      checkForUpdates(true);
+    }
   }, []);
 
   return {
@@ -111,5 +132,6 @@ export const useAppUpdater = () => {
     error,
     checkForUpdates,
     installUpdate,
+    dismissUpdate,
   };
 };
