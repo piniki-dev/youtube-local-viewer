@@ -52,15 +52,16 @@ jobs:
             Compress-Archive -Path $msiPath.FullName -DestinationPath $zipPath -Force
             Write-Host "Created ZIP: $zipPath"
             
-            # 秘密鍵から改行を完全に除去
-            $cleanKey = $env:TAURI_PRIVATE_KEY -replace "[\r\n]", ""
+            # Windows改行（CRLF）をUnix改行（LF）に統一
+            # 秘密鍵ファイルは2行構造なので改行が必要
+            $normalizedKey = $env:TAURI_PRIVATE_KEY -replace "`r`n", "`n" -replace "`r", "`n"
             Write-Host "Original key length: $($env:TAURI_PRIVATE_KEY.Length)"
-            Write-Host "Cleaned key length: $($cleanKey.Length)"
-            Write-Host "Key preview: $($cleanKey.Substring(0, [Math]::Min(50, $cleanKey.Length)))..."
+            Write-Host "Normalized key length: $($normalizedKey.Length)"
+            Write-Host "Key has newlines: $(if ($normalizedKey.Contains(\"`n\")) { 'YES' } else { 'NO' })"
             
-            # 一時ファイルに保存（改行なし）
+            # 一時ファイルに保存（Unix改行）
             $keyPath = "$env:TEMP\tauri-private.key"
-            [System.IO.File]::WriteAllBytes($keyPath, [System.Text.Encoding]::UTF8.GetBytes($cleanKey))
+            [System.IO.File]::WriteAllText($keyPath, $normalizedKey, [System.Text.UTF8Encoding]::new($false))
             
             # 署名を生成
             npx tauri signer sign "$zipPath" --private-key "$keyPath"
