@@ -55,9 +55,10 @@ jobs:
             # Windows改行（CRLF）をUnix改行（LF）に統一
             # 秘密鍵ファイルは2行構造なので改行が必要
             $normalizedKey = $env:TAURI_PRIVATE_KEY -replace "`r`n", "`n" -replace "`r", "`n"
+            $newline = [System.Environment]::NewLine
             Write-Host "Original key length: $($env:TAURI_PRIVATE_KEY.Length)"
             Write-Host "Normalized key length: $($normalizedKey.Length)"
-            Write-Host "Key has newlines: $(if ($normalizedKey.Contains(\"`n\")) { 'YES' } else { 'NO' })"
+            Write-Host "Key has newlines: $(if ($normalizedKey -match '\n') { 'YES' } else { 'NO' })"
             
             # 一時ファイルに保存（Unix改行）
             $keyPath = "$env:TEMP\tauri-private.key"
