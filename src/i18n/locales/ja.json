@@ -55,7 +55,8 @@
       "remoteNone": "未使用",
       "remoteGithub": "GitHub (ejs)",
       "remoteNpm": "npm (ejs)",
-      "language": "言語"
+      "language": "言語",
+      "version": "バージョン"
     },
     "tools": {
       "ytDlp": "yt-dlp パス",

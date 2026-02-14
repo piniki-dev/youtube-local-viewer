@@ -55,7 +55,8 @@
       "remoteNone": "None",
       "remoteGithub": "GitHub (ejs)",
       "remoteNpm": "npm (ejs)",
-      "language": "Language"
+      "language": "Language",
+      "version": "Version"
     },
     "tools": {
       "ytDlp": "yt-dlp Path",

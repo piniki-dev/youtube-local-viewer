@@ -84,6 +84,7 @@ type AppModalsProps = {
   settingsErrorMessage: string;
   language: string;
   onUpdateLanguage: (value: string) => void;
+  appVersion: string;
 
   isIntegrityOpen: boolean;
   onCloseIntegrity: () => void;
@@ -165,6 +166,7 @@ export function AppModals({
   settingsErrorMessage,
   language,
   onUpdateLanguage,
+  appVersion,
   isIntegrityOpen,
   onCloseIntegrity,
   integrityMessage,
@@ -245,6 +247,7 @@ export function AppModals({
         settingsErrorMessage={settingsErrorMessage}
         language={language}
         onUpdateLanguage={onUpdateLanguage}
+        appVersion={appVersion}
       />
 
       <IntegrityModal

@@ -55,6 +55,7 @@ type SettingsModalProps = {
   settingsErrorMessage: string;
   language: string;
   onUpdateLanguage: (value: string) => void;
+  appVersion: string;
 };
 
 export function SettingsModal({
@@ -95,6 +96,7 @@ export function SettingsModal({
   settingsErrorMessage,
   language,
   onUpdateLanguage,
+  appVersion,
 }: SettingsModalProps) {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<SettingsTab>("general");
@@ -206,6 +208,16 @@ export function SettingsModal({
               </div>
               <div className="setting-row">
                 <div>
+                  <p className="setting-label">{t("settings.general.version")}</p>
+                  <p className="setting-value">{appVersion}</p>
+                </div>
+              </div>
+            </>
+          )}
+          {activeTab === "tools" && (
+            <>
+              <div className="setting-row">
+                <div>
                   <p className="setting-label">{t("settings.general.cookiesSource")}</p>
                   <p className="setting-value">
                     {cookiesSource === "browser"
@@ -275,10 +287,6 @@ export function SettingsModal({
                   </div>
                 </div>
               )}
-            </>
-          )}
-          {activeTab === "tools" && (
-            <>
               <div className="setting-row">
                 <div>
                   <p className="setting-label">{t("settings.tools.ytDlp")}</p>

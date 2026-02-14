@@ -7,6 +7,7 @@ import {
   useState,
 } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { getVersion } from "@tauri-apps/api/app";
 import { useTranslation } from "react-i18next";
 import { AppHeader } from "./components/AppHeader";
 import { VideoListSection } from "./components/VideoListSection";
@@ -180,6 +181,7 @@ function App() {
   const [channelFetchMessage, setChannelFetchMessage] = useState("");
   const [channelFetchProgress, setChannelFetchProgress] = useState(0);
   const [downloadDir, setDownloadDir] = useState<string>("");
+  const [appVersion, setAppVersion] = useState<string>("0.0.0");
   const [downloadingIds, setDownloadingIds] = useState<string[]>([]);
   const [queuedDownloadIds, setQueuedDownloadIds] = useState<string[]>([]);
   const [videoErrors, setVideoErrors] = useState<Record<string, string>>({});
@@ -279,6 +281,12 @@ function App() {
   const isPlayerWindow = useMemo(() => {
     if (typeof window === "undefined") return false;
     return new URLSearchParams(window.location.search).get("player") === "1";
+  }, []);
+
+  useEffect(() => {
+    void getVersion().then((version) => {
+      setAppVersion(version);
+    });
   }, []);
 
   useEffect(() => {
@@ -1055,6 +1063,7 @@ function App() {
         settingsErrorMessage={settingsErrorMessage}
         language={language}
         onUpdateLanguage={updateLanguage}
+        appVersion={appVersion}
         isIntegrityOpen={isIntegrityOpen}
         onCloseIntegrity={() => setIsIntegrityOpen(false)}
         integrityMessage={integrityMessage}
