@@ -32,31 +32,17 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Decode signing key
-        id: decode-key
-        shell: pwsh
-        env:
-          TAURI_PRIVATE_KEY_BASE64: ${{ secrets.TAURI_PRIVATE_KEY }}
-        run: |
-          # GitHub Secretsに保存したBase64エンコード済み秘密鍵をデコード
-          $keyBytes = [Convert]::FromBase64String($env:TAURI_PRIVATE_KEY_BASE64)
-          $keyContent = [System.Text.Encoding]::UTF8.GetString($keyBytes)
-          Write-Host "Decoded private key, lines: $($keyContent.Split("`n").Length), size: $($keyBytes.Length) bytes"
-          # GITHUB_ENVに書き込み（改行対応のためdelimiter方式）
-          $delimiter = "EOF_$(Get-Random)"
-          "TAURI_SIGNING_PRIVATE_KEY<<$delimiter" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          $keyContent | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8 -NoNewline
-          "`n$delimiter" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-
       - name: Build Tauri app
         run: npm run tauri build
         env:
-          TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
 
       - name: Verify and prepare updater assets
         shell: pwsh
         env:
-          TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         run: |
           Write-Host "=== Bundle output ==="
           Get-ChildItem -Path "src-tauri\target\release\bundle" -Recurse -File | ForEach-Object {
