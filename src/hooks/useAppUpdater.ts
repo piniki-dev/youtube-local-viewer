@@ -90,7 +90,7 @@ export const useAppUpdater = () => {
       let downloadedBytes = 0;
       
       await update.downloadAndInstall((event) => {
-        console.log('Update event:', event.event, 'Data:', JSON.stringify(event.data));
+        console.log('Update event:', event.event);
         switch (event.event) {
           case 'Started':
             console.log('Download started, content length:', event.data.contentLength);
