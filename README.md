@@ -1,103 +1,112 @@
+<table>
+	<thead>
+    	<tr>
+      		<th style="text-align:center">English</th>
+      		<th style="text-align:center"><a href="README_ja.md">日本語</a></th>
+    	</tr>
+  	</thead>
+</table>
+
 # YouTube Local Viewer
 
-YouTube動画をローカルに保存・管理・再生するためのWindowsデスクトップアプリケーションです。
+A Windows desktop application for downloading, managing, and playing YouTube videos locally.
 
-Tauri 2 + React 19 + TypeScript で構築されています。
+Built with Tauri 2 + React 19 + TypeScript.
 
-## 主な機能
+## Features
 
-- YouTube動画のローカルダウンロード（品質選択対応）
-- ライブチャット同期再生
-- チャンネル一括登録・動画メタデータ取得
-- 動画の検索・フィルタリング（ダウンロード状態、種類、公開日ソート）
-- ダークモード対応
-- バックアップ・リストア機能
-- サムネイルのローカルキャッシュ
-- 別ウィンドウでの動画再生（プレーヤーウィンドウ）
-- ブラウザCookie連携によるダウンロード
-- yt-dlp / ffmpeg の初回起動時自動ダウンロード
-- エラーログの自動保存
+- Download YouTube videos locally (with quality selection)
+- Live chat synchronized playback
+- Bulk channel registration and video metadata fetching
+- Video search and filtering (by download status, type, publication date)
+- Dark mode support
+- Backup and restore functionality
+- Local thumbnail caching
+- Separate player window for video playback
+- Browser cookie integration for downloads
+- Automatic download of yt-dlp / ffmpeg on first launch
+- Automatic error log saving
 
-## 動作環境
+## System Requirements
 
-- Windows 10/11（64bit）
-- WebView2ランタイム（通常はプリインストール済み）
+- Windows 10/11 (64bit)
+- WebView2 Runtime (usually pre-installed)
 
-## インストール
+## Installation
 
-1. [GitHub Releases](https://github.com/piniki-dev/youtube-local-viewer/releases) から最新の `.exe` インストーラをダウンロード
-2. インストーラを実行（管理者権限不要、ユーザー単位でインストール）
-3. 初回起動時に yt-dlp と ffmpeg の自動ダウンロードが案内されます
+1. Download the latest `.exe` installer from [GitHub Releases](https://github.com/piniki-dev/youtube-local-viewer/releases)
+2. Run the installer (no admin rights required, per-user installation)
+3. On first launch, you'll be guided to automatically download yt-dlp and ffmpeg
 
-> **注意:** 未署名アプリのため、Windows SmartScreen の警告が表示される場合があります。
-> 「詳細情報」→「実行」で起動できます。
+> **Note:** As this is an unsigned application, Windows SmartScreen warnings may appear.
+> Click "More info" → "Run anyway" to launch.
 
-## 外部ツール
+## External Tools
 
-本アプリはダウンロード・メディア処理に以下の外部ツールを使用します。
-初回起動時に自動的にダウンロードされます。
+This application uses the following external tools for downloading and media processing.
+They are automatically downloaded on first launch.
 
-| ツール | 用途 | ライセンス |
-|--------|------|-----------|
-| [yt-dlp](https://github.com/yt-dlp/yt-dlp) | 動画・メタデータのダウンロード | Unlicense |
-| [ffmpeg](https://ffmpeg.org/) / ffprobe | メディア処理・コーデック確認 | LGPL 2.1+ / GPL |
+| Tool | Purpose | License |
+|------|---------|---------|
+| [yt-dlp](https://github.com/yt-dlp/yt-dlp) | Video and metadata download | Unlicense |
+| [ffmpeg](https://ffmpeg.org/) / ffprobe | Media processing and codec verification | LGPL 2.1+ / GPL |
 
-## データ保存先
+## Data Storage
 
-### アプリ設定（ユーザーデータディレクトリ）
+### Application Settings (User Data Directory)
 
-- `settings/app.json` — アプリ設定
-- `index/videos.json` — 動画インデックス
+- `settings/app.json` — Application settings
+- `index/videos.json` — Video index
 
-### 動画データ（ユーザー指定フォルダ）
+### Video Data (User-specified folder)
 
 ```
-<保存先フォルダ>/
-  videos/<youtube_handle>/<タイトル> [video_id].mp4
-  metadata/<youtube_handle>/<タイトル> [video_id].info.json
-  metadata/<youtube_handle>/<タイトル> [video_id].live_chat.json
-  thumbnails/<youtube_handle>/<タイトル> [video_id].png
+<storage_folder>/
+  videos/<youtube_handle>/<title> [video_id].mp4
+  metadata/<youtube_handle>/<title> [video_id].info.json
+  metadata/<youtube_handle>/<title> [video_id].live_chat.json
+  thumbnails/<youtube_handle>/<title> [video_id].png
 ```
 
-## 開発環境セットアップ
+## Development Setup
 
-### 必要なツール
+### Required Tools
 
 - [Node.js](https://nodejs.org/) 20+
-- [Rust](https://rustup.rs/)（stable）
+- [Rust](https://rustup.rs/) (stable)
 - Windows SDK / Visual Studio Build Tools
 
-### 手順
+### Instructions
 
 ```bash
-# 依存パッケージのインストール
+# Install dependencies
 npm install
 
-# 開発サーバー起動（Tauri + Vite）
+# Start development server (Tauri + Vite)
 npm run tauri dev
 
-# リリースビルド
+# Build for release
 npm run tauri build
 ```
 
-### テスト
+### Testing
 
 ```bash
-# ユニット/コンポーネントテスト
+# Unit/Component tests
 npm run test
 
-# E2Eテスト（初回は npx playwright install が必要）
+# E2E tests (first time requires: npx playwright install)
 npm run test:e2e
 ```
 
-## 既知の制限事項
+## Known Limitations
 
-- Windows専用（macOS / Linux 未対応）
-- コード署名なし（SmartScreen警告あり）
-- YouTubeの仕様変更によりダウンロードが失敗する場合があります（yt-dlpの更新で対応）
-- アクセシビリティ・キーボード操作は限定的
+- Windows only (macOS / Linux not supported)
+- No code signing (SmartScreen warnings appear)
+- Downloads may fail due to YouTube specification changes (addressed by yt-dlp updates)
+- Limited accessibility and keyboard navigation
 
-## ライセンス
+## License
 
 [MIT License](LICENSE)
 
