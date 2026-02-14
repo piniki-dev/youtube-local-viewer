@@ -253,18 +253,6 @@ export function useMetadataFetch<TVideo extends VideoLike>({
         
         patch.title = cleanTitle;
         patch.channel = (metadata.channel ?? currentVideo?.channel) || "YouTube";
-        
-        // ライブ配信検出時に通知
-        if (metadata.isLive || metadata.liveStatus === "is_live") {
-          if (addFloatingNoticeRef.current) {
-            addFloatingNoticeRef.current({
-              kind: "info",
-              title: i18n.t('errors.liveStreamDetected'),
-              details: i18n.t('errors.liveStreamDetectedDetails'),
-              autoDismissMs: 10000,
-            });
-          }
-        }
         patch.sourceUrl =
           metadata.webpageUrl ?? metadata.url ?? currentVideo?.sourceUrl ?? "";
         patch.thumbnail =
@@ -514,15 +502,23 @@ export function useMetadataFetch<TVideo extends VideoLike>({
             infoLookupIds.push(video.id);
           }
 
-          // ライブ配信中の動画は配信終了を検出するため再取得
+          // ライブ配信中の動画は起動時（force=true）または手動再取得のみ
           const isCurrentlyLiveStream = video.isLive === true || video.liveStatus === "is_live";
           
-          // メタデータ取得済みの場合はスキップ（ただしライブ配信中は除く）
-          if (effectiveMetadataFetched && !isCurrentlyLiveStream) {
-            continue;
+          // メタデータ取得済みの場合はスキップ（ライブ配信は起動時のみ再取得）
+          if (effectiveMetadataFetched) {
+            // 起動時以外の自動再取得ではライブ配信動画を除外
+            if (isCurrentlyLiveStream && !force) {
+              continue;
+            }
+            // 通常の動画で取得済みならスキップ
+            if (!isCurrentlyLiveStream) {
+              continue;
+            }
           }
 
-          if (!hasInfo || (needsLiveChatRetry && !hasChat) || isCurrentlyLiveStream) {
+          // ライブ配信動画は起動時のみ再取得対象に含める
+          if (!hasInfo || (needsLiveChatRetry && !hasChat) || (isCurrentlyLiveStream && force)) {
             candidates.push({ id: video.id, sourceUrl: video.sourceUrl });
           }
         }
@@ -543,10 +539,22 @@ export function useMetadataFetch<TVideo extends VideoLike>({
             if (!currentVideo || currentVideo.commentsStatus !== "pending") {
               continue;
             }
-            // ローカルメタデータがライブ配信中の場合は適用せず、再取得対象に追加
+            // ローカルメタデータがライブ配信中の場合は起動時のみ再取得対象に追加
             const isLocalLive = item.metadata?.isLive === true || item.metadata?.liveStatus === "is_live";
             if (isLocalLive) {
-              // 古いライブ配信中のメタデータファイルを削除
+              // 起動時以外の自動再取得ではライブ配信動画を除外
+              if (!force) {
+                // メタデータだけ適用してコメント状態はpendingのまま維持
+                applyMetadataUpdate({
+                  id: item.id,
+                  metadata: item.metadata,
+                  hasLiveChat: null,
+                  currentVideo,
+                  markMetadataFetched: true,
+                });
+                continue;
+              }
+              // 起動時は古いライブ配信中のメタデータファイルを削除して再取得
               try {
                 await invoke("delete_live_metadata_files", {
                   id: item.id,
@@ -613,6 +621,19 @@ export function useMetadataFetch<TVideo extends VideoLike>({
             const currentVideo = videosRef.current.find(
               (item: TVideo) => item.id === id
             );
+            
+            // ライブ配信検出時に通知（1回のみ）
+            if (metadata && (metadata.isLive || metadata.liveStatus === "is_live")) {
+              if (addFloatingNoticeRef.current) {
+                addFloatingNoticeRef.current({
+                  kind: "info",
+                  title: i18n.t('errors.liveStreamDetected'),
+                  details: i18n.t('errors.liveStreamDetectedDetails'),
+                  autoDismissMs: 10000,
+                });
+              }
+            }
+            
             if (applyMetadataUpdateRef.current) {
               applyMetadataUpdateRef.current({
                 id,
