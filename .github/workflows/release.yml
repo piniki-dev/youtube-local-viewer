@@ -61,19 +61,20 @@ jobs:
               exit 1
             }
 
-            # ZIPファイルを作成（Deflate圧縮方式を使用）
+            # ZIPファイルを作成（無圧縮=Stored方式を使用、互換性が最も高い）
             $zipPath = "$($msiPath.FullName).zip"
             if (-not (Test-Path $zipPath)) {
-              # PowerShellのCompress-Archiveは互換性の問題があるため、.NET APIを直接使用
+              # 無圧縮ZIPを作成（Tauri updaterと互換性あり）
               Add-Type -AssemblyName System.IO.Compression.FileSystem
               Add-Type -AssemblyName System.IO.Compression
               
               $zip = [System.IO.Compression.ZipFile]::Open($zipPath, [System.IO.Compression.ZipArchiveMode]::Create)
-              $compressionLevel = [System.IO.Compression.CompressionLevel]::Optimal
+              # NoCompressionを使用（互換性が最も高い）
+              $compressionLevel = [System.IO.Compression.CompressionLevel]::NoCompression
               [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $msiPath.FullName, $msiPath.Name, $compressionLevel)
               $zip.Dispose()
               
-              Write-Host "Created ZIP: $zipPath"
+              Write-Host "Created ZIP (uncompressed): $zipPath"
             }
 
             # 署名を生成（--private-keyには鍵の内容を渡す）
@@ -96,6 +97,9 @@ jobs:
           $version = "${{ github.ref_name }}".TrimStart('v')
           $signature = Get-Content $msiSig.FullName -Raw
 
+          # GitHub releases uses dots instead of spaces in filename
+          $actualFileName = $msiZip.Name -replace ' ','.'
+
           $json = @{
             version = $version
             notes = "See release notes for details"
@@ -103,7 +107,7 @@ jobs:
             platforms = @{
               "windows-x86_64" = @{
                 signature = $signature.Trim()
-                url = "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/$($msiZip.Name)"
+                url = "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/$actualFileName"
               }
             }
           } | ConvertTo-Json -Depth 10

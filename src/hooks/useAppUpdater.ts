@@ -31,6 +31,11 @@ export const useAppUpdater = () => {
 
       if (update) {
         updateRef.current = update;
+        console.log('Update available:', {
+          currentVersion: update.currentVersion,
+          latestVersion: update.version,
+          date: update.date,
+        });
         setUpdateInfo({
           available: true,
           currentVersion: update.currentVersion,
@@ -79,13 +84,16 @@ export const useAppUpdater = () => {
 
     try {
       const update = updateRef.current;
+      console.log('Starting update download and install...');
 
       // Download and install
       let downloadedBytes = 0;
       
       await update.downloadAndInstall((event) => {
+        console.log('Update event:', event.event, 'Data:', JSON.stringify(event.data));
         switch (event.event) {
           case 'Started':
+            console.log('Download started, content length:', event.data.contentLength);
             setUpdateProgress({ downloaded: 0, total: event.data.contentLength || 0 });
             break;
           case 'Progress':
@@ -96,16 +104,19 @@ export const useAppUpdater = () => {
             }));
             break;
           case 'Finished':
+            console.log('Download finished successfully');
             setUpdateProgress(null);
             break;
         }
       });
 
+      console.log('Download and install complete, relaunching...');
       // Relaunch the app
       await relaunch();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      console.error('Failed to install update:', message, err);
+      console.error('Failed to install update:', message);
+      console.error('Full error:', err);
       setError(message);
       setIsUpdating(false);
     }
@@ -117,11 +128,10 @@ export const useAppUpdater = () => {
     setError(null);
   };
 
-  // Check for updates on mount (only in production)
+  // Check for updates on mount
   useEffect(() => {
-    if (import.meta.env.PROD) {
-      checkForUpdates(true);
-    }
+    // Enable in both dev and production for testing
+    checkForUpdates(true);
   }, []);
 
   return {
