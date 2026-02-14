@@ -12,7 +12,7 @@ pub(crate) fn resolve_library_root_dir(output_dir: &str) -> PathBuf {
         .map(|name| name.to_lowercase());
     let is_child = matches!(
         last.as_deref(),
-        Some("videos") | Some("comments") | Some("metadata") | Some("contents")
+        Some("videos") | Some("comments") | Some("metadata") | Some("contents") | Some("thumbnails")
     );
     if is_child {
         return base.parent().unwrap_or(&base).to_path_buf();

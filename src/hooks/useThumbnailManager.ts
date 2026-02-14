@@ -50,10 +50,16 @@ export function useThumbnailManager<TVideo extends VideoLike>({
               : guessThumbnailExtension(url, contentType);
             const data = Array.from(converted ?? new Uint8Array(buffer));
             const handle = deriveUploaderHandle(uploaderId, uploaderUrl, channelUrl);
+            
+            // uploaderIdが取得できない場合はローカル保存をスキップ
+            if (!handle) {
+              return url;
+            }
+            
             const savedPath = await invoke<string>("save_thumbnail", {
               videoId,
               title,
-              uploaderId: handle ?? null,
+              uploaderId: handle,
               outputDir: downloadDirRef.current || null,
               data,
               extension,

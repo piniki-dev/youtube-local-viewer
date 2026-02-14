@@ -266,16 +266,17 @@ export function useMetadataFetch<TVideo extends VideoLike>({
         void (async () => {
           const savedThumbnail = await resolveThumbnailPath(
             id,
-            metadata.title ?? currentVideo?.title ?? "Untitled",
+            cleanTitle,
             metadata.uploaderId ?? null,
             metadata.uploaderUrl ?? null,
             metadata.channelUrl ?? null,
             thumbnailCandidates
           );
           if (savedThumbnail) {
+            const existingPatch = pendingMetadataUpdatesRef.current.get(id) || {};
             pendingMetadataUpdatesRef.current.set(
               id,
-              { thumbnail: savedThumbnail } as Partial<TVideo>
+              { ...existingPatch, thumbnail: savedThumbnail } as Partial<TVideo>
             );
             scheduleMetadataFlush();
           }

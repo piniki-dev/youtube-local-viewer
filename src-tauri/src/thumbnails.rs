@@ -63,28 +63,38 @@ pub fn save_thumbnail(
         return Err("サムネイルの保存に必要な情報が不足しています。".to_string());
     }
 
+    let handle = uploader_id.as_deref().map(|s| s.trim()).filter(|s| !s.is_empty());
+    if handle.is_none() {
+        return Err("アップローダーIDが不明です。メタデータを取得してから再度お試しください。".to_string());
+    }
+
     let resolved_output = output_dir.as_deref().map(|s| s.trim()).filter(|s| !s.is_empty());
     let settings = if resolved_output.is_none() { read_settings(&app) } else { PersistedSettings::default() };
-    let dir = if let Some(download_dir) = resolved_output.or(settings.download_dir.as_deref()) {
+    
+    let (base_thumbnails_dir, dir) = if let Some(download_dir) = resolved_output.or(settings.download_dir.as_deref()) {
         let base = library_thumbnails_dir(download_dir);
-        let handle = uploader_id.as_deref().map(|s| s.trim()).unwrap_or("");
-        if handle.is_empty() {
-            base
-        } else {
-            base.join(sanitize_path_component(handle, 64))
-        }
+        (Some(base.clone()), base.join(sanitize_path_component(handle.unwrap(), 64)))
     } else {
         let base = app
             .path()
             .app_config_dir()
-            .map_err(|e| format!("保存先ディレクトリの取得に失敗しました: {}", e))?;
-        base.join("thumbnails")
+            .map_err(|e| format!("保存先ディレクトリの取得に失敗しました: {}", e))?
+            .join("thumbnails");
+        (None, base.join(sanitize_path_component(handle.unwrap(), 64)))
     };
+    
     fs::create_dir_all(&dir)
         .map_err(|e| format!("サムネイル保存先フォルダの作成に失敗しました: {}", e))?;
 
+    // 既存のサムネイルを検索（現在のdirと、ルートのthumbnailsディレクトリ配下も検索）
     if let Some(existing) = find_existing_thumbnail(&dir, trimmed_id) {
         return Ok(existing.to_string_lossy().to_string());
+    }
+    
+    if let Some(base) = base_thumbnails_dir {
+        if let Some(existing) = find_existing_thumbnail(&base, trimmed_id) {
+            return Ok(existing.to_string_lossy().to_string());
+        }
     }
 
     let extension = normalize_thumbnail_extension(extension);
