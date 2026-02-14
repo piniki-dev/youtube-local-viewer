@@ -316,11 +316,13 @@
     "downloading": "ダウンロード中",
     "installing": "インストール中...",
     "install": "インストールして再起動",
+    "manualDownload": "手動でインストール",
     "later": "後で",
     "error": "アップデートエラー",
     "checkFailed": "アップデートの確認に失敗しました",
     "noUpdates": "最新バージョンです",
-    "upToDate": "最新バージョンを使用しています"
+    "upToDate": "最新バージョンを使用しています",
+    "smartScreenWarning": "注意: Windowsのスマート アプリ コントロールにより「インストールして再起動」が失敗する場合があります。その際は「手動でインストール」をお試しください。"
   },
   "common": {
     "close": "閉じる",

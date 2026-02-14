@@ -316,11 +316,13 @@
     "downloading": "Downloading",
     "installing": "Installing...",
     "install": "Install & Restart",
+    "manualDownload": "Manual Install",
     "later": "Later",
     "error": "Update Error",
     "checkFailed": "Failed to check for updates",
     "noUpdates": "No updates available",
-    "upToDate": "You are using the latest version"
+    "upToDate": "You are using the latest version",
+    "smartScreenWarning": "Note: 'Install & Restart' may fail due to Windows Smart App Control. If so, try 'Manual Install' instead."
   },
   "common": {
     "close": "Close",

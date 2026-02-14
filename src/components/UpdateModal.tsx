@@ -8,6 +8,7 @@ interface UpdateModalProps {
   error: string | null;
   onInstall: () => void;
   onClose: () => void;
+  onDownloadManually: () => void;
 }
 
 export default function UpdateModal({
@@ -17,6 +18,7 @@ export default function UpdateModal({
   error,
   onInstall,
   onClose,
+  onDownloadManually,
 }: UpdateModalProps) {
   const { t } = useTranslation();
 
@@ -59,6 +61,13 @@ export default function UpdateModal({
             </div>
           )}
 
+          {!isUpdating && (
+            <div className="update-warning">
+              <i className="ri-information-line"></i>
+              <p>{t('update.smartScreenWarning')}</p>
+            </div>
+          )}
+
           {isUpdating && updateProgress && (
             <div className="update-progress">
               <div className="progress">
@@ -91,6 +100,9 @@ export default function UpdateModal({
             <>
               <button className="ghost" onClick={onClose}>
                 {t('update.later')}
+              </button>
+              <button className="ghost" onClick={onDownloadManually}>
+                <i className="ri-download-line"></i> {t('update.manualDownload')}
               </button>
               <button className="primary" onClick={onInstall}>
                 {t('update.install')}

@@ -853,6 +853,7 @@ function App() {
     error: updateError,
     installUpdate,
     dismissUpdate,
+    downloadManually,
   } = useAppUpdater();
   const isCheckingFiles =
     isStateReady && !hasCheckedFiles && !!downloadDir && videos.length > 0;
@@ -1104,6 +1105,7 @@ function App() {
         error={updateError}
         onInstall={installUpdate}
         onClose={dismissUpdate}
+        onDownloadManually={downloadManually}
       />
     </main>
   );

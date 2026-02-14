@@ -774,6 +774,31 @@ body {
   line-height: 1.5;
 }
 
+.update-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 12px;
+  background: rgba(255, 152, 0, 0.1);
+  border: 1px solid rgba(255, 152, 0, 0.3);
+  border-radius: 8px;
+}
+
+.update-warning i {
+  color: #ff9800;
+  font-size: 18px;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.update-warning p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--c-text-body);
+  line-height: 1.5;
+}
+
 .update-progress {
   margin-top: 12px;
 }

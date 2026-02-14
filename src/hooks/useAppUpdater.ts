@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { check, Update } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
+import { openUrl } from '@tauri-apps/plugin-opener';
 
 export interface UpdateInfo {
   available: boolean;
@@ -128,6 +129,27 @@ export const useAppUpdater = () => {
     setError(null);
   };
 
+  const downloadManually = async () => {
+    if (!updateRef.current) {
+      console.error('Update reference is null');
+      return;
+    }
+
+    try {
+      // Get the download URL for the current platform
+      const update = updateRef.current;
+      // Use NSIS installer (recommended)
+      const downloadUrl = `https://github.com/piniki-dev/youtube-local-viewer/releases/download/v${update.version}/YouTube.Local.Viewer_${update.version}_x64-setup.exe`;
+      
+      console.log('Opening manual download URL:', downloadUrl);
+      await openUrl(downloadUrl);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error('Failed to open download URL:', message);
+      setError(message);
+    }
+  };
+
   // Check for updates on mount
   useEffect(() => {
     // Enable in both dev and production for testing
@@ -143,5 +165,6 @@ export const useAppUpdater = () => {
     checkForUpdates,
     installUpdate,
     dismissUpdate,
+    downloadManually,
   };
 };
