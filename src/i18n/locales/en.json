@@ -307,6 +307,20 @@
     "waitingForMetadata": "Fetching metadata...",
     "metadataTimeout": "Metadata fetch timed out"
   },
+  "update": {
+    "title": "Update Available",
+    "currentVersion": "Current Version",
+    "latestVersion": "Latest Version",
+    "changelog": "Release Notes",
+    "downloading": "Downloading",
+    "installing": "Installing...",
+    "install": "Install & Restart",
+    "later": "Later",
+    "error": "Update Error",
+    "checkFailed": "Failed to check for updates",
+    "noUpdates": "No updates available",
+    "upToDate": "You are using the latest version"
+  },
   "common": {
     "close": "Close",
     "cancel": "Cancel",

@@ -10,6 +10,9 @@
     "core:event:default",
     "core:webview:allow-create-webview-window",
     "core:window:allow-create",
-    "core:window:allow-set-title"
+    "core:window:allow-set-title",
+    "updater:default",
+    "updater:allow-check",
+    "process:allow-restart"
   ]
 }

@@ -307,6 +307,20 @@
     "waitingForMetadata": "メタデータを取得中...",
     "metadataTimeout": "メタデータ取得がタイムアウトしました"
   },
+  "update": {
+    "title": "アップデートが利用可能です",
+    "currentVersion": "現在のバージョン",
+    "latestVersion": "最新バージョン",
+    "changelog": "リリースノート",
+    "downloading": "ダウンロード中",
+    "installing": "インストール中...",
+    "install": "インストールして再起動",
+    "later": "後で",
+    "error": "アップデートエラー",
+    "checkFailed": "アップデートの確認に失敗しました",
+    "noUpdates": "最新バージョンです",
+    "upToDate": "最新バージョンを使用しています"
+  },
   "common": {
     "close": "閉じる",
     "cancel": "キャンセル",

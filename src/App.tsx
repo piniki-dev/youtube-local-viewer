@@ -17,6 +17,7 @@ import { DeleteConfirmModal } from "./components/DeleteConfirmModal";
 import { VideoSkeletonCard } from "./components/VideoSkeletonCard";
 import { LoadingOverlay } from "./components/LoadingOverlay";
 import { PlayerWindow } from "./components/PlayerWindow";
+import UpdateModal from "./components/UpdateModal";
 import { useMetadataFetch } from "./hooks/useMetadataFetch";
 import { useDownloadEvents } from "./hooks/useDownloadEvents";
 import { usePlayerState } from "./hooks/usePlayerState";
@@ -35,6 +36,7 @@ import { usePersistedState } from "./hooks/usePersistedState";
 import { useTheme } from "./hooks/useTheme";
 import { useYtDlpUpdateNotices } from "./hooks/useYtDlpUpdateNotices";
 import { useToolSetup } from "./hooks/useToolSetup";
+import { useAppUpdater } from "./hooks/useAppUpdater";
 import { SetupDialog } from "./components/SetupDialog";
 import {
   formatClock,
@@ -836,6 +838,13 @@ function App() {
     setDownloadErrorIndex,
   });
   const { themeMode, setThemeMode } = useTheme();
+  const {
+    updateInfo,
+    isUpdating,
+    updateProgress,
+    error: updateError,
+    installUpdate,
+  } = useAppUpdater();
   const isCheckingFiles =
     isStateReady && !hasCheckedFiles && !!downloadDir && videos.length > 0;
   const addDisabled =
@@ -1076,6 +1085,15 @@ function App() {
         onCancel={() => setDeleteTarget(null)}
         onDeleteListOnly={handleDeleteListOnly}
         onDeleteWithFiles={handleDeleteWithFiles}
+      />
+
+      <UpdateModal
+        updateInfo={updateInfo}
+        isUpdating={isUpdating}
+        updateProgress={updateProgress}
+        error={updateError}
+        onInstall={installUpdate}
+        onClose={() => {}}
       />
     </main>
   );

@@ -42,5 +42,13 @@
         "installMode": "currentUser"
       }
     }
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/piniki/youtube-local-viewer/releases/latest/download/latest.json"
+      ],
+      "pubkey": ""
+    }
   }
 }
