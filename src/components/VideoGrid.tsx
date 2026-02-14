@@ -1,6 +1,6 @@
 import AutoSizer from "react-virtualized-auto-sizer";
 import { FixedSizeGrid as Grid, type GridChildComponentProps } from "react-window";
-import { memo, useMemo, type ReactNode } from "react";
+import { memo, type ReactNode } from "react";
 import { VideoCardItem } from "./VideoCardItem";
 
 type MediaInfo = {

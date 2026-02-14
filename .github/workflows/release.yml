@@ -36,6 +36,7 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'YouTube Local Viewer ${{ github.ref_name }}'
@@ -43,9 +44,13 @@ jobs:
             YouTube Local Viewer ${{ github.ref_name }} をリリースしました。
 
             ## インストール方法
-            1. 下記の `.exe` ファイルをダウンロード
-            2. インストーラーを実行（管理者権限不要）
+            1. 下記の `.nsis.zip` ファイルをダウンロード
+            2. ZIPを解凍してインストーラーを実行（管理者権限不要）
             3. 初回起動時にyt-dlp/ffmpegの自動ダウンロードが案内されます
+
+            ## アップデート機能
+            - 起動時に自動的に最新バージョンをチェック
+            - ワンクリックで更新可能
 
             ## 注意事項
             - Windows 10/11 64bit対応
