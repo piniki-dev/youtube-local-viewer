@@ -33,27 +33,100 @@ jobs:
         run: npm ci
 
       - name: Build Tauri app
-        uses: tauri-apps/tauri-action@v0
+        run: npm run tauri build
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
+          TAURI_KEY_PASSWORD: ""
+
+      - name: Sign MSI for updater
+        shell: pwsh
+        env:
           TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
+        run: |
+          $msiPath = Get-ChildItem -Path "src-tauri\target\release\bundle\msi\*.msi" | Select-Object -First 1
+          if ($msiPath) {
+            Write-Host "Creating updater bundle for $($msiPath.FullName)"
+            
+            # 秘密鍵を一時ファイルに保存
+            $keyPath = "$env:TEMP\tauri-private.key"
+            $env:TAURI_PRIVATE_KEY | Out-File -FilePath $keyPath -NoNewline -Encoding utf8
+            
+            # ZIPファイルを作成
+            $zipPath = "$($msiPath.FullName).zip"
+            Compress-Archive -Path $msiPath.FullName -DestinationPath $zipPath -Force
+            Write-Host "Created ZIP: $zipPath"
+            
+            # 署名を生成
+            npx tauri signer sign "$zipPath" --private-key "$keyPath"
+            
+            # 一時ファイルを削除
+            Remove-Item $keyPath -Force
+            
+            if (Test-Path "$zipPath.sig") {
+              Write-Host "Successfully created signature: $zipPath.sig"
+            } else {
+              Write-Error "Failed to create signature file"
+              exit 1
+            }
+          } else {
+            Write-Error "MSI file not found"
+            exit 1
+          }
+
+      - name: Generate updater JSON
+        shell: pwsh
+        run: |
+          $msiZip = Get-ChildItem -Path "src-tauri\target\release\bundle\msi\*.msi.zip" | Select-Object -First 1
+          $msiSig = Get-ChildItem -Path "src-tauri\target\release\bundle\msi\*.msi.zip.sig" | Select-Object -First 1
+          
+          if ($msiZip -and $msiSig) {
+            $version = "${{ github.ref_name }}".TrimStart('v')
+            $signature = Get-Content $msiSig.FullName -Raw
+            
+            $json = @{
+              version = $version
+              notes = "See release notes for details"
+              pub_date = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ")
+              platforms = @{
+                "windows-x86_64" = @{
+                  signature = $signature.Trim()
+                  url = "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/$($msiZip.Name)"
+                }
+              }
+            } | ConvertTo-Json -Depth 10
+            
+            $json | Out-File -FilePath "latest.json" -Encoding utf8 -NoNewline
+            Write-Host "Generated latest.json"
+            Write-Host $json
+          }
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: 'YouTube Local Viewer ${{ github.ref_name }}'
-          releaseBody: |
+          draft: true
+          name: 'YouTube Local Viewer ${{ github.ref_name }}'
+          body: |
             YouTube Local Viewer ${{ github.ref_name }} をリリースしました。
 
             ## インストール方法
-            1. 下記の `.nsis.zip` ファイルをダウンロード
-            2. ZIPを解凍してインストーラーを実行（管理者権限不要）
-            3. 初回起動時にyt-dlp/ffmpegの自動ダウンロードが案内されます
+            
+            ### 初回インストール
+            - **推奨**: `YouTube.Local.Viewer_x.x.x_x64-setup.exe` (NSIS)
+            - または: `YouTube.Local.Viewer_x.x.x_x64_en-US.msi`
+            
+            管理者権限不要で、初回起動時にyt-dlp/ffmpegの自動ダウンロードが案内されます。
 
             ## アップデート機能
             - 起動時に自動的に最新バージョンをチェック
             - ワンクリックで更新可能
+            - MSIファイルは自動更新で使用されます
 
             ## 注意事項
             - Windows 10/11 64bit対応
             - 未署名のため、SmartScreenの警告が表示される場合があります
-          releaseDraft: true
-          prerelease: false
+          files: |
+            src-tauri/target/release/bundle/msi/*.msi
+            src-tauri/target/release/bundle/msi/*.msi.zip
+            src-tauri/target/release/bundle/msi/*.msi.zip.sig
+            src-tauri/target/release/bundle/nsis/*.exe
+            latest.json
