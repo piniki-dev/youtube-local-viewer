@@ -47,14 +47,20 @@ jobs:
           if ($msiPath) {
             Write-Host "Creating updater bundle for $($msiPath.FullName)"
             
-            # 秘密鍵を一時ファイルに保存（BOMなしUTF8）
-            $keyPath = "$env:TEMP\tauri-private.key"
-            [System.IO.File]::WriteAllText($keyPath, $env:TAURI_PRIVATE_KEY, [System.Text.UTF8Encoding]::new($false))
-            
             # ZIPファイルを作成
             $zipPath = "$($msiPath.FullName).zip"
             Compress-Archive -Path $msiPath.FullName -DestinationPath $zipPath -Force
             Write-Host "Created ZIP: $zipPath"
+            
+            # 秘密鍵から改行を完全に除去
+            $cleanKey = $env:TAURI_PRIVATE_KEY -replace "[\r\n]", ""
+            Write-Host "Original key length: $($env:TAURI_PRIVATE_KEY.Length)"
+            Write-Host "Cleaned key length: $($cleanKey.Length)"
+            Write-Host "Key preview: $($cleanKey.Substring(0, [Math]::Min(50, $cleanKey.Length)))..."
+            
+            # 一時ファイルに保存（改行なし）
+            $keyPath = "$env:TEMP\tauri-private.key"
+            [System.IO.File]::WriteAllBytes($keyPath, [System.Text.Encoding]::UTF8.GetBytes($cleanKey))
             
             # 署名を生成
             npx tauri signer sign "$zipPath" --private-key "$keyPath"
@@ -64,6 +70,8 @@ jobs:
             
             if (Test-Path "$zipPath.sig") {
               Write-Host "Successfully created signature: $zipPath.sig"
+              $sigContent = Get-Content "$zipPath.sig" -Raw
+              Write-Host "Signature file created, length: $($sigContent.Length)"
             } else {
               Write-Error "Failed to create signature file"
               exit 1
