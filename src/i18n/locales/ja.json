@@ -127,6 +127,9 @@
     "liveStreaming": "ライブ配信中",
     "liveStreamingNote": "配信終了後にダウンロード可能",
     "liveStreamingTooltip": "配信終了後、メニュー → メタデータの再取得で最新情報に更新できます",
+    "upcomingStream": "配信予定",
+    "upcomingStreamNote": "配信開始後にダウンロード可能",
+    "upcomingStreamTooltip": "配信開始後、メニュー → メタデータの再取得で最新情報に更新できます",
     "downloadStart": "ダウンロード開始",
     "delete": "削除",
     "openFolder": "フォルダを開く",
@@ -305,6 +308,8 @@
     "liveStreamCannotDownloadDetails": "この動画は現在ライブ配信中です。配信終了後にダウンロード可能になります。",
     "liveStreamDetected": "ライブ配信を検出しました",
     "liveStreamDetectedDetails": "配信終了後、メニュー → メタデータの再取得で最新情報に更新できます。",
+    "upcomingStreamDetected": "配信予定の動画を検出しました",
+    "upcomingStreamDetectedDetails": "配信開始後、メニュー → メタデータの再取得で最新情報に更新できます。",
     "waitingForMetadata": "メタデータを取得中...",
     "metadataTimeout": "メタデータ取得がタイムアウトしました"
   },

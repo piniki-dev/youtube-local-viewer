@@ -104,7 +104,7 @@ export const deriveContentType = (input: {
   isLive?: boolean | null;
 }) => {
   const liveStatus = input.liveStatus?.toLowerCase();
-  if (input.isLive || liveStatus === "is_live" || liveStatus === "upcoming") {
+  if (input.isLive || liveStatus === "is_live" || liveStatus === "upcoming" || liveStatus === "is_upcoming") {
     return "live" as const;
   }
   if (liveStatus === "post_live" || liveStatus === "was_live") {
@@ -124,7 +124,7 @@ export const isCurrentlyLive = (input: {
   isLive?: boolean | null;
 }) => {
   const liveStatus = input.liveStatus?.toLowerCase();
-  return input.isLive === true || liveStatus === "is_live" || liveStatus === "upcoming";
+  return input.isLive === true || liveStatus === "is_live" || liveStatus === "upcoming" || liveStatus === "is_upcoming";
 };
 
 export const buildMetadataFields = (input: MetadataInput): MetadataFields => {

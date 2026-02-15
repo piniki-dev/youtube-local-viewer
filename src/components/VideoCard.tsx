@@ -36,6 +36,7 @@ type VideoCardProps = {
   isCommentsDownloading: boolean;
   isQueued: boolean;
   isCurrentlyLive?: boolean;
+  isUpcoming?: boolean;
   displayStatus: DownloadStatus;
   onPlay: () => void;
   onDownload: () => void;
@@ -58,6 +59,7 @@ const VideoCardComponent = ({
   isCommentsDownloading,
   isQueued,
   isCurrentlyLive = false,
+  isUpcoming = false,
   displayStatus,
   onPlay,
   onDownload,
@@ -198,7 +200,21 @@ const VideoCardComponent = ({
         </div>
         <p>{video.channel}</p>
         {video.publishedAt && <p>{t("videoCard.publishedDate")}: {formatPublishedAt(video.publishedAt)}</p>}
-        {isCurrentlyLive ? (
+        {isUpcoming ? (
+          <>
+            <span 
+              className="badge badge-live"
+              title={t("videoCard.upcomingStreamTooltip")}
+              style={{ cursor: "help" }}
+            >
+              <i className="ri-time-line" style={{ marginRight: "0.25rem" }} />
+              {t("videoCard.upcomingStream")}
+            </span>
+            <p style={{ color: "var(--c-text-muted)", fontSize: "0.875rem", marginTop: "0.25rem" }}>
+              {t("videoCard.upcomingStreamNote")}
+            </p>
+          </>
+        ) : isCurrentlyLive ? (
           <>
             <span 
               className="badge badge-live"

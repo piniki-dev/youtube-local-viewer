@@ -75,6 +75,7 @@ pub fn run() {
             state::save_state,
             state::export_state,
             state::import_state,
+            state::dev_reset,
             thumbnails::resolve_thumbnail_path,
             thumbnails::save_thumbnail,
             tooling::update_yt_dlp,

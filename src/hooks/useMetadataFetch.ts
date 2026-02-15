@@ -402,7 +402,9 @@ export function useMetadataFetch<TVideo extends VideoLike>({
   const scheduleBackgroundMetadataFetch = useCallback(
     (items: Array<{ id: string; sourceUrl?: string | null }>) => {
       const outputDir = downloadDirRef.current.trim();
-      if (!outputDir || items.length === 0) return;
+      if (!outputDir || items.length === 0) {
+        return;
+      }
       const normalizedItems = items
         .map((item) => ({
           id: item.id,
@@ -503,23 +505,25 @@ export function useMetadataFetch<TVideo extends VideoLike>({
             infoLookupIds.push(video.id);
           }
 
-          // ライブ配信中の動画は起動時（force=true）または手動再取得のみ
+          // ライブ配信中・配信予定の動画は起動時（force=true）または手動再取得のみ
           const isCurrentlyLiveStream = video.isLive === true || video.liveStatus === "is_live";
+          const isUpcomingStream = video.liveStatus === "is_upcoming";
+          const isLiveOrUpcoming = isCurrentlyLiveStream || isUpcomingStream;
           
-          // メタデータ取得済みの場合はスキップ（ライブ配信は起動時のみ再取得）
+          // メタデータ取得済みの場合はスキップ（ライブ配信・配信予定は起動時のみ再取得）
           if (effectiveMetadataFetched) {
-            // 起動時以外の自動再取得ではライブ配信動画を除外
-            if (isCurrentlyLiveStream && !force) {
+            // 起動時以外の自動再取得ではライブ配信・配信予定動画を除外
+            if (isLiveOrUpcoming && !force) {
               continue;
             }
             // 通常の動画で取得済みならスキップ
-            if (!isCurrentlyLiveStream) {
+            if (!isLiveOrUpcoming) {
               continue;
             }
           }
 
-          // ライブ配信動画は起動時のみ再取得対象に含める
-          if (!hasInfo || (needsLiveChatRetry && !hasChat) || (isCurrentlyLiveStream && force)) {
+          // ライブ配信・配信予定動画は起動時のみ再取得対象に含める
+          if (!hasInfo || (needsLiveChatRetry && !hasChat) || (isLiveOrUpcoming && force)) {
             candidates.push({ id: video.id, sourceUrl: video.sourceUrl });
           }
         }
@@ -540,10 +544,11 @@ export function useMetadataFetch<TVideo extends VideoLike>({
             if (!currentVideo || currentVideo.commentsStatus !== "pending") {
               continue;
             }
-            // ローカルメタデータがライブ配信中の場合は起動時のみ再取得対象に追加
+            // ローカルメタデータがライブ配信中・配信予定の場合は起動時のみ再取得対象に追加
             const isLocalLive = item.metadata?.isLive === true || item.metadata?.liveStatus === "is_live";
-            if (isLocalLive) {
-              // 起動時以外の自動再取得ではライブ配信動画を除外
+            const isLocalUpcoming = item.metadata?.liveStatus === "is_upcoming";
+            if (isLocalLive || isLocalUpcoming) {
+              // 起動時以外の自動再取得ではライブ配信・配信予定動画を除外
               if (!force) {
                 // メタデータだけ適用してコメント状態はpendingのまま維持
                 applyMetadataUpdate({
@@ -555,16 +560,16 @@ export function useMetadataFetch<TVideo extends VideoLike>({
                 });
                 continue;
               }
-              // 起動時は古いライブ配信中のメタデータファイルを削除して再取得
+              // 起動時は古いライブ配信中・配信予定のメタデータファイルを削除して再取得
               try {
                 await invoke("delete_live_metadata_files", {
                   id: item.id,
                   outputDir,
                 });
               } catch (err) {
-                console.warn(`Failed to delete live metadata files for ${item.id}:`, err);
+                console.warn(`Failed to delete live/upcoming metadata files for ${item.id}:`, err);
               }
-              // ライブ配信終了を検出するため、再取得対象に追加
+              // ライブ配信・配信予定の状態変化を検出するため、再取得対象に追加
               if (!pendingMetadataIdsRef.current.has(item.id)) {
                 candidates.push({ id: item.id, sourceUrl: currentVideo.sourceUrl });
               }
@@ -630,6 +635,18 @@ export function useMetadataFetch<TVideo extends VideoLike>({
                   kind: "info",
                   title: i18n.t('errors.liveStreamDetected'),
                   details: i18n.t('errors.liveStreamDetectedDetails'),
+                  autoDismissMs: 10000,
+                });
+              }
+            }
+            
+            // 配信予定の動画を検出時に通知
+            if (metadata && metadata.liveStatus === "is_upcoming") {
+              if (addFloatingNoticeRef.current) {
+                addFloatingNoticeRef.current({
+                  kind: "info",
+                  title: i18n.t('errors.upcomingStreamDetected'),
+                  details: i18n.t('errors.upcomingStreamDetectedDetails'),
                   autoDismissMs: 10000,
                 });
               }

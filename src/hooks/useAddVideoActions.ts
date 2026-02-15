@@ -60,6 +60,7 @@ type UseAddVideoActionsParams<TVideo extends VideoBase> = {
   setChannelFetchMessage: React.Dispatch<React.SetStateAction<string>>;
   scheduleBackgroundMetadataFetch: (items: Array<{ id: string; sourceUrl?: string | null }>) => void;
   startDownload: (video: TVideo, options?: { allowDuringBulk?: boolean; trackSingleQueue?: boolean }) => Promise<void> | void;
+  downloadDir: string;
   cookiesFile: string;
   cookiesSource: "none" | "file" | "browser";
   cookiesBrowser: string;
@@ -83,6 +84,7 @@ export function useAddVideoActions<TVideo extends VideoBase>({
   setChannelFetchMessage,
   scheduleBackgroundMetadataFetch,
   startDownload,
+  downloadDir,
   cookiesFile,
   cookiesSource,
   cookiesBrowser,
@@ -91,6 +93,10 @@ export function useAddVideoActions<TVideo extends VideoBase>({
 }: UseAddVideoActionsParams<TVideo>) {
   const addVideo = useCallback(async () => {
     setErrorMessage("");
+    if (!downloadDir.trim()) {
+      setErrorMessage(i18n.t('errors.downloadDirNotSet'));
+      return;
+    }
     const trimmed = videoUrl.trim();
     const id = parseVideoId(trimmed);
     if (!id) {
@@ -176,6 +182,7 @@ export function useAddVideoActions<TVideo extends VideoBase>({
   }, [
     videoUrl,
     videos,
+    downloadDir,
     setErrorMessage,
     setIsAdding,
     setIsAddOpen,
@@ -188,6 +195,10 @@ export function useAddVideoActions<TVideo extends VideoBase>({
 
   const addChannelVideos = useCallback(async () => {
     setErrorMessage("");
+    if (!downloadDir.trim()) {
+      setErrorMessage(i18n.t('errors.downloadDirNotSet'));
+      return;
+    }
     const trimmed = channelUrl.trim();
     if (!trimmed) {
       setErrorMessage(i18n.t('errors.enterChannelUrl'));
@@ -313,6 +324,7 @@ export function useAddVideoActions<TVideo extends VideoBase>({
     cookiesBrowser,
     cookiesFile,
     cookiesSource,
+    downloadDir,
     remoteComponents,
     ytDlpPath,
     scheduleBackgroundMetadataFetch,

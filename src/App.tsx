@@ -15,6 +15,7 @@ import { AppModals } from "./components/AppModals";
 import { FloatingStatusStack } from "./components/FloatingStatusStack";
 import { PlayerContent } from "./components/PlayerContent";
 import { DeleteConfirmModal } from "./components/DeleteConfirmModal";
+import { DevResetModal } from "./components/DevResetModal";
 import { VideoSkeletonCard } from "./components/VideoSkeletonCard";
 import { LoadingOverlay } from "./components/LoadingOverlay";
 import { PlayerWindow } from "./components/PlayerWindow";
@@ -170,6 +171,7 @@ function App() {
   const [videos, setVideos] = useState<VideoItem[]>([]);
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isDevResetOpen, setIsDevResetOpen] = useState(false);
   const [addMode, setAddMode] = useState<"video" | "channel">("video");
   const [videoUrl, setVideoUrl] = useState("");
   const [channelUrl, setChannelUrl] = useState("");
@@ -649,6 +651,7 @@ function App() {
     setChannelFetchMessage,
     scheduleBackgroundMetadataFetch,
     startDownload,
+    downloadDir,
     cookiesFile,
     cookiesSource,
     cookiesBrowser,
@@ -857,7 +860,7 @@ function App() {
   const isCheckingFiles =
     isStateReady && !hasCheckedFiles && !!downloadDir && videos.length > 0;
   const addDisabled =
-    !!downloadDir &&
+    !downloadDir ||
     !(
       toolingStatus?.ytDlp.ok &&
       toolingStatus?.ffmpeg.ok &&
@@ -927,7 +930,15 @@ function App() {
         addDisabled={addDisabled}
         themeMode={themeMode}
         onThemeChange={setThemeMode}
+        onDevReset={import.meta.env.DEV ? () => setIsDevResetOpen(true) : undefined}
       />
+      {import.meta.env.DEV && (
+        <DevResetModal
+          isOpen={isDevResetOpen}
+          downloadDir={downloadDir}
+          onCancel={() => setIsDevResetOpen(false)}
+        />
+      )}
 
       <div className="app-body">
         <VideoListSection

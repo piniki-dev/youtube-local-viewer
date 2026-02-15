@@ -1,7 +1,7 @@
 {
   "name": "youtube-local-viewer",
   "private": true,
-  "version": "1.0.11",
+  "version": "1.0.12",
   "license": "MIT",
   "type": "module",
   "scripts": {

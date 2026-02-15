@@ -127,6 +127,9 @@
     "liveStreaming": "Live Streaming",
     "liveStreamingNote": "Download available after stream ends",
     "liveStreamingTooltip": "After the stream ends, Menu → Refresh metadata to update",
+    "upcomingStream": "Upcoming",
+    "upcomingStreamNote": "Download available after stream starts",
+    "upcomingStreamTooltip": "After the stream starts, Menu → Refresh metadata to update",
     "downloadStart": "Start Download",
     "delete": "Delete",
     "openFolder": "Open Folder",
@@ -305,6 +308,8 @@
     "liveStreamCannotDownloadDetails": "This video is currently being live streamed. It will be available for download after the stream ends.",
     "liveStreamDetected": "Live stream detected",
     "liveStreamDetectedDetails": "After the stream ends, Menu → Refresh metadata to update.",
+    "upcomingStreamDetected": "Upcoming stream detected",
+    "upcomingStreamDetectedDetails": "After the stream starts and ends, Menu → Refresh metadata to update.",
     "waitingForMetadata": "Fetching metadata...",
     "metadataTimeout": "Metadata fetch timed out"
   },

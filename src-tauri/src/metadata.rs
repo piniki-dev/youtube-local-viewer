@@ -385,6 +385,7 @@ pub fn start_metadata_download(
         let mut last_stderr = String::new();
         let mut last_success = false;
         let mut live_detected = false;
+        let mut upcoming_detected = false;
 
         if let Err(err) = fs::create_dir_all(&output_dir_path) {
             let _ = app.emit(
@@ -405,6 +406,7 @@ pub fn start_metadata_download(
         for attempt in 1..=YTDLP_WARNING_RETRY_MAX {
             let warning_seen = Arc::new(AtomicBool::new(false));
             let live_stream_detected = Arc::new(AtomicBool::new(false));
+            let upcoming_stream_detected = Arc::new(AtomicBool::new(false));
             
             // Step 1: Download info.json only (fast, no comments)
             let mut command = Command::new(&yt_dlp);
@@ -468,11 +470,16 @@ pub fn start_metadata_download(
                 let stdout_acc_clone = stdout_acc.clone();
                 let warning_seen_clone = warning_seen.clone();
                 let live_stream_detected_clone = live_stream_detected.clone();
+                let upcoming_stream_detected_clone = upcoming_stream_detected.clone();
                 std::thread::spawn(move || {
                     let reader = BufReader::new(stdout);
                     for line in reader.lines().flatten() {
                         if line.contains(YTDLP_TITLE_WARNING) {
                             warning_seen_clone.store(true, Ordering::Relaxed);
+                        }
+                        // Detect upcoming live event patterns
+                        if line.contains("This live event will begin") {
+                            upcoming_stream_detected_clone.store(true, Ordering::Relaxed);
                         }
                         // Detect live streaming patterns in stdout
                         if line.contains("live/1") 
@@ -501,11 +508,16 @@ pub fn start_metadata_download(
                 let stderr_acc_clone = stderr_acc.clone();
                 let warning_seen_clone = warning_seen.clone();
                 let live_stream_detected_clone = live_stream_detected.clone();
+                let upcoming_stream_detected_clone = upcoming_stream_detected.clone();
                 std::thread::spawn(move || {
                     let reader = BufReader::new(stderr);
                     for line in reader.lines().flatten() {
                         if line.contains(YTDLP_TITLE_WARNING) {
                             warning_seen_clone.store(true, Ordering::Relaxed);
+                        }
+                        // Detect upcoming live event patterns
+                        if line.contains("This live event will begin") {
+                            upcoming_stream_detected_clone.store(true, Ordering::Relaxed);
                         }
                         // Detect live streaming patterns
                         if line.contains("live/1") 
@@ -647,6 +659,23 @@ pub fn start_metadata_download(
             if timed_out {
                 last_success = false;
                 last_stderr = format!("{}\nメタデータ取得がタイムアウトしました (30秒)", last_stderr);
+            }
+
+            // If upcoming live event detected (e.g. "This live event will begin in N minutes"),
+            // skip metadata fetch and mark as upcoming.
+            // Check both the atomic flag AND the stderr text to avoid race conditions
+            // where the flag hasn't been set yet when we check it.
+            if upcoming_stream_detected.load(Ordering::Relaxed)
+                || last_stderr.contains("This live event will begin") {
+                upcoming_detected = true;
+                let _ = app.emit(
+                    "metadata-progress",
+                    serde_json::json!({
+                        "id": id.clone(),
+                        "line": "配信予定の動画を検出しました。メタデータ取得をスキップします。"
+                    }),
+                );
+                break;
             }
 
             // If live stream detected, exit retry loop immediately
@@ -841,15 +870,46 @@ pub fn start_metadata_download(
             }
         }
 
-        if !last_success {
+        if !last_success && !upcoming_detected {
             let _ = write_error_log(&app, "metadata_download", &id, &last_stdout, &last_stderr);
         }
 
         let mut metadata: Option<VideoMetadata> = None;
         let mut has_live_chat: Option<bool> = None;
 
-        // If live stream detected, create metadata with is_live flag
-        if live_detected {
+        // If upcoming live event detected, create metadata with is_upcoming status
+        if upcoming_detected {
+            metadata = Some(VideoMetadata {
+                id: Some(id.clone()),
+                title: None,
+                channel: None,
+                thumbnail: None,
+                url: None,
+                webpage_url: None,
+                duration_sec: None,
+                upload_date: None,
+                release_timestamp: None,
+                timestamp: None,
+                live_status: Some("is_upcoming".to_string()),
+                is_live: None,
+                was_live: None,
+                view_count: None,
+                like_count: None,
+                comment_count: None,
+                tags: None,
+                categories: None,
+                description: None,
+                channel_id: None,
+                uploader_id: None,
+                channel_url: None,
+                uploader_url: None,
+                availability: None,
+                language: None,
+                audio_language: None,
+                age_limit: None,
+            });
+            has_live_chat = None;
+        } else if live_detected {
             metadata = Some(VideoMetadata {
                 id: Some(id.clone()),
                 title: None,
@@ -896,7 +956,7 @@ pub fn start_metadata_download(
             "metadata-finished",
             MetadataFinished {
                 id,
-                success: live_detected || last_success,
+                success: upcoming_detected || live_detected || last_success,
                 stdout: last_stdout,
                 stderr: last_stderr,
                 metadata,

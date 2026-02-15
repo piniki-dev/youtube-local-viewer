@@ -116,18 +116,42 @@ pub(crate) fn collect_files_recursive(dir: &Path) -> Vec<PathBuf> {
 }
 
 pub(crate) fn settings_file_path(app: &AppHandle) -> Result<PathBuf, String> {
-    let dir = app
+    let mut dir = app
         .path()
         .app_config_dir()
         .map_err(|e| format!("保存先ディレクトリの取得に失敗しました: {}", e))?;
+    
+    // 開発モードでは -dev サフィックスを付与してディレクトリを分離
+    #[cfg(debug_assertions)]
+    {
+        let dir_name = dir
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("config");
+        let parent = dir.parent().unwrap_or(dir.as_path());
+        dir = parent.join(format!("{}-dev", dir_name));
+    }
+    
     Ok(dir.join(SETTINGS_DIR_NAME).join(SETTINGS_FILE_NAME))
 }
 
 pub(crate) fn videos_file_path(app: &AppHandle) -> Result<PathBuf, String> {
-    let dir = app
+    let mut dir = app
         .path()
         .app_config_dir()
         .map_err(|e| format!("保存先ディレクトリの取得に失敗しました: {}", e))?;
+    
+    // 開発モードでは -dev サフィックスを付与してディレクトリを分離
+    #[cfg(debug_assertions)]
+    {
+        let dir_name = dir
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("config");
+        let parent = dir.parent().unwrap_or(dir.as_path());
+        dir = parent.join(format!("{}-dev", dir_name));
+    }
+    
     Ok(dir.join(INDEX_DIR_NAME).join(VIDEOS_FILE_NAME))
 }
 
@@ -138,10 +162,22 @@ pub(crate) fn write_error_log(
     stdout: &str,
     stderr: &str,
 ) -> Result<(), String> {
-    let base = app
+    let mut base = app
         .path()
         .app_config_dir()
         .map_err(|e| format!("保存先ディレクトリの取得に失敗しました: {}", e))?;
+    
+    // 開発モードでは -dev サフィックスを付与してディレクトリを分離
+    #[cfg(debug_assertions)]
+    {
+        let dir_name = base
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("config");
+        let parent = base.parent().unwrap_or(base.as_path());
+        base = parent.join(format!("{}-dev", dir_name));
+    }
+    
     let dir = base.join("errorlogs");
     fs::create_dir_all(&dir)
         .map_err(|e| format!("ログフォルダの作成に失敗しました: {}", e))?;

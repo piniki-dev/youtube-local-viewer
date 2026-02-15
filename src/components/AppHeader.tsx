@@ -15,6 +15,7 @@ type AppHeaderProps = {
   addDisabled: boolean;
   themeMode: ThemeMode;
   onThemeChange: (mode: ThemeMode) => void;
+  onDevReset?: () => void;
 };
 
 export function AppHeader({
@@ -23,6 +24,7 @@ export function AppHeader({
   addDisabled,
   themeMode,
   onThemeChange,
+  onDevReset,
 }: AppHeaderProps) {
   const { t } = useTranslation();
   
@@ -39,6 +41,17 @@ export function AppHeader({
         <p className="subtitle">{t("app.subtitle")}</p>
       </div>
       <div className="header-actions">
+        {onDevReset && (
+          <button
+            className="ghost"
+            onClick={onDevReset}
+            title="開発環境リセット"
+            style={{ color: "var(--c-warning)", fontSize: "0.8rem" }}
+          >
+            <i className="ri-bug-line" style={{ marginRight: "0.25rem" }} />
+            DEV Reset
+          </button>
+        )}
         <button
           className="ghost theme-toggle"
           onClick={handleThemeClick}

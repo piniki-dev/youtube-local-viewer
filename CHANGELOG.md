@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.0.12] - 2026-02-15
+
+### Added
+- Detect upcoming live streams during metadata fetch and mark them with "Upcoming" badge on video cards
+- Re-check upcoming streams on startup (same behavior as live streams)
+- Dev-only reset button in header to clear app data for development testing
+
+### Fixed
+- Fixed add video button being enabled when download directory is not set, which caused metadata fetch failures
+- Fixed race condition where upcoming stream detection flag might not be set before main thread checks it
+- Fixed bulk download attempting to download live streaming and upcoming videos (now auto-skipped)
+- Fixed individual download not blocking upcoming videos (only blocked live streams before)
+
+### Changed
+- Separated config directory between dev and release builds (`-dev` suffix in debug mode)
+
 ## [1.0.11] - 2026-02-15
 
 ### Fixed

@@ -7,6 +7,8 @@ type VideoLike = {
   title: string;
   downloadStatus: "pending" | "downloading" | "downloaded" | "failed";
   commentsStatus: "pending" | "downloading" | "downloaded" | "failed" | "unavailable";
+  isLive?: boolean;
+  liveStatus?: string;
 };
 
 type BulkDownloadState = {
@@ -69,6 +71,11 @@ export function useBulkDownloadManager<TVideo extends VideoLike>({
         if (!candidateId) continue;
         const candidate = videosRef.current.find((v) => v.id === candidateId);
         if (!candidate || candidate.downloadStatus === "downloaded") {
+          completed += 1;
+          continue;
+        }
+        // 配信中・配信予定はスキップ
+        if (candidate.isLive || candidate.liveStatus === "is_live" || candidate.liveStatus === "is_upcoming") {
           completed += 1;
           continue;
         }
@@ -171,7 +178,11 @@ export function useBulkDownloadManager<TVideo extends VideoLike>({
     }
     if (bulkDownloadRef.current.active) return;
     const targets = videosRef.current.filter(
-      (video) => video.downloadStatus !== "downloaded"
+      (video) =>
+        video.downloadStatus !== "downloaded" &&
+        !video.isLive &&
+        video.liveStatus !== "is_live" &&
+        video.liveStatus !== "is_upcoming"
     );
     if (targets.length === 0) {
       setErrorMessage(i18n.t('errors.noVideosToDownload'));

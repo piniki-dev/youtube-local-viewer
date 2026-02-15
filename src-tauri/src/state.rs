@@ -1,11 +1,12 @@
 use std::{fs, io::{Read, Write}};
 use std::time::{SystemTime, UNIX_EPOCH};
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 use zip::write::FileOptions;
 use zip::{ZipArchive, ZipWriter};
 use serde::{Deserialize, Serialize};
 use crate::models::{PersistedState, PersistedSettings, PersistedVideos, VersionedSettings, VersionedVideos};
 use crate::paths::{atomic_write, settings_file_path, videos_file_path};
+use crate::paths::{library_videos_dir, library_metadata_dir, library_comments_dir, library_thumbnails_dir};
 use crate::{SETTINGS_SCHEMA_VERSION, VIDEOS_SCHEMA_VERSION, BACKUP_SCHEMA_VERSION};
 
 pub(crate) fn parse_versioned_settings(content: &str) -> PersistedSettings {
@@ -229,4 +230,76 @@ pub fn import_state(app: AppHandle, input_path: String) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+/// 開発環境専用: アプリデータを初期化する
+/// keep_settings=true の場合は設定ファイルを残す
+#[tauri::command]
+pub fn dev_reset(app: AppHandle, output_dir: String, keep_settings: bool) -> Result<String, String> {
+    let mut log = Vec::new();
+
+    // 1. ダウンロードしたファイルの削除 (videos, metadata, comments, thumbnails)
+    if !output_dir.trim().is_empty() {
+        let dirs = [
+            library_videos_dir(&output_dir),
+            library_metadata_dir(&output_dir),
+            library_comments_dir(&output_dir),
+            library_thumbnails_dir(&output_dir),
+        ];
+        for dir in &dirs {
+            if dir.exists() {
+                match fs::remove_dir_all(dir) {
+                    Ok(_) => log.push(format!("削除: {}", dir.display())),
+                    Err(e) => log.push(format!("削除失敗: {} ({})", dir.display(), e)),
+                }
+            }
+        }
+    }
+
+    // 2. videos.json の削除
+    match videos_file_path(&app) {
+        Ok(path) => {
+            if path.exists() {
+                match fs::remove_file(&path) {
+                    Ok(_) => log.push(format!("削除: {}", path.display())),
+                    Err(e) => log.push(format!("削除失敗: {} ({})", path.display(), e)),
+                }
+            }
+        }
+        Err(e) => log.push(format!("videos.json パス取得失敗: {}", e)),
+    }
+
+    // 3. エラーログの削除
+    if let Ok(base) = app.path().app_config_dir() {
+        #[cfg(debug_assertions)]
+        let base: std::path::PathBuf = {
+            let dir_name = base.file_name().and_then(|n| n.to_str()).unwrap_or("config");
+            let parent = base.parent().unwrap_or(base.as_path());
+            parent.join(format!("{}-dev", dir_name))
+        };
+        let errorlogs = base.join("errorlogs");
+        if errorlogs.exists() {
+            match fs::remove_dir_all(&errorlogs) {
+                Ok(_) => log.push(format!("削除: {}", errorlogs.display())),
+                Err(e) => log.push(format!("削除失敗: {} ({})", errorlogs.display(), e)),
+            }
+        }
+    }
+
+    // 4. 設定ファイルの削除 (全初期化の場合)
+    if !keep_settings {
+        match settings_file_path(&app) {
+            Ok(path) => {
+                if path.exists() {
+                    match fs::remove_file(&path) {
+                        Ok(_) => log.push(format!("削除: {}", path.display())),
+                        Err(e) => log.push(format!("削除失敗: {} ({})", path.display(), e)),
+                    }
+                }
+            }
+            Err(e) => log.push(format!("settings パス取得失敗: {}", e)),
+        }
+    }
+
+    Ok(log.join("\n"))
 }

@@ -74,11 +74,16 @@ const VideoCardItemComponent = ({
     ? "downloading"
     : video.downloadStatus;
   
-  // Check if this is currently live streaming (not recording, but actual live stream)
+  // Check if this is currently live streaming or upcoming (not yet started)
   const isCurrentlyLive = 
     video.isLive === true || 
     video.liveStatus?.toLowerCase() === "is_live" ||
-    video.liveStatus?.toLowerCase() === "upcoming";
+    video.liveStatus?.toLowerCase() === "upcoming" ||
+    video.liveStatus?.toLowerCase() === "is_upcoming";
+  
+  const isUpcoming = 
+    video.liveStatus?.toLowerCase() === "upcoming" ||
+    video.liveStatus?.toLowerCase() === "is_upcoming";
 
   return (
     <VideoCard
@@ -89,6 +94,7 @@ const VideoCardItemComponent = ({
       isCommentsDownloading={isCommentsDownloading}
       isQueued={isQueued}
       isCurrentlyLive={isCurrentlyLive}
+      isUpcoming={isUpcoming}
       displayStatus={displayStatus}
       onPlay={() => onPlay(video)}
       onDownload={() => onDownload(video)}

@@ -225,8 +225,8 @@ export function useDownloadActions<TVideo extends VideoLike>({
         }
       }
       
-      // ライブ配信チェック
-      if (video.isLive || video.liveStatus === "is_live") {
+      // ライブ配信・配信予定チェック
+      if (video.isLive || video.liveStatus === "is_live" || video.liveStatus === "is_upcoming") {
         addFloatingNotice({
           kind: "error",
           title: i18n.t('errors.liveStreamCannotDownload'),
