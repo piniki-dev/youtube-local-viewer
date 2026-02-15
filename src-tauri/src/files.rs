@@ -595,17 +595,17 @@ pub fn resolve_video_file(
     id: String,
     title: String,
     output_dir: String,
-    trace_id: Option<String>,
+    _trace_id: Option<String>,
     state: State<VideoIndexState>,
 ) -> Result<Option<String>, String> {
-    let started = std::time::Instant::now();
+    let _started = std::time::Instant::now();
     let dir = library_videos_dir(&output_dir);
     if !dir.exists() {
         #[cfg(debug_assertions)]
         println!(
             "[resolve_video_file] missing dir id={} trace={}",
             id,
-            trace_id.as_deref().unwrap_or("-")
+            _trace_id.as_deref().unwrap_or("-")
         );
         return Ok(None);
     }
@@ -620,8 +620,8 @@ pub fn resolve_video_file(
                 println!(
                     "[resolve_video_file] cache hit id={} trace={} elapsedMs={}",
                     id,
-                    trace_id.as_deref().unwrap_or("-"),
-                    started.elapsed().as_millis()
+                    _trace_id.as_deref().unwrap_or("-"),
+                    _started.elapsed().as_millis()
                 );
                 return Ok(Some(found));
             }
@@ -632,7 +632,7 @@ pub fn resolve_video_file(
     println!(
         "[resolve_video_file] cache miss id={} trace={}",
         id,
-        trace_id.as_deref().unwrap_or("-")
+        _trace_id.as_deref().unwrap_or("-")
     );
 
     let title_trimmed = title.trim().to_string();
@@ -749,9 +749,9 @@ pub fn resolve_video_file(
     println!(
         "[resolve_video_file] done id={} trace={} found={} elapsedMs={}",
         id,
-        trace_id.as_deref().unwrap_or("-"),
+        _trace_id.as_deref().unwrap_or("-"),
         resolved.is_some(),
-        started.elapsed().as_millis()
+        _started.elapsed().as_millis()
     );
     Ok(resolved)
 }

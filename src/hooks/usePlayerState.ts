@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
+import { toAssetUrl } from "../utils/assetUrl";
 import { emitTo } from "@tauri-apps/api/event";
 import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
 import i18n from "../i18n";
@@ -253,7 +254,7 @@ export function usePlayerState({
           return;
         }
         setPlayerFilePath(resolvedPath);
-        const src = convertFileSrc(resolvedPath);
+        const src = toAssetUrl(resolvedPath);
         setPlayerSrc(src);
         console.time(`player-canplay:${traceId}`);
         void (async () => {

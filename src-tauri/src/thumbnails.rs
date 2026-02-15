@@ -23,7 +23,9 @@ pub(crate) fn find_existing_thumbnail(dir: &Path, video_id: &str) -> Option<Path
     if !dir.exists() {
         return None;
     }
-    let id_marker = format!("[{}]", video_id);
+    let id_lower = video_id.to_lowercase();
+    let id_marker = format!("[{}]", id_lower);
+    let id_prefix = format!("{}.", id_lower);
     for path in collect_files_recursive(dir) {
         if !path.is_file() {
             continue;
@@ -33,15 +35,20 @@ pub(crate) fn find_existing_thumbnail(dir: &Path, video_id: &str) -> Option<Path
             None => continue,
         };
         let name_lower = name.to_lowercase();
-        if !name_lower.contains(&id_marker.to_lowercase()) {
-            continue;
-        }
-        if name_lower.ends_with(".jpg")
+        let is_image = name_lower.ends_with(".jpg")
             || name_lower.ends_with(".jpeg")
             || name_lower.ends_with(".png")
             || name_lower.ends_with(".webp")
-            || name_lower.ends_with(".gif")
-        {
+            || name_lower.ends_with(".gif");
+        if !is_image {
+            continue;
+        }
+        // 新形式: {id}.{ext}
+        if name_lower.starts_with(&id_prefix) {
+            return Some(path);
+        }
+        // 旧形式: {title} [{id}].{ext}
+        if name_lower.contains(&id_marker) {
             return Some(path);
         }
     }
@@ -112,7 +119,9 @@ pub fn resolve_thumbnail_path(output_dir: String, id: String) -> Result<Option<S
     if !dir.exists() {
         return Ok(None);
     }
-    let id_marker = format!("[{}]", id).to_lowercase();
+    let id_lower = id.to_lowercase();
+    let id_marker = format!("[{}]", id_lower);
+    let id_prefix = format!("{}.", id_lower);
     for path in collect_files_recursive(&dir) {
         if !path.is_file() {
             continue;
@@ -122,15 +131,20 @@ pub fn resolve_thumbnail_path(output_dir: String, id: String) -> Result<Option<S
             None => continue,
         };
         let name_lower = name.to_lowercase();
-        if !name_lower.contains(&id_marker) {
-            continue;
-        }
-        if name_lower.ends_with(".jpg")
+        let is_image = name_lower.ends_with(".jpg")
             || name_lower.ends_with(".jpeg")
             || name_lower.ends_with(".png")
             || name_lower.ends_with(".webp")
-            || name_lower.ends_with(".gif")
-        {
+            || name_lower.ends_with(".gif");
+        if !is_image {
+            continue;
+        }
+        // 新形式: {id}.{ext}
+        if name_lower.starts_with(&id_prefix) {
+            return Ok(Some(path.to_string_lossy().to_string()));
+        }
+        // 旧形式: {title} [{id}].{ext}
+        if name_lower.contains(&id_marker) {
             return Ok(Some(path.to_string_lossy().to_string()));
         }
     }

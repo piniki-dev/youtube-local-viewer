@@ -1,4 +1,4 @@
-import { convertFileSrc } from "@tauri-apps/api/core";
+import { toAssetUrl } from "../utils/assetUrl";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { memo } from "react";
 import { VideoCard } from "./VideoCard";
@@ -115,7 +115,7 @@ const toThumbnailSrc = (thumbnail?: string) => {
   ) {
     return thumbnail;
   }
-  return convertFileSrc(thumbnail);
+  return toAssetUrl(thumbnail);
 };
 
 // 不要な再レンダリングを防ぐため、表示に影響するpropsのみを比較
