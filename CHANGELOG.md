@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.0.10] - 2026-02-15
+
+### Changed
+- Moved video probe (`ffprobe`) from eager execution on player open to on-demand execution only when a playback error occurs, reducing CPU/disk contention during metadata fetching
+- Replaced inline player error display with a dedicated error modal dialog with "Reveal in Folder" action
+- Removed "Open in External Player" button from player
+- Extended metadata download timeout from 15s to 30s (info.json) and 60s to 120s (comments) to reduce failures under load
+
 ## [1.0.9] - 2026-02-15
 
 ### Added

@@ -218,8 +218,8 @@
     "autoScrollOff": "自動スクロール: OFF",
     "playbackPosition": "再生位置",
     "noSyncableChat": "同期可能なチャットがありません。ライブチャットリプレイのみ対応しています。",
-    "openExternalPlayer": "外部プレイヤーで開く",
-    "revealInFolder": "フォルダを開く"
+    "revealInFolder": "フォルダを開く",
+    "playbackError": "再生エラー"
   },
   "floating": {
     "close": "閉じる",

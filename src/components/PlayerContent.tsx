@@ -1,5 +1,6 @@
 import type { RefObject } from "react";
 import { useTranslation } from 'react-i18next';
+import { PlayerErrorModal } from "./PlayerErrorModal";
 
 type CommentItem = {
   author: string;
@@ -33,9 +34,9 @@ type PlayerContentProps = {
   onCanPlay: () => void;
   onTimeUpdate: (timeMs: number) => void;
   onError: (media: HTMLVideoElement) => void;
+  onDismissError: () => void;
   debug: string;
   filePath: string | null;
-  onOpenExternalPlayer: () => void;
   onRevealInFolder: () => void;
   sortedComments: CommentItem[];
   isChatAutoScroll: boolean;
@@ -58,9 +59,9 @@ export function PlayerContent({
   onCanPlay,
   onTimeUpdate,
   onError,
+  onDismissError,
   debug,
   filePath,
-  onOpenExternalPlayer,
   onRevealInFolder,
   sortedComments,
   isChatAutoScroll,
@@ -102,7 +103,14 @@ export function PlayerContent({
   return (
     <>
       {loading && <p className="progress-line">{t('player.loading')}</p>}
-      {error && <p className="error">{error}</p>}
+      <PlayerErrorModal
+        isOpen={!!error}
+        error={error}
+        debug={debug}
+        onClose={onDismissError}
+        onRevealInFolder={onRevealInFolder}
+        hasFilePath={!!filePath}
+      />
       <div className="player-layout">
         <div className="player-media">
           <div className="player-video-frame">
@@ -132,17 +140,6 @@ export function PlayerContent({
               </div>
             )}
           </div>
-          {debug && <p className="progress-line codec-line">{debug}</p>}
-          {error && filePath && (
-            <div className="action-row">
-              <button className="ghost small" onClick={onOpenExternalPlayer}>
-                {t('player.openExternalPlayer')}
-              </button>
-              <button className="ghost small" onClick={onRevealInFolder}>
-                {t('player.revealInFolder')}
-              </button>
-            </div>
-          )}
         </div>
         <aside className="player-chat">
           <div className="player-chat-header">

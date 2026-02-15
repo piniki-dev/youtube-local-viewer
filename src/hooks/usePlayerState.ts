@@ -257,17 +257,6 @@ export function usePlayerState({
         const src = toAssetUrl(resolvedPath);
         setPlayerSrc(src);
         console.time(`player-canplay:${traceId}`);
-        void (async () => {
-          try {
-            const info = await invoke<MediaInfo>("probe_media", {
-              filePath: resolvedPath,
-              ffprobePath: ffprobePath || null,
-            });
-            setMediaInfoById((prev) => ({ ...prev, [video.id]: info }));
-          } catch {
-            // ignore probe errors here; user can run manual check
-          }
-        })();
       } catch {
         setPlayerError(i18n.t('errors.videoFileLoadFailed'));
       } finally {
@@ -314,24 +303,49 @@ export function usePlayerState({
       const err = media.error;
       const debug = `code=${err?.code ?? "none"} network=${media.networkState} ready=${media.readyState} src=${media.currentSrc}`;
       setPlayerDebug(debug);
-      const info = playerVideoId ? mediaInfoById[playerVideoId] : null;
-      const v = info?.videoCodec?.toLowerCase();
-      const a = info?.audioCodec?.toLowerCase();
-      if (v && !a) {
-        setPlayerError(
-          "音声トラックが含まれていません。再ダウンロードしてください。"
-        );
-      } else if (a && !v) {
-        setPlayerError(
-          "映像トラックが含まれていません。再ダウンロードしてください。"
-        );
-      } else {
-        setPlayerError(
-          "この動画は再生できません。"
-        );
+
+      // Check cached media info first
+      const cachedInfo = playerVideoId ? mediaInfoById[playerVideoId] : null;
+      if (cachedInfo) {
+        const v = cachedInfo.videoCodec?.toLowerCase();
+        const a = cachedInfo.audioCodec?.toLowerCase();
+        if (v && !a) {
+          setPlayerError("音声トラックが含まれていません。再ダウンロードしてください。");
+        } else if (a && !v) {
+          setPlayerError("映像トラックが含まれていません。再ダウンロードしてください。");
+        } else {
+          setPlayerError("この動画は再生できません。");
+        }
+        return;
+      }
+
+      // Set generic error, then probe on-demand for better diagnostics
+      setPlayerError("この動画は再生できません。");
+
+      if (playerFilePath) {
+        void (async () => {
+          try {
+            const info = await invoke<MediaInfo>("probe_media", {
+              filePath: playerFilePath,
+              ffprobePath: ffprobePath || null,
+            });
+            if (playerVideoId) {
+              setMediaInfoById((prev) => ({ ...prev, [playerVideoId]: info }));
+            }
+            const v = info?.videoCodec?.toLowerCase();
+            const a = info?.audioCodec?.toLowerCase();
+            if (v && !a) {
+              setPlayerError("音声トラックが含まれていません。再ダウンロードしてください。");
+            } else if (a && !v) {
+              setPlayerError("映像トラックが含まれていません。再ダウンロードしてください。");
+            }
+          } catch {
+            // probe failed, keep generic error
+          }
+        })();
       }
     },
-    [mediaInfoById, playerVideoId]
+    [mediaInfoById, playerVideoId, playerFilePath, ffprobePath]
   );
 
   const openExternalPlayer = useCallback(async () => {

@@ -321,7 +321,6 @@ function App() {
     openPlayerInWindow,
     closePlayer,
     handlePlayerError,
-    openExternalPlayer,
     revealInFolder,
   } = usePlayerState({
     isPlayerWindow,
@@ -887,9 +886,9 @@ function App() {
       }}
       onTimeUpdate={(timeMs) => setPlayerTimeMs(timeMs)}
       onError={handlePlayerError}
+      onDismissError={() => setPlayerError("")}
       debug={playerDebug}
       filePath={playerFilePath}
-      onOpenExternalPlayer={openExternalPlayer}
       onRevealInFolder={revealInFolder}
       sortedComments={sortedPlayerComments}
       isChatAutoScroll={isChatAutoScroll}

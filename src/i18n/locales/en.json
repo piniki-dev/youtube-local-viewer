@@ -218,8 +218,8 @@
     "autoScrollOff": "Auto Scroll: OFF",
     "playbackPosition": "Playback Position",
     "noSyncableChat": "No syncable chat available. Only live chat replays are supported.",
-    "openExternalPlayer": "Open in External Player",
-    "revealInFolder": "Reveal in Folder"
+    "revealInFolder": "Reveal in Folder",
+    "playbackError": "Playback Error"
   },
   "floating": {
     "close": "Close",

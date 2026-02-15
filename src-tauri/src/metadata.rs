@@ -528,7 +528,7 @@ pub fn start_metadata_download(
             }
 
             let start_time = std::time::Instant::now();
-            let timeout_duration = Duration::from_secs(15); // 15 second timeout for info.json only
+            let timeout_duration = Duration::from_secs(30); // 30 second timeout for info.json only
             let mut timed_out = false;
 
             let output = loop {
@@ -646,7 +646,7 @@ pub fn start_metadata_download(
             // If timed out during info.json download, treat as error
             if timed_out {
                 last_success = false;
-                last_stderr = format!("{}\nメタデータ取得がタイムアウトしました (15秒)", last_stderr);
+                last_stderr = format!("{}\nメタデータ取得がタイムアウトしました (30秒)", last_stderr);
             }
 
             // If live stream detected, exit retry loop immediately
@@ -815,7 +815,7 @@ pub fn start_metadata_download(
                 }
                 
                 let start_time = std::time::Instant::now();
-                let comment_timeout = Duration::from_secs(60); // 60 second timeout for comments
+                let comment_timeout = Duration::from_secs(120); // 120 second timeout for comments
                 
                 loop {
                     // Check if live stream detected
