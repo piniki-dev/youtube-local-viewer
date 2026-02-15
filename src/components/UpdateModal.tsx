@@ -28,13 +28,14 @@ export default function UpdateModal({
   const { t, i18n } = useTranslation();
   const [changelogExpanded, setChangelogExpanded] = useState(false);
 
-  if (!updateInfo?.available) return null;
-
   const changelogHtml = useMemo(() => {
+    if (!updateInfo?.available) return '';
     const notes = extractLocalizedNotes(updateInfo.body, i18n.language);
     if (!notes) return '';
     return changelogMarkdownToHtml(notes);
-  }, [updateInfo.body, i18n.language]);
+  }, [updateInfo?.available, updateInfo?.body, i18n.language]);
+
+  if (!updateInfo?.available) return null;
 
   const formatBytes = (bytes: number) => {
     if (bytes === 0) return '0 B';

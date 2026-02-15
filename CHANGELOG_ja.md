@@ -4,6 +4,11 @@
 
 フォーマットは [Keep a Changelog](https://keepachangelog.com/ja/1.1.0/) に基づいています。
 
+## [1.0.11] - 2026-02-15
+
+### 修正
+- UpdateModalでReactフックの順序違反により「Rendered more hooks than during the previous render」エラーが発生する問題を修正
+
 ## [1.0.10] - 2026-02-15
 
 ### 変更
