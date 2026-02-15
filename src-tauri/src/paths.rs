@@ -116,6 +116,7 @@ pub(crate) fn collect_files_recursive(dir: &Path) -> Vec<PathBuf> {
 }
 
 pub(crate) fn settings_file_path(app: &AppHandle) -> Result<PathBuf, String> {
+    #[allow(unused_mut)]
     let mut dir = app
         .path()
         .app_config_dir()
@@ -136,6 +137,7 @@ pub(crate) fn settings_file_path(app: &AppHandle) -> Result<PathBuf, String> {
 }
 
 pub(crate) fn videos_file_path(app: &AppHandle) -> Result<PathBuf, String> {
+    #[allow(unused_mut)]
     let mut dir = app
         .path()
         .app_config_dir()
@@ -162,6 +164,7 @@ pub(crate) fn write_error_log(
     stdout: &str,
     stderr: &str,
 ) -> Result<(), String> {
+    #[allow(unused_mut)]
     let mut base = app
         .path()
         .app_config_dir()
