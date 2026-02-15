@@ -1,5 +1,10 @@
+import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { UpdateInfo, UpdateProgress } from '../hooks/useAppUpdater';
+import {
+  extractLocalizedNotes,
+  changelogMarkdownToHtml,
+} from '../utils/changelogParser';
 
 interface UpdateModalProps {
   updateInfo: UpdateInfo | null;
@@ -20,9 +25,16 @@ export default function UpdateModal({
   onClose,
   onDownloadManually,
 }: UpdateModalProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const [changelogExpanded, setChangelogExpanded] = useState(false);
 
   if (!updateInfo?.available) return null;
+
+  const changelogHtml = useMemo(() => {
+    const notes = extractLocalizedNotes(updateInfo.body, i18n.language);
+    if (!notes) return '';
+    return changelogMarkdownToHtml(notes);
+  }, [updateInfo.body, i18n.language]);
 
   const formatBytes = (bytes: number) => {
     if (bytes === 0) return '0 B';
@@ -54,10 +66,21 @@ export default function UpdateModal({
             </p>
           </div>
 
-          {updateInfo.body && (
+          {changelogHtml && (
             <div className="update-changelog">
-              <h3>{t('update.changelog')}</h3>
-              <div className="changelog-content">{updateInfo.body}</div>
+              <button
+                className="changelog-toggle"
+                onClick={() => setChangelogExpanded((prev) => !prev)}
+              >
+                <i className={changelogExpanded ? 'ri-arrow-down-s-line' : 'ri-arrow-right-s-line'}></i>
+                <h3>{t('update.changelog')}</h3>
+              </button>
+              {changelogExpanded && (
+                <div
+                  className="changelog-content"
+                  dangerouslySetInnerHTML={{ __html: changelogHtml }}
+                />
+              )}
             </div>
           )}
 

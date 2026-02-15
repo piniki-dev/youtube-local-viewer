@@ -100,9 +100,35 @@ jobs:
           # GitHub releases uses dots instead of spaces in filename
           $actualFileName = $msiZip.Name -replace ' ','.'
 
+          # CHANGELOGからリリースバージョンのセクションを抽出する関数
+          function Extract-VersionSection {
+            param([string]$FilePath, [string]$Version)
+            if (-not (Test-Path $FilePath)) { return "" }
+            $content = Get-Content $FilePath -Raw -Encoding UTF8
+            # ## [X.Y.Z] - YYYY-MM-DD のパターンでセクションを抽出
+            $escapedVersion = [regex]::Escape($Version)
+            $pattern = "(?ms)^## \[$escapedVersion\].*?$\r?\n(.*?)(?=^## \[|\z)"
+            if ($content -match $pattern) {
+              return $Matches[1].Trim()
+            }
+            return ""
+          }
+
+          $notesJa = Extract-VersionSection -FilePath "CHANGELOG_ja.md" -Version $version
+          $notesEn = Extract-VersionSection -FilePath "CHANGELOG.md" -Version $version
+
+          Write-Host "=== Changelog (ja) ==="
+          Write-Host $notesJa
+          Write-Host "=== Changelog (en) ==="
+          Write-Host $notesEn
+
+          # notes フィールドに多言語 JSON を埋め込み
+          $notesObj = @{ ja = $notesJa; en = $notesEn }
+          $notesJson = $notesObj | ConvertTo-Json -Compress
+
           $json = @{
             version = $version
-            notes = "See release notes for details"
+            notes = $notesJson
             pub_date = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ")
             platforms = @{
               "windows-x86_64" = @{
@@ -122,24 +148,25 @@ jobs:
           draft: true
           name: 'YouTube Local Viewer ${{ github.ref_name }}'
           body: |
-            YouTube Local Viewer ${{ github.ref_name }} をリリースしました。
+            YouTube Local Viewer ${{ github.ref_name }} をリリースしました。 / YouTube Local Viewer ${{ github.ref_name }} has been released.
 
-            ## インストール方法
-            
-            ### 初回インストール
-            - **推奨**: `YouTube.Local.Viewer_x.x.x_x64-setup.exe` (NSIS)
-            - または: `YouTube.Local.Viewer_x.x.x_x64_en-US.msi`
-            
+            ## インストール方法 / Installation
+
+            ### 初回インストール / First-time Install
+            - **推奨 / Recommended**: `YouTube.Local.Viewer_1.0.0_x64-setup.exe` (NSIS)
+            - または / Or: `YouTube.Local.Viewer_1.0.0_x64_en-US.msi`
+
             管理者権限不要で、初回起動時にyt-dlp/ffmpegの自動ダウンロードが案内されます。
+            No admin privileges required. On first launch, you will be guided through automatic download of yt-dlp and ffmpeg.
 
-            ## アップデート機能
-            - 起動時に自動的に最新バージョンをチェック
-            - ワンクリックで更新可能
-            - MSIファイルは自動更新で使用されます
+            ## アップデート機能 / Auto-Update
+            - 起動時に自動的に最新バージョンをチェック / Automatically checks for new versions on startup
+            - ワンクリックで更新可能 / One-click update available
+            - MSIファイルは自動更新で使用されます / MSI files are used for auto-updates
 
-            ## 注意事項
-            - Windows 10/11 64bit対応
-            - 未署名のため、SmartScreenの警告が表示される場合があります
+            ## 注意事項 / Notes
+            - Windows 10/11 64bit対応 / Supports Windows 10/11 64-bit
+            - 未署名のため、SmartScreenの警告が表示される場合があります / The app is unsigned, so you may see a SmartScreen warning
           files: |
             src-tauri/target/release/bundle/msi/*.msi
             src-tauri/target/release/bundle/msi/*.msi.zip

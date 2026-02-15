@@ -756,22 +756,75 @@ body {
   background: var(--c-surface-inset);
   border: 1px solid var(--c-border-subtle);
   border-radius: 8px;
-  max-height: 200px;
-  overflow-y: auto;
 }
 
 .update-changelog h3 {
-  margin: 0 0 8px 0;
+  margin: 0;
   font-size: 14px;
   font-weight: 600;
   color: var(--c-text-body);
 }
 
+.changelog-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: var(--c-text-body);
+}
+
+.changelog-toggle i {
+  font-size: 18px;
+  color: var(--c-text-muted);
+}
+
 .changelog-content {
-  white-space: pre-wrap;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--c-border-subtle);
+  max-height: 240px;
+  overflow-y: auto;
   font-size: 13px;
   color: var(--c-text-body);
   line-height: 1.5;
+}
+
+.changelog-content h4 {
+  margin: 8px 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--c-text-body);
+}
+
+.changelog-content h5 {
+  margin: 6px 0 2px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--c-text-muted);
+}
+
+.changelog-content ul {
+  margin: 2px 0;
+  padding-left: 18px;
+}
+
+.changelog-content li {
+  margin-bottom: 2px;
+}
+
+.changelog-content code {
+  background: var(--c-surface-inset);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 12px;
+}
+
+.changelog-content p {
+  margin: 4px 0;
 }
 
 .update-warning {

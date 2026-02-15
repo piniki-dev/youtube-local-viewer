@@ -1,87 +1,149 @@
-# 変更履歴
+# Changelog
 
-このプロジェクトの全ての注目すべき変更はこのファイルに記録されます。
+All notable changes to this project will be documented in this file.
 
-フォーマットは [Keep a Changelog](https://keepachangelog.com/ja/1.1.0/) に基づいています。
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+
+## [1.0.9] - 2026-02-15
+
+### Added
+- Display localized changelog in update modal (collapsible, parsed from Markdown to HTML)
+- Bilingual changelog files: `CHANGELOG.md` (English) / `CHANGELOG_ja.md` (Japanese)
+- Embed localized changelog in `latest.json` during release workflow
+
+### Fixed
+- Fixed live chat avatar images and emoji not displaying in release builds (added `*.ggpht.com` and `www.youtube.com` to CSP)
+- Fixed typo where `media-src` CSP directive was concatenated
+
+### Changed
+- Made release workflow release notes bilingual (Japanese/English)
+
+## [1.0.8] - 2026-02-15
+
+### Fixed
+- Fixed local files (images/videos) not loading in release builds (added `http://asset.localhost` to CSP)
+- Fixed file paths containing Unicode characters (Japanese, special symbols, etc.) not being properly URL-encoded
+- Fixed unused variable warnings during release builds
+
+### Changed
+- Added new `toAssetUrl` utility to replace direct usage of `convertFileSrc`
+- Updated thumbnail search logic to support both new format (`{id}.{ext}`) and legacy format (`{title} [{id}].{ext}`)
+
+## [1.0.7] - 2026-02-15
+
+### Fixed
+- Fixed timestamp removal from title when saving thumbnails for live streaming videos
+- Fixed thumbnail saving to skip when `uploader_id` is empty and save after metadata fetch instead
+- Fixed existing metadata patch being overwritten during thumbnail updates
+
+### Changed
+- Added `thumbnails` directory recognition as a library subdirectory
+- Improved thumbnail search to also fallback to root `thumbnails` directory
 
 ## [1.0.6] - 2026-02-14
 
-### 修正
-- ライブ配信中の動画を追加した際にメタデータ取得が無限ループに入る問題を修正
-- 起動時以外では既に取得済みのライブ配信動画のメタデータを再取得しないように変更
-- ライブ配信検出時のフローティング通知が重複して表示される問題を修正
+### Fixed
+- Fixed metadata fetch entering infinite loop when adding a live streaming video
+- Changed to skip re-fetching metadata for already-fetched live streaming videos except on startup
+- Fixed duplicate floating notifications when live stream is detected
+
+## [1.0.5] - 2026-02-14
+
+### Added
+- Added "Manual Install" button to update modal (direct NSIS installer download via browser)
+- Added warning message when auto-update fails due to Windows Smart App Control
+
+## [1.0.4] - 2026-02-14
+
+### Fixed
+- Fixed TypeScript compile error in `useAppUpdater`
+
+## [1.0.3] - 2026-02-14
+
+### Fixed
+- Changed ZIP compression to `NoCompression` (Stored) to further improve Tauri updater compatibility
+- Fixed space handling in download URL filename in `latest.json`
+
+## [1.0.2] - 2026-02-14
+
+### Fixed
+- Fixed ZIP compression method for Tauri updater compatibility in release workflow
+- Unified update modal UI with project CSS class system
+
+### Changed
+- Removed inline styles from update modal and migrated to `App.css`
 
 ## [1.0.1] - 2026-02-14
 
-### 追加
-- 設定モーダルにアプリケーションバージョン情報を表示
+### Added
+- Display application version info in settings modal
 
-### 変更
-- Cookie取得元の設定を「基本」タブから「ツール」タブに移動し、関連設定をグループ化
+### Changed
+- Moved cookie source setting from "Basic" tab to "Tools" tab, grouping related settings
 
 ## [1.0.0] - 2026-02-14
 
-正式リリース。プロダクション対応完了。
+Official release. Production-ready.
 
-### 変更
-- v0.1.0からの安定性向上と最終調整
-- プロダクション環境での利用に対応
+### Changed
+- Stability improvements and final adjustments from v0.1.0
+- Production environment support
 
 ## [0.1.0] - 2026-02-12
 
-初回ベータリリース。
+Initial beta release.
 
-### 追加
+### Added
 
-#### 動画ダウンロード
-- YouTube動画のローカルダウンロード機能
-- ダウンロード品質の選択機能
-- 一括ダウンロードキュー・進捗パネル
-- ブラウザCookie連携によるダウンロード対応
-- yt-dlpエラー時のリトライ処理（タイトル警告、デコードエラー対応）
-- ダウンロードエラーログの自動保存
+#### Video Download
+- Local download of YouTube videos
+- Download quality selection
+- Bulk download queue and progress panel
+- Browser cookie integration for downloads
+- yt-dlp error retry handling (title warning, decode error support)
+- Automatic download error log saving
 
-#### 再生
-- 別ウィンドウでの動画プレーヤー
-- ライブチャット同期再生（絵文字・アバター表示対応）
-- 自動再生
-- プレーヤーウィンドウのサイズ・位置の保存
+#### Playback
+- Separate window video player
+- Live chat synchronized playback (emoji and avatar display support)
+- Auto-play
+- Player window size and position persistence
 
-#### チャンネル・動画管理
-- チャンネル一括登録・メタデータ取得
-- 動画の検索機能
-- ダウンロード状態・種類によるフィルタリング
-- 公開日ソート・表示
-- YouTube URLバリデーション
+#### Channel & Video Management
+- Bulk channel registration and metadata fetching
+- Video search functionality
+- Filtering by download status and type
+- Upload date sorting and display
+- YouTube URL validation
 
 #### UI/UX
-- ダークモード対応
-- サムネイルのローカルキャッシュ・クリック再生
-- スケルトンカード（動画追加時のローディング表示）
-- フローティングステータスパネル
-- 動画グリッドのカラム幅調整
-- 初回セットアップウィザード（オンボーディング）
-- 起動時データチェックオーバーレイ
-- ウィンドウサイズ・位置の永続化
+- Dark mode support
+- Local thumbnail cache with click-to-play
+- Skeleton cards (loading display when adding videos)
+- Floating status panel
+- Video grid column width adjustment
+- First-time setup wizard (onboarding)
+- Startup data check overlay
+- Window size and position persistence
 
-#### データ管理
-- バックアップ・リストア機能
-- メタデータの整合性チェック・サムネイル処理の改善
-- コメントDL完了時のメタデータ更新・保存先統一
+#### Data Management
+- Backup and restore functionality
+- Metadata integrity check and thumbnail processing improvements
+- Metadata update on comment download completion with unified save location
 
-#### 外部ツール
-- yt-dlp / ffmpeg / ffprobe の初回起動時自動ダウンロード
-- yt-dlpの更新フロー・通知
-- ffmpeg/ffprobe のバンドル検出
-- ツール存在チェック・動画追加のゲート処理
+#### External Tools
+- Automatic download of yt-dlp / ffmpeg / ffprobe on first launch
+- yt-dlp update flow and notifications
+- ffmpeg/ffprobe bundle detection
+- Tool existence check and video addition gating
 
-#### 開発基盤
-- ユニットテスト・E2Eテスト環境の構築（Vitest + Playwright）
-- NSISインストーラによるWindows配布（per-user）
-- GitHub Actions CI/CDワークフロー
-- Rustバックエンドのモジュール分割
+#### Development
+- Unit test and E2E test environment setup (Vitest + Playwright)
+- NSIS installer for Windows distribution (per-user)
+- GitHub Actions CI/CD workflow
+- Rust backend module separation
 
-### セキュリティ
-- Content Security Policy（CSP）の設定
-- Tauri権限の最小化
-- 未使用プラグインの削除
+### Security
+- Content Security Policy (CSP) configuration
+- Tauri permission minimization
+- Removal of unused plugins
