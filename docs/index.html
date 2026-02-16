@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>YouTube Local Viewer — 推しのアーカイブを、手元に残す。</title>
+  <meta name="description" content="YouTube動画をローカルに保存・管理・再生できる、VTuberリスナー向けWindowsデスクトップアプリ。無料・オープンソース。" />
+  <meta name="keywords" content="YouTube,ダウンロード,ローカル保存,VTuber,アーカイブ,Windows,デスクトップアプリ,オフライン再生,yt-dlp" />
+  <link rel="canonical" href="https://piniki-dev.github.io/youtube-local-viewer/" />
+  <!-- Open Graph -->
+  <meta property="og:title" content="YouTube Local Viewer — 推しのアーカイブを、手元に残す。" />
+  <meta property="og:description" content="YouTube配信をローカルに保存・管理・再生できる、VTuberリスナー向けWindowsアプリ。無料・オープンソース。" />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://piniki-dev.github.io/youtube-local-viewer/" />
+  <meta property="og:image" content="https://piniki-dev.github.io/youtube-local-viewer/images/og-image.png" />
+  <meta property="og:site_name" content="YouTube Local Viewer" />
+  <meta property="og:locale" content="ja_JP" />
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="YouTube Local Viewer — 推しのアーカイブを、手元に残す。" />
+  <meta name="twitter:description" content="YouTube配信をローカルに保存・管理・再生できる、VTuberリスナー向けWindowsアプリ。無料・オープンソース。" />
+  <meta name="twitter:image" content="https://piniki-dev.github.io/youtube-local-viewer/images/og-image.png" />
+  <!-- Structured Data (JSON-LD) -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "YouTube Local Viewer",
+    "description": "YouTube動画をローカルに保存・管理・再生できる、VTuberリスナー向けWindowsデスクトップアプリ。",
+    "applicationCategory": "MultimediaApplication",
+    "operatingSystem": "Windows 10, Windows 11",
+    "offers": {
+      "@type": "Offer",
+      "price": "0",
+      "priceCurrency": "JPY"
+    },
+    "downloadUrl": "https://github.com/piniki-dev/youtube-local-viewer/releases",
+    "softwareVersion": "1.0",
+    "author": {
+      "@type": "Person",
+      "name": "piniki"
+    },
+    "license": "https://opensource.org/licenses/MIT"
+  }
+  </script>
+
+  <link rel="icon" type="image/png" href="images/icon.png" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <section class="hero" id="hero">
+    <div class="hero__container">
+      <div class="hero__text">
+        <h1 class="hero__title">
+          推しのアーカイブを、<br /><span class="hero__title-accent">手元に残す。</span>
+        </h1>
+        <p class="hero__subtitle">
+          YouTube配信をローカルに保存・管理・再生できる、<br class="hide-sp" />
+          VTuberリスナー向けWindowsデスクトップアプリ。
+        </p>
+        <div class="hero__cta-group">
+          <a
+            href="https://github.com/piniki-dev/youtube-local-viewer/releases"
+            class="btn btn--primary"
+            data-download
+            rel="noopener noreferrer"
+          >
+            <svg class="btn__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            無料でダウンロード
+          </a>
+          <a
+            href="https://github.com/piniki-dev/youtube-local-viewer"
+            class="btn btn--ghost"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <svg class="btn__icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg>
+            ソースコードを見る
+          </a>
+        </div>
+        <p class="hero__note">無料・オープンソース / Windows 10/11 対応</p>
+      </div>
+      <div class="hero__visual">
+        <div class="hero__screenshot-wrapper">
+          <img
+            src="images/screenshot-main.png"
+            alt="YouTube Local Viewer のメイン画面 — 動画一覧とプレイヤー"
+            class="hero__screenshot"
+            loading="eager"
+            onerror="this.parentElement.classList.add('hero__screenshot-wrapper--placeholder')"
+          />
+          <div class="hero__screenshot-placeholder" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><polygon points="10,8 16,10 10,12"/><line x1="2" y1="20" x2="22" y2="20"/></svg>
+            <span>App Screenshot</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="hero__glow hero__glow--1" aria-hidden="true"></div>
+    <div class="hero__glow hero__glow--2" aria-hidden="true"></div>
+  </section>
+
+  <section class="pain" id="pain">
+    <div class="container">
+      <h2 class="section-title">こんな不安、ありませんか？</h2>
+      <div class="pain__grid">
+        <div class="pain__card" data-reveal>
+          <div class="pain__icon-wrapper">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          </div>
+          <h3 class="pain__card-title">アーカイブが突然消える不安</h3>
+          <p class="pain__card-text">
+            推しのアーカイブが非公開・削除される可能性はいつでもあります。<br />
+            「あの配信、もう見れない…」を経験したことはありませんか？
+          </p>
+        </div>
+        <div class="pain__card" data-reveal>
+          <div class="pain__icon-wrapper">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          </div>
+          <h3 class="pain__card-title">長時間配信を追いきれない</h3>
+          <p class="pain__card-text">
+            回線が不安定だったり、リアルタイムで追えない長時間配信。<br />
+            途中から見始めて盛り上がった部分を見逃すことも。
+          </p>
+        </div>
+        <div class="pain__card" data-reveal>
+          <div class="pain__icon-wrapper">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+          </div>
+          <h3 class="pain__card-title">好きな配信をBGMにしたい</h3>
+          <p class="pain__card-text">
+            歌枠や雑談を作業用BGMにしたいのに、<br />
+            ネット接続やYouTubeのタブが気になってしまう。
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="solution" id="solution">
+    <div class="container">
+      <h2 class="section-title">YouTube Local Viewer ができること</h2>
+      <div class="solution__grid">
+        <div class="solution__card" data-reveal>
+          <div class="solution__number">01</div>
+          <h3 class="solution__card-title">アーカイブ削除への不安を減らす</h3>
+          <p class="solution__card-text">
+            配信をローカルに保存して、いつでも見返せます。<br />
+            推しの配信や歌枠のアーカイブが「いつ消えるか分からない」不安を減らして、<br />
+            手元に自分専用のライブラリとして残しておけます。
+          </p>
+        </div>
+        <div class="solution__card" data-reveal>
+          <div class="solution__number">02</div>
+          <h3 class="solution__card-title">オフラインでいつでも視聴</h3>
+          <p class="solution__card-text">
+            回線を気にせず、長時間配信や歌枠を作業用BGMとして流せます。<br />
+            ネット接続なしで、好きなタイミングで好きなだけ。
+          </p>
+        </div>
+        <div class="solution__card" data-reveal>
+          <div class="solution__number">03</div>
+          <h3 class="solution__card-title">ライブチャットも込みで振り返る</h3>
+          <p class="solution__card-text">
+            コメント付きで配信の空気感ごと残せます。<br />
+            チャットの盛り上がりや共感も一緒に楽しめます。
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="features" id="features">
+    <div class="container">
+      <h2 class="section-title">主な機能</h2>
+      <div class="features__grid">
+        <div class="features__item" data-reveal>
+          <div class="features__icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          </div>
+          <span class="features__label">YouTube動画のローカルダウンロード</span>
+          <span class="features__desc">品質選択に対応。好みの画質で保存。</span>
+        </div>
+        <div class="features__item" data-reveal>
+          <div class="features__icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          </div>
+          <span class="features__label">ライブチャット同期再生</span>
+          <span class="features__desc">配信の空気感をそのまま振り返り。</span>
+        </div>
+        <div class="features__item" data-reveal>
+          <div class="features__icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          </div>
+          <span class="features__label">チャンネル一括登録</span>
+          <span class="features__desc">チャンネルや事務所単位でまとめて管理。</span>
+        </div>
+        <div class="features__item" data-reveal>
+          <div class="features__icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          </div>
+          <span class="features__label">検索・フィルタリング</span>
+          <span class="features__desc">DL状態・種類・公開日でソート＆絞り込み。</span>
+        </div>
+        <div class="features__item" data-reveal>
+          <div class="features__icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+          </div>
+          <span class="features__label">ダークモード対応</span>
+          <span class="features__desc">目に優しいダークテーマを標準搭載。</span>
+        </div>
+        <div class="features__item" data-reveal>
+          <div class="features__icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+          </div>
+          <span class="features__label">バックアップ・リストア</span>
+          <span class="features__desc">大切なライブラリを安全に保管。</span>
+        </div>
+        <div class="features__item" data-reveal>
+          <div class="features__icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+          </div>
+          <span class="features__label">別ウィンドウ動画再生</span>
+          <span class="features__desc">プレーヤーウィンドウで作業しながら視聴。</span>
+        </div>
+        <div class="features__item" data-reveal>
+          <div class="features__icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          </div>
+          <span class="features__label">ブラウザCookie連携</span>
+          <span class="features__desc">メンバーシップ限定動画のDLに対応。</span>
+        </div>
+        <div class="features__item" data-reveal>
+          <div class="features__icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+          </div>
+          <span class="features__label">ツール自動セットアップ</span>
+          <span class="features__desc">yt-dlp / ffmpeg を初回起動時に自動DL。</span>
+        </div>
+        <div class="features__item" data-reveal>
+          <div class="features__icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+          </div>
+          <span class="features__label">サムネイルキャッシュ</span>
+          <span class="features__desc">一覧表示をスムーズに。ローカル保存対応。</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="steps" id="steps">
+    <div class="container">
+      <h2 class="section-title">使い方（かんたん3ステップ）</h2>
+      <div class="steps__track">
+        <div class="steps__item" data-reveal>
+          <div class="steps__badge">1</div>
+          <h3 class="steps__item-title">ダウンロード</h3>
+          <p class="steps__item-text">
+            このページの「無料でダウンロード」ボタンからインストーラ（.exe）をダウンロード。
+          </p>
+        </div>
+        <div class="steps__connector" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+        </div>
+        <div class="steps__item" data-reveal>
+          <div class="steps__badge">2</div>
+          <h3 class="steps__item-title">インストール&起動</h3>
+          <p class="steps__item-text">
+            インストーラを実行するだけ。<br />初回起動時にツールが自動セットアップされます。
+            <br /><small>※ SmartScreen警告が出た場合は「詳細情報」→「実行」で起動できます。</small>
+          </p>
+        </div>
+        <div class="steps__connector" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+        </div>
+        <div class="steps__item" data-reveal>
+          <div class="steps__badge">3</div>
+          <h3 class="steps__item-title">URLを貼って再生</h3>
+          <p class="steps__item-text">
+            保存したいYouTube動画のURLを貼り付けてダウンロード。<br />アプリ内の一覧からすぐ再生できます。
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="notice" id="notice">
+    <div class="container">
+      <div class="notice__box">
+        <h2 class="notice__title">安心してお使いいただくために</h2>
+        <ul class="notice__list">
+          <li>
+            <strong>無料・オープンソース</strong>（MIT License）<br />
+            誰でもソースコードを確認でき、安全性が透明です。
+          </li>
+          <li>
+            YouTubeおよび各VTuber事務所・配信者の<strong>規約を守った上での個人利用</strong>を想定しています。
+          </li>
+          <li>
+            ダウンロードした動画や音声の<strong>再配布・再アップロードは禁止</strong>です。<br />
+            あくまで個人での視聴目的でご利用ください。
+          </li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="cta-bottom" id="download">
+    <div class="container">
+      <h2 class="cta-bottom__title">推しの配信を、あなたの手元に。</h2>
+      <p class="cta-bottom__text">今すぐ始めましょう。</p>
+      <a
+        href="https://github.com/piniki-dev/youtube-local-viewer/releases"
+        class="btn btn--primary btn--lg"
+        data-download
+        rel="noopener noreferrer"
+      >
+        <svg class="btn__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        無料でダウンロード
+      </a>
+    </div>
+  </section>
+
+  <footer class="footer">
+    <div class="container footer__inner">
+      <div class="footer__links">
+        <a href="https://github.com/piniki-dev/youtube-local-viewer" target="_blank" rel="noopener noreferrer">GitHub</a>
+        <span class="footer__sep">|</span>
+        <a href="https://github.com/piniki-dev/youtube-local-viewer/releases" target="_blank" rel="noopener noreferrer">Releases</a>
+        <span class="footer__sep">|</span>
+        <span>MIT License</span>
+      </div>
+      <p class="footer__copy">&copy; 2026 piniki</p>
+    </div>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>
