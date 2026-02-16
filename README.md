@@ -11,14 +11,25 @@
 
 A Windows desktop application for downloading, managing, and playing YouTube videos locally.
 
+This app aims to reduce the anxiety of "not knowing when archives might disappear" and let you **keep your own personal library of streams and videos at hand**.
+
+Especially useful for VTuber fans who:
+
+- Want to keep local backups in case archived streams get deleted
+- Want to watch or listen to karaoke streams and long broadcasts offline without worrying about connectivity
+
 Built with Tauri 2 + React 19 + TypeScript.
 
 ## Features
 
 - Download YouTube videos locally (with quality selection)
+  - Keep videos even if the original archive is deleted
 - Live chat synchronized playback
+  - Relive streams complete with comments
 - Bulk channel registration and video metadata fetching
+  - Build your library in bulk by channel or agency
 - Video search and filtering (by download status, type, publication date)
+  - Easily narrow down to karaoke streams, members-only content, etc.
 - Dark mode support
 - Backup and restore functionality
 - Local thumbnail caching
@@ -40,6 +51,12 @@ Built with Tauri 2 + React 19 + TypeScript.
 
 > **Note:** As this is an unsigned application, Windows SmartScreen warnings may appear.
 > Click "More info" → "Run anyway" to launch.
+
+## Disclaimer
+
+Please review the terms of service of YouTube and any relevant VTuber agencies or content creators before using this application, and use it only within those terms.
+
+Do not redistribute, re-upload, or publicly share any downloaded videos or audio files. Please limit use to personal viewing only.
 
 ## External Tools
 
