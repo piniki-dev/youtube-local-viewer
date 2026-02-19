@@ -45,6 +45,8 @@ type MetadataFinished = {
   stderr: string;
   metadata?: VideoMetadata | null;
   hasLiveChat?: boolean | null;
+  isPrivate?: boolean;
+  isDeleted?: boolean;
 };
 
 type LocalMetadataItem = {
@@ -210,6 +212,8 @@ export function useMetadataFetch<TVideo extends VideoLike>({
       hasLiveChat?: boolean | null;
       currentVideo?: TVideo | null;
       markMetadataFetched?: boolean;
+      isPrivate?: boolean;
+      isDeleted?: boolean;
     }) => {
       const {
         id,
@@ -217,6 +221,8 @@ export function useMetadataFetch<TVideo extends VideoLike>({
         hasLiveChat,
         currentVideo,
         markMetadataFetched = false,
+        isPrivate,
+        isDeleted,
       } = params;
       const patch: Partial<TVideo> = {};
 
@@ -293,7 +299,39 @@ export function useMetadataFetch<TVideo extends VideoLike>({
             patch.commentsStatus = "downloaded";
           }
         } else if (currentVideo?.commentsStatus === "pending") {
-          patch.commentsStatus = "unavailable";
+          // ライブ配信中・配信予定の動画はチャットが後から取得可能なのでpendingのまま維持
+          const isLiveOrUpcoming =
+            metadata?.isLive === true ||
+            metadata?.liveStatus === "is_live" ||
+            metadata?.liveStatus === "is_upcoming" ||
+            (currentVideo as Record<string, unknown>)?.isLive === true ||
+            (currentVideo as Record<string, unknown>)?.liveStatus === "is_live" ||
+            (currentVideo as Record<string, unknown>)?.liveStatus === "is_upcoming";
+          if (!isLiveOrUpcoming) {
+            patch.commentsStatus = "unavailable";
+          }
+        }
+      }
+
+      // 非公開検出フラグの反映
+      if (typeof isPrivate === "boolean") {
+        (patch as Record<string, unknown>).isPrivate = isPrivate;
+        // 非公開の場合、ライブ・配信予定のステータスをクリア
+        if (isPrivate) {
+          (patch as Record<string, unknown>).liveStatus = null;
+          (patch as Record<string, unknown>).isLive = null;
+          (patch as Record<string, unknown>).wasLive = currentVideo?.wasLive ?? null;
+        }
+      }
+
+      // 削除済み検出フラグの反映
+      if (typeof isDeleted === "boolean") {
+        (patch as Record<string, unknown>).isDeleted = isDeleted;
+        // 削除済みの場合、ライブ・配信予定のステータスをクリア
+        if (isDeleted) {
+          (patch as Record<string, unknown>).liveStatus = null;
+          (patch as Record<string, unknown>).isLive = null;
+          (patch as Record<string, unknown>).wasLive = currentVideo?.wasLive ?? null;
         }
       }
 
@@ -334,16 +372,6 @@ export function useMetadataFetch<TVideo extends VideoLike>({
       next.sourceUrl?.trim() || `https://www.youtube.com/watch?v=${next.id}`;
     metadataActiveIdRef.current = next.id;
     metadataActiveItemRef.current = next;
-    
-    // 既存のライブ配信中のメタデータファイルを削除（再取得の場合）
-    try {
-      await invoke("delete_live_metadata_files", {
-        id: next.id,
-        outputDir,
-      });
-    } catch {
-      // 失敗しても続行
-    }
     
     try {
       await invoke("start_metadata_download", {
@@ -422,11 +450,17 @@ export function useMetadataFetch<TVideo extends VideoLike>({
         metadataQueueRef.current.push(item);
       });
 
-      setMetadataFetch((prev) => ({
-        active: true,
-        total: prev.total + uniqueItems.length,
-        completed: prev.completed,
-      }));
+      setMetadataFetch((prev) => {
+        // 前回バッチが完了済みの場合はカウンタをリセットして新規バッチとして開始
+        if (!prev.active) {
+          return { active: true, total: uniqueItems.length, completed: 0 };
+        }
+        return {
+          active: true,
+          total: prev.total + uniqueItems.length,
+          completed: prev.completed,
+        };
+      });
 
       const start = () => {
         if (startNextMetadataDownloadRef.current) {
@@ -501,14 +535,14 @@ export function useMetadataFetch<TVideo extends VideoLike>({
             });
           }
 
-          if (isPending && hasInfo) {
-            infoLookupIds.push(video.id);
-          }
-
           // ライブ配信中・配信予定の動画は起動時（force=true）または手動再取得のみ
           const isCurrentlyLiveStream = video.isLive === true || video.liveStatus === "is_live";
           const isUpcomingStream = video.liveStatus === "is_upcoming";
           const isLiveOrUpcoming = isCurrentlyLiveStream || isUpcomingStream;
+
+          if (isPending && hasInfo && !(isLiveOrUpcoming && force)) {
+            infoLookupIds.push(video.id);
+          }
           
           // メタデータ取得済みの場合はスキップ（ライブ配信・配信予定は起動時のみ再取得）
           if (effectiveMetadataFetched) {
@@ -560,15 +594,6 @@ export function useMetadataFetch<TVideo extends VideoLike>({
                 });
                 continue;
               }
-              // 起動時は古いライブ配信中・配信予定のメタデータファイルを削除して再取得
-              try {
-                await invoke("delete_live_metadata_files", {
-                  id: item.id,
-                  outputDir,
-                });
-              } catch (err) {
-                console.warn(`Failed to delete live/upcoming metadata files for ${item.id}:`, err);
-              }
               // ライブ配信・配信予定の状態変化を検出するため、再取得対象に追加
               if (!pendingMetadataIdsRef.current.has(item.id)) {
                 candidates.push({ id: item.id, sourceUrl: currentVideo.sourceUrl });
@@ -579,7 +604,7 @@ export function useMetadataFetch<TVideo extends VideoLike>({
             applyMetadataUpdate({
               id: item.id,
               metadata: item.metadata,
-              hasLiveChat: hasChat ? true : null,
+              hasLiveChat: hasChat,
               currentVideo,
               markMetadataFetched: true,
             });
@@ -617,7 +642,7 @@ export function useMetadataFetch<TVideo extends VideoLike>({
       unlisten = await listen<MetadataFinished>(
         "metadata-finished",
         (event) => {
-          const { id, success, metadata, hasLiveChat, stderr, stdout } =
+          const { id, success, metadata, hasLiveChat, isPrivate, isDeleted, stderr, stdout } =
             event.payload;
           metadataActiveIdRef.current = null;
           pendingMetadataIdsRef.current.delete(id);
@@ -652,6 +677,34 @@ export function useMetadataFetch<TVideo extends VideoLike>({
               }
             }
             
+            // 非公開動画を検出時に通知（タイトル・チャンネル表示、自動消去しない）
+            if (isPrivate === true) {
+              if (addFloatingNoticeRef.current) {
+                const videoTitle = metadata?.title ?? currentVideo?.title ?? id;
+                const videoChannel = metadata?.channel ?? currentVideo?.channel ?? "";
+                const detailLines = [videoTitle, videoChannel].filter(Boolean).join("\n");
+                addFloatingNoticeRef.current({
+                  kind: "error",
+                  title: i18n.t('errors.privateVideoDetected'),
+                  details: detailLines,
+                });
+              }
+            }
+
+            // 削除済み動画を検出時に通知（タイトル・チャンネル表示、自動消去しない）
+            if (isDeleted === true) {
+              if (addFloatingNoticeRef.current) {
+                const videoTitle = metadata?.title ?? currentVideo?.title ?? id;
+                const videoChannel = metadata?.channel ?? currentVideo?.channel ?? "";
+                const detailLines = [videoTitle, videoChannel].filter(Boolean).join("\n");
+                addFloatingNoticeRef.current({
+                  kind: "error",
+                  title: i18n.t('errors.deletedVideoDetected'),
+                  details: detailLines,
+                });
+              }
+            }
+            
             if (applyMetadataUpdateRef.current) {
               applyMetadataUpdateRef.current({
                 id,
@@ -659,6 +712,8 @@ export function useMetadataFetch<TVideo extends VideoLike>({
                 hasLiveChat: typeof hasLiveChat === "boolean" ? hasLiveChat : null,
                 currentVideo,
                 markMetadataFetched: true,
+                isPrivate: isPrivate === true ? true : false,
+                isDeleted: isDeleted === true ? true : false,
               });
             }
           } else {
@@ -700,7 +755,7 @@ export function useMetadataFetch<TVideo extends VideoLike>({
     if (!isStateReady || autoMetadataStartupRef.current) return;
     if (!isDataCheckDone || !ytDlpUpdateDone) return;
     autoMetadataStartupRef.current = true;
-    void checkAndStartMetadataRecovery();
+    void checkAndStartMetadataRecovery(true);
   }, [
     isStateReady,
     isDataCheckDone,

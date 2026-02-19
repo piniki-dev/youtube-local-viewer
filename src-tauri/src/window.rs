@@ -94,3 +94,151 @@ pub fn open_devtools_window(app: AppHandle, label: String) -> Result<(), String>
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::models::{WindowSizeConfig, PendingPlayerOpen, PendingPlayerOpenState};
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+
+    // ── WindowSizeConfig serialization ──
+
+    #[test]
+    fn window_size_config_roundtrip() {
+        let config = WindowSizeConfig {
+            width: 1280,
+            height: 720,
+            x: Some(100),
+            y: Some(200),
+        };
+        let json = serde_json::to_string(&config).unwrap();
+        let parsed: WindowSizeConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.width, 1280);
+        assert_eq!(parsed.height, 720);
+        assert_eq!(parsed.x, Some(100));
+        assert_eq!(parsed.y, Some(200));
+    }
+
+    #[test]
+    fn window_size_config_without_position() {
+        let config = WindowSizeConfig {
+            width: 800,
+            height: 600,
+            x: None,
+            y: None,
+        };
+        let json = serde_json::to_string(&config).unwrap();
+        let parsed: WindowSizeConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.width, 800);
+        assert_eq!(parsed.height, 600);
+        assert_eq!(parsed.x, None);
+        assert_eq!(parsed.y, None);
+    }
+
+    // ── PendingPlayerOpen serialization ──
+
+    #[test]
+    fn pending_player_open_roundtrip() {
+        let pending = PendingPlayerOpen {
+            id: "abc123".to_string(),
+            file_path: Some("/path/to/video.mp4".to_string()),
+        };
+        let json = serde_json::to_string(&pending).unwrap();
+        assert!(json.contains("\"id\":\"abc123\""));
+        assert!(json.contains("\"filePath\""));
+        let parsed: PendingPlayerOpen = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.id, "abc123");
+        assert_eq!(parsed.file_path, Some("/path/to/video.mp4".to_string()));
+    }
+
+    #[test]
+    fn pending_player_open_no_file_path() {
+        let pending = PendingPlayerOpen {
+            id: "xyz".to_string(),
+            file_path: None,
+        };
+        let json = serde_json::to_string(&pending).unwrap();
+        let parsed: PendingPlayerOpen = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.id, "xyz");
+        assert_eq!(parsed.file_path, None);
+    }
+
+    // ── PendingPlayerOpenState (Mutex HashMap) ──
+
+    #[test]
+    fn pending_state_insert_and_remove() {
+        let state = PendingPlayerOpenState {
+            pending: Mutex::new(HashMap::new()),
+        };
+        {
+            let mut map = state.pending.lock().unwrap();
+            map.insert(
+                "player-1".to_string(),
+                PendingPlayerOpen {
+                    id: "video1".to_string(),
+                    file_path: Some("/v/1.mp4".to_string()),
+                },
+            );
+        }
+        {
+            let map = state.pending.lock().unwrap();
+            assert!(map.contains_key("player-1"));
+            assert_eq!(map.get("player-1").unwrap().id, "video1");
+        }
+        {
+            let mut map = state.pending.lock().unwrap();
+            let removed = map.remove("player-1");
+            assert!(removed.is_some());
+            assert_eq!(removed.unwrap().id, "video1");
+        }
+        {
+            let map = state.pending.lock().unwrap();
+            assert!(map.is_empty());
+        }
+    }
+
+    #[test]
+    fn pending_state_remove_nonexistent_returns_none() {
+        let state = PendingPlayerOpenState {
+            pending: Mutex::new(HashMap::new()),
+        };
+        let mut map = state.pending.lock().unwrap();
+        assert!(map.remove("no-such-label").is_none());
+    }
+
+    #[test]
+    fn pending_state_overwrite() {
+        let state = PendingPlayerOpenState {
+            pending: Mutex::new(HashMap::new()),
+        };
+        let mut map = state.pending.lock().unwrap();
+        map.insert(
+            "p1".to_string(),
+            PendingPlayerOpen { id: "v1".to_string(), file_path: None },
+        );
+        map.insert(
+            "p1".to_string(),
+            PendingPlayerOpen { id: "v2".to_string(), file_path: Some("/new".to_string()) },
+        );
+        assert_eq!(map.get("p1").unwrap().id, "v2");
+    }
+
+    #[test]
+    fn pending_state_multiple_labels() {
+        let state = PendingPlayerOpenState {
+            pending: Mutex::new(HashMap::new()),
+        };
+        let mut map = state.pending.lock().unwrap();
+        map.insert(
+            "main".to_string(),
+            PendingPlayerOpen { id: "a".to_string(), file_path: None },
+        );
+        map.insert(
+            "sub".to_string(),
+            PendingPlayerOpen { id: "b".to_string(), file_path: None },
+        );
+        assert_eq!(map.len(), 2);
+        assert_eq!(map.get("main").unwrap().id, "a");
+        assert_eq!(map.get("sub").unwrap().id, "b");
+    }
+}

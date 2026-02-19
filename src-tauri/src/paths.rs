@@ -215,3 +215,233 @@ pub(crate) fn atomic_write(path: &Path, data: &[u8]) -> Result<(), String> {
         .map_err(|e| format!("ファイルの置き換えに失敗しました: {}", e))?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // =========================================================
+    // resolve_library_root_dir
+    // =========================================================
+
+    #[test]
+    fn resolve_root_plain_dir() {
+        let root = resolve_library_root_dir("/home/user/library");
+        assert_eq!(root, PathBuf::from("/home/user/library"));
+    }
+
+    #[test]
+    fn resolve_root_videos_child() {
+        let root = resolve_library_root_dir("/home/user/library/videos");
+        assert_eq!(root, PathBuf::from("/home/user/library"));
+    }
+
+    #[test]
+    fn resolve_root_comments_child() {
+        let root = resolve_library_root_dir("/home/user/library/comments");
+        assert_eq!(root, PathBuf::from("/home/user/library"));
+    }
+
+    #[test]
+    fn resolve_root_metadata_child() {
+        let root = resolve_library_root_dir("/home/user/library/metadata");
+        assert_eq!(root, PathBuf::from("/home/user/library"));
+    }
+
+    #[test]
+    fn resolve_root_contents_child() {
+        let root = resolve_library_root_dir("/home/user/library/contents");
+        assert_eq!(root, PathBuf::from("/home/user/library"));
+    }
+
+    #[test]
+    fn resolve_root_thumbnails_child() {
+        let root = resolve_library_root_dir("/home/user/library/thumbnails");
+        assert_eq!(root, PathBuf::from("/home/user/library"));
+    }
+
+    #[test]
+    fn resolve_root_case_insensitive() {
+        let root = resolve_library_root_dir("/home/user/library/Videos");
+        assert_eq!(root, PathBuf::from("/home/user/library"));
+    }
+
+    #[test]
+    fn resolve_root_unknown_child_kept() {
+        let root = resolve_library_root_dir("/home/user/library/other");
+        assert_eq!(root, PathBuf::from("/home/user/library/other"));
+    }
+
+    // =========================================================
+    // normalized_library_root
+    // =========================================================
+
+    #[test]
+    fn normalized_root_strips_child() {
+        let root = normalized_library_root("/data/lib/videos");
+        assert!(root.ends_with("lib") || root.contains("lib"));
+        assert!(!root.ends_with("videos"));
+    }
+
+    // =========================================================
+    // library_*_dir
+    // =========================================================
+
+    #[test]
+    fn library_videos_dir_appends() {
+        let dir = library_videos_dir("/data/lib");
+        assert!(dir.ends_with("videos"));
+    }
+
+    #[test]
+    fn library_comments_dir_appends() {
+        let dir = library_comments_dir("/data/lib");
+        assert!(dir.ends_with("comments"));
+    }
+
+    #[test]
+    fn library_metadata_dir_appends() {
+        let dir = library_metadata_dir("/data/lib");
+        assert!(dir.ends_with("metadata"));
+    }
+
+    #[test]
+    fn library_thumbnails_dir_appends() {
+        let dir = library_thumbnails_dir("/data/lib");
+        assert!(dir.ends_with("thumbnails"));
+    }
+
+    // =========================================================
+    // sanitize_filename_component
+    // =========================================================
+
+    #[test]
+    fn sanitize_filename_normal() {
+        assert_eq!(sanitize_filename_component("hello-world_1"), "hello-world_1");
+    }
+
+    #[test]
+    fn sanitize_filename_special_chars() {
+        assert_eq!(sanitize_filename_component("a/b:c*d"), "a_b_c_d");
+    }
+
+    #[test]
+    fn sanitize_filename_empty() {
+        assert_eq!(sanitize_filename_component(""), "unknown");
+    }
+
+    #[test]
+    fn sanitize_filename_whitespace_only() {
+        assert_eq!(sanitize_filename_component("   "), "unknown");
+    }
+
+    #[test]
+    fn sanitize_filename_all_special() {
+        assert_eq!(sanitize_filename_component("***"), "unknown");
+    }
+
+    #[test]
+    fn sanitize_filename_truncate_60() {
+        let long = "a".repeat(100);
+        let result = sanitize_filename_component(&long);
+        assert_eq!(result.len(), 60);
+    }
+
+    #[test]
+    fn sanitize_filename_leading_trailing_underscores() {
+        // After replacing, leading/trailing underscores are trimmed
+        assert_eq!(sanitize_filename_component("!hello!"), "hello");
+    }
+
+    // =========================================================
+    // sanitize_path_component
+    // =========================================================
+
+    #[test]
+    fn sanitize_path_normal() {
+        assert_eq!(sanitize_path_component("Hello World", 255), "Hello World");
+    }
+
+    #[test]
+    fn sanitize_path_control_chars() {
+        assert_eq!(sanitize_path_component("a\x00b\x1Fc", 255), "a_b_c");
+    }
+
+    #[test]
+    fn sanitize_path_forbidden_chars() {
+        assert_eq!(sanitize_path_component("a<b>c:d", 255), "a_b_c_d");
+    }
+
+    #[test]
+    fn sanitize_path_empty() {
+        assert_eq!(sanitize_path_component("", 255), "unknown");
+    }
+
+    #[test]
+    fn sanitize_path_trailing_dots_spaces() {
+        assert_eq!(sanitize_path_component("test.. ", 255), "test");
+    }
+
+    #[test]
+    fn sanitize_path_truncate() {
+        let long = "a".repeat(300);
+        let result = sanitize_path_component(&long, 100);
+        assert_eq!(result.len(), 100);
+    }
+
+    #[test]
+    fn sanitize_path_all_invalid() {
+        // Forbidden chars are replaced with '_', but underscores are not stripped
+        assert_eq!(sanitize_path_component("<<<>>>", 255), "______");
+    }
+
+    // =========================================================
+    // collect_files_recursive
+    // =========================================================
+
+    #[test]
+    fn collect_files_nonexistent_dir() {
+        let files = collect_files_recursive(Path::new("/nonexistent/dir/xyz"));
+        assert!(files.is_empty());
+    }
+
+    #[test]
+    fn collect_files_empty_dir() {
+        let dir = std::env::temp_dir().join("ylv_test_collect_empty");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let files = collect_files_recursive(&dir);
+        assert!(files.is_empty());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn collect_files_with_nested() {
+        let dir = std::env::temp_dir().join("ylv_test_collect_nested");
+        let _ = fs::remove_dir_all(&dir);
+        let sub = dir.join("sub");
+        fs::create_dir_all(&sub).unwrap();
+        fs::write(dir.join("a.txt"), "a").unwrap();
+        fs::write(sub.join("b.txt"), "b").unwrap();
+        let files = collect_files_recursive(&dir);
+        assert_eq!(files.len(), 2);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    // =========================================================
+    // atomic_write
+    // =========================================================
+
+    #[test]
+    fn atomic_write_creates_file() {
+        let dir = std::env::temp_dir().join("ylv_test_atomic");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("test.json");
+        atomic_write(&path, b"hello").unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), "hello");
+        // .tmp should not remain
+        assert!(!dir.join("test.tmp").exists());
+        let _ = fs::remove_dir_all(&dir);
+    }
+}

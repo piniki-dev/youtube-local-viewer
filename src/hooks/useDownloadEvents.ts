@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import i18n from "../i18n";
@@ -6,11 +6,19 @@ import i18n from "../i18n";
 function classifyDownloadError(stderr: string, stdout: string): string {
   const combined = (stderr + "\n" + stdout).toLowerCase();
 
+  // yt-dlp実行ファイルが見つからない
+  // Rust側: "yt-dlpの起動に失敗しました: {err}" — errにはOS由来メッセージが含まれる
+  // Windows英語: "The system cannot find the file specified"
+  // Windows日本語: "指定されたファイルが見つかりません"
+  // Unix: "No such file or directory"
   if (
     combined.includes("yt-dlpの起動に失敗しました") ||
+    combined.includes("yt-dlpの制御に失敗しました") ||
     combined.includes("no such file or directory") ||
+    combined.includes("the system cannot find") ||
     combined.includes("指定されたファイルが見つかりません") ||
-    combined.includes("the system cannot find")
+    combined.includes("cannot find the path") ||
+    combined.includes("is not recognized as")
   ) {
     return i18n.t('errors.ytdlpNotFound');
   }
@@ -49,6 +57,8 @@ type DownloadFinished = {
   stdout: string;
   stderr: string;
   cancelled?: boolean;
+  isPrivate?: boolean;
+  isDeleted?: boolean;
 };
 
 type VideoMetadata = Record<string, unknown>;
@@ -67,6 +77,8 @@ type VideoLike = {
   title: string;
   downloadStatus: "pending" | "downloading" | "downloaded" | "failed";
   commentsStatus: "pending" | "downloading" | "downloaded" | "failed" | "unavailable";
+  isPrivate?: boolean;
+  isDeleted?: boolean;
 } & Record<string, unknown>;
 
 type BulkDownloadState = {
@@ -131,6 +143,25 @@ export function useDownloadEvents<TVideo extends VideoLike>({
   onVideoDownloadFinished,
   onCommentsDownloadFinished,
 }: UseDownloadEventsParams<TVideo>) {
+  // Ref-based callbacks to avoid re-registering listeners
+  const addDownloadErrorItemRef = useRef(addDownloadErrorItem);
+  const addFloatingNoticeRef = useRef(addFloatingNotice);
+  const handleBulkCompletionRef = useRef(handleBulkCompletion);
+  const maybeStartAutoCommentsDownloadRef = useRef(maybeStartAutoCommentsDownload);
+  const onVideoDownloadFinishedRef = useRef(onVideoDownloadFinished);
+  const onCommentsDownloadFinishedRef = useRef(onCommentsDownloadFinished);
+  const applyMetadataUpdateRef = useRef(applyMetadataUpdate);
+  const downloadFinishedListenerSetupRef = useRef(false);
+  const commentsFinishedListenerSetupRef = useRef(false);
+
+  useEffect(() => { addDownloadErrorItemRef.current = addDownloadErrorItem; }, [addDownloadErrorItem]);
+  useEffect(() => { addFloatingNoticeRef.current = addFloatingNotice; }, [addFloatingNotice]);
+  useEffect(() => { handleBulkCompletionRef.current = handleBulkCompletion; }, [handleBulkCompletion]);
+  useEffect(() => { maybeStartAutoCommentsDownloadRef.current = maybeStartAutoCommentsDownload; }, [maybeStartAutoCommentsDownload]);
+  useEffect(() => { onVideoDownloadFinishedRef.current = onVideoDownloadFinished; }, [onVideoDownloadFinished]);
+  useEffect(() => { onCommentsDownloadFinishedRef.current = onCommentsDownloadFinished; }, [onCommentsDownloadFinished]);
+  useEffect(() => { applyMetadataUpdateRef.current = applyMetadataUpdate; }, [applyMetadataUpdate]);
+
   const warmVideoCache = useCallback(
     (id: string) => {
       const outputDir = downloadDirRef.current.trim();
@@ -167,12 +198,15 @@ export function useDownloadEvents<TVideo extends VideoLike>({
   }, [setProgressLines]);
 
   useEffect(() => {
+    if (downloadFinishedListenerSetupRef.current) return;
+    downloadFinishedListenerSetupRef.current = true;
+
     let unlisten: (() => void) | null = null;
     const setup = async () => {
       unlisten = await listen<DownloadFinished>(
         "download-finished",
         (event) => {
-          const { id, success, stderr, stdout, cancelled } = event.payload;
+          const { id, success, stderr, stdout, cancelled, isPrivate, isDeleted } = event.payload;
           const wasCancelled = Boolean(cancelled);
           const isBulkCurrent =
             bulkDownloadRef.current.active &&
@@ -198,7 +232,7 @@ export function useDownloadEvents<TVideo extends VideoLike>({
               delete next[id];
               return next;
             });
-            onVideoDownloadFinished?.(id, false);
+            onVideoDownloadFinishedRef.current?.(id, false);
           } else if (success) {
             setVideos((prev: TVideo[]) =>
               prev.map((v: TVideo) =>
@@ -218,51 +252,63 @@ export function useDownloadEvents<TVideo extends VideoLike>({
               return next;
             });
             const commentsStarted = !isBulkCurrent
-              ? maybeStartAutoCommentsDownload(id)
+              ? maybeStartAutoCommentsDownloadRef.current(id)
               : false;
             warmVideoCache(id);
-            onVideoDownloadFinished?.(id, commentsStarted);
+            onVideoDownloadFinishedRef.current?.(id, commentsStarted);
           } else {
             setVideos((prev: TVideo[]) =>
               prev.map((v: TVideo) =>
                 v.id === id
-                  ? ({ ...v, downloadStatus: "failed" } as TVideo)
+                  ? ({ ...v, downloadStatus: "failed", ...(isPrivate ? { isPrivate: true } : {}), ...(isDeleted ? { isDeleted: true } : {}) } as TVideo)
                   : v
               )
             );
-            const details = stderr || stdout || i18n.t('errors.unknownError');
-            setVideoErrors((prev: Record<string, string>) => ({
-              ...prev,
-              [id]: details,
-            }));
-            addDownloadErrorItem(id, "video", details);
-            addFloatingNotice({ kind: "error", title: classifyDownloadError(stderr, stdout) });
-            onVideoDownloadFinished?.(id, false);
+            if (isPrivate) {
+              const video = videosRef.current.find((v: TVideo) => v.id === id);
+              const videoTitle = video?.title || id;
+              const videoChannel = (video as Record<string, unknown>)?.channel as string || "";
+              const detailLines = [videoTitle, videoChannel].filter(Boolean).join("\n");
+              addFloatingNoticeRef.current({
+                kind: "error",
+                title: i18n.t('errors.privateVideoDownloadFailed'),
+                details: detailLines,
+              });
+            } else if (isDeleted) {
+              const video = videosRef.current.find((v: TVideo) => v.id === id);
+              const videoTitle = video?.title || id;
+              const videoChannel = (video as Record<string, unknown>)?.channel as string || "";
+              const detailLines = [videoTitle, videoChannel].filter(Boolean).join("\n");
+              addFloatingNoticeRef.current({
+                kind: "error",
+                title: i18n.t('errors.deletedVideoDownloadFailed'),
+                details: detailLines,
+              });
+            } else {
+              const details = stderr || stdout || i18n.t('errors.unknownError');
+              setVideoErrors((prev: Record<string, string>) => ({
+                ...prev,
+                [id]: details,
+              }));
+              addDownloadErrorItemRef.current(id, "video", details);
+              addFloatingNoticeRef.current({ kind: "error", title: classifyDownloadError(stderr, stdout) });
+            }
+            onVideoDownloadFinishedRef.current?.(id, false);
           }
           if (isBulkCurrent) {
-            handleBulkCompletion(id, wasCancelled);
+            handleBulkCompletionRef.current(id, wasCancelled);
           }
         }
       );
     };
     void setup();
     return () => {
-      if (unlisten) unlisten();
+      if (unlisten) {
+        unlisten();
+        downloadFinishedListenerSetupRef.current = false;
+      }
     };
-  }, [
-    addDownloadErrorItem,
-    bulkDownloadRef,
-    handleBulkCompletion,
-    maybeStartAutoCommentsDownload,
-    onVideoDownloadFinished,
-    onCommentsDownloadFinished,
-    setDownloadingIds,
-    addFloatingNotice,
-    setProgressLines,
-    setVideoErrors,
-    setVideos,
-    warmVideoCache,
-  ]);
+  }, []);
 
   useEffect(() => {
     let unlisten: (() => void) | null = null;
@@ -285,6 +331,9 @@ export function useDownloadEvents<TVideo extends VideoLike>({
   }, [setCommentProgressLines]);
 
   useEffect(() => {
+    if (commentsFinishedListenerSetupRef.current) return;
+    commentsFinishedListenerSetupRef.current = true;
+
     let unlisten: (() => void) | null = null;
     const setup = async () => {
       unlisten = await listen<CommentFinished>(
@@ -305,7 +354,40 @@ export function useDownloadEvents<TVideo extends VideoLike>({
                     outputDir,
                   });
                 } catch {
-                  hasComments = true;
+                  // ファイル存在確認が失敗した場合はcommentsStatusを更新せず、エラーのみ通知
+                  addFloatingNoticeRef.current({
+                    kind: "error",
+                    title: i18n.t('errors.commentsFileCheckFailed'),
+                    autoDismissMs: 8000,
+                  });
+                  // メタデータ適用は続行
+                  if (applyMetadataUpdateRef.current && (metadata || typeof hasLiveChat === "boolean")) {
+                    const currentVideo = videosRef.current.find((v: TVideo) => v.id === id);
+                    applyMetadataUpdateRef.current({
+                      id,
+                      metadata: metadata ?? null,
+                      hasLiveChat: typeof hasLiveChat === "boolean" ? hasLiveChat : null,
+                      currentVideo,
+                      markMetadataFetched: true,
+                    });
+                  }
+                  setCommentProgressLines((prev: Record<string, string>) => {
+                    const next = { ...prev };
+                    delete next[id];
+                    return next;
+                  });
+                  setPendingCommentIds((prev: string[]) =>
+                    prev.filter((item: string) => item !== id)
+                  );
+                  if (
+                    bulkDownloadRef.current.active &&
+                    bulkDownloadRef.current.currentId === id &&
+                    bulkDownloadRef.current.phase === "comments"
+                  ) {
+                    handleBulkCompletionRef.current(id, false);
+                  }
+                  onCommentsDownloadFinishedRef.current?.(id);
+                  return;
                 }
               }
               setVideos((prev: TVideo[]) =>
@@ -320,9 +402,9 @@ export function useDownloadEvents<TVideo extends VideoLike>({
                     : v
                 )
               );
-              if (applyMetadataUpdate && (metadata || typeof hasLiveChat === "boolean")) {
+              if (applyMetadataUpdateRef.current && (metadata || typeof hasLiveChat === "boolean")) {
                 const currentVideo = videosRef.current.find((v: TVideo) => v.id === id);
-                applyMetadataUpdate({
+                applyMetadataUpdateRef.current({
                   id,
                   metadata: metadata ?? null,
                   hasLiveChat: typeof hasLiveChat === "boolean" ? hasLiveChat : null,
@@ -353,8 +435,8 @@ export function useDownloadEvents<TVideo extends VideoLike>({
                 ...prev,
                 [id]: details,
               }));
-              addDownloadErrorItem(id, "comments", details);
-              addFloatingNotice({ kind: "error", title: classifyDownloadError(stderr, stdout) });
+              addDownloadErrorItemRef.current(id, "comments", details);
+              addFloatingNoticeRef.current({ kind: "error", title: classifyDownloadError(stderr, stdout) });
             }
             setPendingCommentIds((prev: string[]) =>
               prev.filter((item: string) => item !== id)
@@ -364,30 +446,19 @@ export function useDownloadEvents<TVideo extends VideoLike>({
               bulkDownloadRef.current.currentId === id &&
               bulkDownloadRef.current.phase === "comments"
             ) {
-              handleBulkCompletion(id, false);
+              handleBulkCompletionRef.current(id, false);
             }
-            onCommentsDownloadFinished?.(id);
+            onCommentsDownloadFinishedRef.current?.(id);
           })();
         }
       );
     };
     void setup();
     return () => {
-      if (unlisten) unlisten();
+      if (unlisten) {
+        unlisten();
+        commentsFinishedListenerSetupRef.current = false;
+      }
     };
-  }, [
-    addDownloadErrorItem,
-    applyMetadataUpdate,
-    bulkDownloadRef,
-    downloadDirRef,
-    handleBulkCompletion,
-    setCommentErrors,
-    setCommentProgressLines,
-    setCommentsDownloadingIds,
-    addFloatingNotice,
-    setPendingCommentIds,
-    setVideos,
-    videosRef,
-    onCommentsDownloadFinished,
-  ]);
+  }, []);
 }

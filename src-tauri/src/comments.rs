@@ -729,3 +729,419 @@ pub fn get_comments(
 
     Ok(items)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    // =========================================================
+    // extract_text
+    // =========================================================
+
+    #[test]
+    fn extract_text_simple_text() {
+        let value = json!({ "simpleText": "Hello" });
+        assert_eq!(extract_text(&value), Some("Hello".to_string()));
+    }
+
+    #[test]
+    fn extract_text_runs() {
+        let value = json!({ "runs": [{ "text": "A" }, { "text": "B" }] });
+        assert_eq!(extract_text(&value), Some("AB".to_string()));
+    }
+
+    #[test]
+    fn extract_text_runs_with_emoji() {
+        let value = json!({
+            "runs": [
+                { "text": "hi " },
+                { "emoji": { "emojiId": "😀" } }
+            ]
+        });
+        assert_eq!(extract_text(&value), Some("hi 😀".to_string()));
+    }
+
+    #[test]
+    fn extract_text_empty_runs() {
+        let value = json!({ "runs": [] });
+        assert_eq!(extract_text(&value), None);
+    }
+
+    #[test]
+    fn extract_text_no_fields() {
+        let value = json!({});
+        assert_eq!(extract_text(&value), None);
+    }
+
+    // =========================================================
+    // extract_runs
+    // =========================================================
+
+    #[test]
+    fn extract_runs_text_only() {
+        let value = json!({ "runs": [{ "text": "Hello" }] });
+        let runs = extract_runs(&value).unwrap();
+        assert_eq!(runs.len(), 1);
+        assert_eq!(runs[0].text, Some("Hello".to_string()));
+        assert!(runs[0].emoji.is_none());
+    }
+
+    #[test]
+    fn extract_runs_emoji_with_id() {
+        let value = json!({
+            "runs": [{
+                "emoji": {
+                    "emojiId": "UC_emoji",
+                    "isCustomEmoji": true,
+                    "image": {
+                        "thumbnails": [{ "url": "https://img/e.png" }],
+                        "accessibility": { "accessibilityData": { "label": "fire" } }
+                    }
+                }
+            }]
+        });
+        let runs = extract_runs(&value).unwrap();
+        assert_eq!(runs.len(), 1);
+        let emoji = runs[0].emoji.as_ref().unwrap();
+        assert_eq!(emoji.id.as_deref(), Some("UC_emoji"));
+        assert_eq!(emoji.is_custom, Some(true));
+        assert_eq!(emoji.label.as_deref(), Some("fire"));
+    }
+
+    #[test]
+    fn extract_runs_empty_array() {
+        let value = json!({ "runs": [] });
+        assert!(extract_runs(&value).is_none());
+    }
+
+    #[test]
+    fn extract_runs_no_runs_key() {
+        let value = json!({ "other": "val" });
+        assert!(extract_runs(&value).is_none());
+    }
+
+    // =========================================================
+    // find_video_offset_ms
+    // =========================================================
+
+    #[test]
+    fn find_offset_direct_number() {
+        let value = json!({ "videoOffsetTimeMsec": 12345 });
+        assert_eq!(find_video_offset_ms(&value), Some(12345));
+    }
+
+    #[test]
+    fn find_offset_string_value() {
+        let value = json!({ "videoOffsetTimeMsec": "67890" });
+        assert_eq!(find_video_offset_ms(&value), Some(67890));
+    }
+
+    #[test]
+    fn find_offset_nested() {
+        let value = json!({ "wrapper": { "inner": { "videoOffsetTimeMsec": 100 } } });
+        assert_eq!(find_video_offset_ms(&value), Some(100));
+    }
+
+    #[test]
+    fn find_offset_in_array() {
+        let value = json!([{ "videoOffsetTimeMsec": 200 }]);
+        assert_eq!(find_video_offset_ms(&value), Some(200));
+    }
+
+    #[test]
+    fn find_offset_absent() {
+        let value = json!({ "other": "value" });
+        assert_eq!(find_video_offset_ms(&value), None);
+    }
+
+    // =========================================================
+    // find_live_chat_renderer
+    // =========================================================
+
+    #[test]
+    fn find_renderer_text_message() {
+        let value = json!({
+            "liveChatTextMessageRenderer": { "authorName": { "simpleText": "User" } }
+        });
+        assert!(find_live_chat_renderer(&value).is_some());
+    }
+
+    #[test]
+    fn find_renderer_paid_message() {
+        let value = json!({
+            "liveChatPaidMessageRenderer": { "authorName": { "simpleText": "User" } }
+        });
+        assert!(find_live_chat_renderer(&value).is_some());
+    }
+
+    #[test]
+    fn find_renderer_membership() {
+        let value = json!({
+            "liveChatMembershipItemRenderer": { "authorName": { "simpleText": "User" } }
+        });
+        assert!(find_live_chat_renderer(&value).is_some());
+    }
+
+    #[test]
+    fn find_renderer_add_chat_item_action() {
+        let value = json!({
+            "addChatItemAction": {
+                "item": {
+                    "liveChatTextMessageRenderer": { "authorName": { "simpleText": "User" } }
+                }
+            }
+        });
+        assert!(find_live_chat_renderer(&value).is_some());
+    }
+
+    #[test]
+    fn find_renderer_replay_chat() {
+        let value = json!({
+            "replayChatItemAction": {
+                "actions": [{
+                    "addChatItemAction": {
+                        "item": {
+                            "liveChatTextMessageRenderer": { "authorName": { "simpleText": "U" } }
+                        }
+                    }
+                }]
+            }
+        });
+        assert!(find_live_chat_renderer(&value).is_some());
+    }
+
+    #[test]
+    fn find_renderer_none() {
+        let value = json!({ "other": "data" });
+        assert!(find_live_chat_renderer(&value).is_none());
+    }
+
+    // =========================================================
+    // parse_comment_item
+    // =========================================================
+
+    #[test]
+    fn parse_comment_normal() {
+        let value = json!({
+            "author": "TestUser",
+            "text": "Great video!",
+            "like_count": 5,
+            "_time_text": "3 days ago"
+        });
+        let item = parse_comment_item(&value).unwrap();
+        assert_eq!(item.author, "TestUser");
+        assert_eq!(item.text, "Great video!");
+        assert_eq!(item.like_count, Some(5));
+        assert_eq!(item.published_at, Some("3 days ago".to_string()));
+    }
+
+    #[test]
+    fn parse_comment_content_field() {
+        let value = json!({
+            "author": "User",
+            "content": "Alt text field"
+        });
+        let item = parse_comment_item(&value).unwrap();
+        assert_eq!(item.text, "Alt text field");
+    }
+
+    #[test]
+    fn parse_comment_timestamp_fallback() {
+        let value = json!({
+            "author": "User",
+            "text": "hi",
+            "timestamp": 1700000000
+        });
+        let item = parse_comment_item(&value).unwrap();
+        assert_eq!(item.published_at, Some("1700000000".to_string()));
+    }
+
+    #[test]
+    fn parse_comment_no_author() {
+        let value = json!({ "text": "orphan" });
+        assert!(parse_comment_item(&value).is_none());
+    }
+
+    // =========================================================
+    // parse_comments_value
+    // =========================================================
+
+    #[test]
+    fn parse_comments_value_array() {
+        let value = json!([
+            { "author": "A", "text": "hi" },
+            { "author": "B", "text": "bye" }
+        ]);
+        let items = parse_comments_value(&value);
+        assert_eq!(items.len(), 2);
+    }
+
+    #[test]
+    fn parse_comments_value_object_with_comments() {
+        let value = json!({
+            "comments": [
+                { "author": "X", "text": "test" }
+            ]
+        });
+        let items = parse_comments_value(&value);
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].author, "X");
+    }
+
+    #[test]
+    fn parse_comments_value_empty_array() {
+        let value = json!([]);
+        let items = parse_comments_value(&value);
+        assert!(items.is_empty());
+    }
+
+    // =========================================================
+    // parse_comments_lines (JSONL)
+    // =========================================================
+
+    #[test]
+    fn parse_comments_lines_jsonl() {
+        let content = r#"{"author":"A","text":"line1"}
+{"author":"B","text":"line2"}"#;
+        let items = parse_comments_lines(content);
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].text, "line1");
+        assert_eq!(items[1].text, "line2");
+    }
+
+    #[test]
+    fn parse_comments_lines_invalid_json() {
+        let content = "not json\n{\"author\":\"A\",\"text\":\"ok\"}";
+        let items = parse_comments_lines(content);
+        assert_eq!(items.len(), 1);
+    }
+
+    // =========================================================
+    // parse_live_chat_item
+    // =========================================================
+
+    #[test]
+    fn parse_live_chat_text_message() {
+        let value = json!({
+            "liveChatTextMessageRenderer": {
+                "authorName": { "simpleText": "Chatter" },
+                "message": { "simpleText": "Hello stream!" },
+                "timestampUsec": "1700000000000000"
+            }
+        });
+        let item = parse_live_chat_item(&value).unwrap();
+        assert_eq!(item.author, "Chatter");
+        assert_eq!(item.text, "Hello stream!");
+        assert_eq!(item.published_at, Some("1700000000000".to_string()));
+    }
+
+    #[test]
+    fn parse_live_chat_empty_message() {
+        let value = json!({
+            "liveChatTextMessageRenderer": {
+                "authorName": { "simpleText": "User" },
+                "message": { "simpleText": "" }
+            }
+        });
+        assert!(parse_live_chat_item(&value).is_none());
+    }
+
+    #[test]
+    fn parse_live_chat_with_offset() {
+        let value = json!({
+            "replayChatItemAction": {
+                "videoOffsetTimeMsec": "5000",
+                "actions": [{
+                    "addChatItemAction": {
+                        "item": {
+                            "liveChatTextMessageRenderer": {
+                                "authorName": { "simpleText": "User" },
+                                "message": { "simpleText": "Replay msg" }
+                            }
+                        }
+                    }
+                }]
+            }
+        });
+        let item = parse_live_chat_item(&value).unwrap();
+        assert_eq!(item.offset_ms, Some(5000));
+    }
+
+    // =========================================================
+    // parse_live_chat_content
+    // =========================================================
+
+    #[test]
+    fn parse_live_chat_content_array() {
+        let content = serde_json::to_string(&json!([
+            {
+                "liveChatTextMessageRenderer": {
+                    "authorName": { "simpleText": "A" },
+                    "message": { "simpleText": "msg1" }
+                }
+            },
+            {
+                "liveChatTextMessageRenderer": {
+                    "authorName": { "simpleText": "B" },
+                    "message": { "simpleText": "msg2" }
+                }
+            }
+        ])).unwrap();
+        let items = parse_live_chat_content(&content);
+        assert_eq!(items.len(), 2);
+    }
+
+    #[test]
+    fn parse_live_chat_content_jsonl() {
+        let line1 = serde_json::to_string(&json!({
+            "liveChatTextMessageRenderer": {
+                "authorName": { "simpleText": "A" },
+                "message": { "simpleText": "line" }
+            }
+        })).unwrap();
+        let content = format!("{}\n", line1);
+        let items = parse_live_chat_content(&content);
+        assert_eq!(items.len(), 1);
+    }
+
+    #[test]
+    fn parse_live_chat_content_empty() {
+        let items = parse_live_chat_content("{}");
+        assert!(items.is_empty());
+    }
+
+    // =========================================================
+    // find_comments_file (tempdir)
+    // =========================================================
+
+    #[test]
+    fn find_comments_file_by_name_match() {
+        let dir = std::env::temp_dir().join("ylv_test_find_comments_name");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("Title [abc123].live_chat.json");
+        fs::write(&file, r#"{"video_id":"abc123"}"#).unwrap();
+        let result = find_comments_file(&dir, "abc123");
+        assert!(result.is_some());
+        assert!(result.unwrap().to_string_lossy().contains("abc123"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn find_comments_file_not_found() {
+        let dir = std::env::temp_dir().join("ylv_test_find_comments_miss");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("other.txt"), "data").unwrap();
+        let result = find_comments_file(&dir, "xyz");
+        assert!(result.is_none());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn find_comments_file_nonexistent_dir() {
+        let result = find_comments_file(Path::new("/nonexistent/dir"), "any");
+        assert!(result.is_none());
+    }
+}

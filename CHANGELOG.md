@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.0.13] - 2026-02-19
+
+### Added
+- Detect deleted videos (removed or terminated account) during metadata fetch and display a "Deleted" badge on video cards
+- Show notification when a deleted video is detected, with video title and channel name
+- Deleted videos are excluded from bulk download (auto-skipped like private videos)
+
+### Fixed
+- Fixed live stream detection using stale info.json from previous session, causing incorrect "Live stream detected" notification after the stream has ended
+- Old timestamped info.json files are now cleaned up **before** live status judgment, ensuring the latest metadata is always used for detection
+
 ## [1.0.12] - 2026-02-15
 
 ### Added

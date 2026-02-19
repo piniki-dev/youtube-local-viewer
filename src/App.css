@@ -566,6 +566,14 @@ body {
   align-items: center;
 }
 
+.badge-private {
+  background: #f3e8ff;
+  color: #7c3aed;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+}
+
 .modal-backdrop {
   position: fixed;
   inset: 0;
@@ -933,6 +941,10 @@ body {
   padding-bottom: 16px;
   box-sizing: border-box;
   overflow: hidden;
+}
+
+.player-layout.no-chat {
+  grid-template-columns: 1fr;
 }
 
 .player-media {

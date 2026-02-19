@@ -150,3 +150,116 @@ pub fn resolve_thumbnail_path(output_dir: String, id: String) -> Result<Option<S
     }
     Ok(None)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // =========================================================
+    // normalize_thumbnail_extension
+    // =========================================================
+
+    #[test]
+    fn normalize_jpg() {
+        assert_eq!(normalize_thumbnail_extension(Some("jpg".to_string())), "jpg");
+    }
+
+    #[test]
+    fn normalize_jpeg_to_jpg() {
+        assert_eq!(normalize_thumbnail_extension(Some("jpeg".to_string())), "jpg");
+    }
+
+    #[test]
+    fn normalize_png() {
+        assert_eq!(normalize_thumbnail_extension(Some("png".to_string())), "png");
+    }
+
+    #[test]
+    fn normalize_webp() {
+        assert_eq!(normalize_thumbnail_extension(Some("webp".to_string())), "webp");
+    }
+
+    #[test]
+    fn normalize_gif() {
+        assert_eq!(normalize_thumbnail_extension(Some("gif".to_string())), "gif");
+    }
+
+    #[test]
+    fn normalize_none_default_jpg() {
+        assert_eq!(normalize_thumbnail_extension(None), "jpg");
+    }
+
+    #[test]
+    fn normalize_unknown_default_jpg() {
+        assert_eq!(normalize_thumbnail_extension(Some("bmp".to_string())), "jpg");
+    }
+
+    #[test]
+    fn normalize_leading_dot() {
+        assert_eq!(normalize_thumbnail_extension(Some(".png".to_string())), "png");
+    }
+
+    #[test]
+    fn normalize_uppercase() {
+        assert_eq!(normalize_thumbnail_extension(Some("JPEG".to_string())), "jpg");
+    }
+
+    #[test]
+    fn normalize_whitespace() {
+        assert_eq!(normalize_thumbnail_extension(Some("  webp  ".to_string())), "webp");
+    }
+
+    // =========================================================
+    // find_existing_thumbnail (tempdir)
+    // =========================================================
+
+    #[test]
+    fn find_thumbnail_new_format() {
+        let dir = std::env::temp_dir().join("ylv_test_thumb_new");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("abc123.jpg"), "img").unwrap();
+        let result = find_existing_thumbnail(&dir, "abc123");
+        assert!(result.is_some());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn find_thumbnail_old_format() {
+        let dir = std::env::temp_dir().join("ylv_test_thumb_old");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("Title [abc123].webp"), "img").unwrap();
+        let result = find_existing_thumbnail(&dir, "abc123");
+        assert!(result.is_some());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn find_thumbnail_not_found() {
+        let dir = std::env::temp_dir().join("ylv_test_thumb_miss");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("other.jpg"), "x").unwrap();
+        let result = find_existing_thumbnail(&dir, "xyz");
+        assert!(result.is_none());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn find_thumbnail_nonexistent_dir() {
+        let result = find_existing_thumbnail(Path::new("/no/such/dir"), "id");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn find_thumbnail_non_image_ignored() {
+        let dir = std::env::temp_dir().join("ylv_test_thumb_noimg");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("abc123.txt"), "data").unwrap();
+        let result = find_existing_thumbnail(&dir, "abc123");
+        assert!(result.is_none());
+        let _ = fs::remove_dir_all(&dir);
+    }
+}

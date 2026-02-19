@@ -303,3 +303,111 @@ pub fn dev_reset(app: AppHandle, output_dir: String, keep_settings: bool) -> Res
 
     Ok(log.join("\n"))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    // =========================================================
+    // parse_versioned_settings
+    // =========================================================
+
+    #[test]
+    fn parse_settings_versioned_v1() {
+        let content = serde_json::to_string(&json!({
+            "version": 1,
+            "data": {
+                "downloadDir": "/home/dl",
+                "downloadQuality": "720p"
+            }
+        })).unwrap();
+        let settings = parse_versioned_settings(&content);
+        assert_eq!(settings.download_dir, Some("/home/dl".to_string()));
+        assert_eq!(settings.download_quality, Some("720p".to_string()));
+    }
+
+    #[test]
+    fn parse_settings_future_version_returns_default() {
+        let content = serde_json::to_string(&json!({
+            "version": 999,
+            "data": {
+                "downloadDir": "/should/be/ignored"
+            }
+        })).unwrap();
+        let settings = parse_versioned_settings(&content);
+        assert!(settings.download_dir.is_none());
+    }
+
+    #[test]
+    fn parse_settings_legacy_unversioned() {
+        let content = serde_json::to_string(&json!({
+            "downloadDir": "/legacy/path",
+            "cookiesFile": "/cookies.txt"
+        })).unwrap();
+        let settings = parse_versioned_settings(&content);
+        assert_eq!(settings.download_dir, Some("/legacy/path".to_string()));
+        assert_eq!(settings.cookies_file, Some("/cookies.txt".to_string()));
+    }
+
+    #[test]
+    fn parse_settings_invalid_json() {
+        let settings = parse_versioned_settings("not json");
+        assert!(settings.download_dir.is_none());
+    }
+
+    #[test]
+    fn parse_settings_empty_string() {
+        let settings = parse_versioned_settings("");
+        assert!(settings.download_dir.is_none());
+    }
+
+    // =========================================================
+    // parse_versioned_videos
+    // =========================================================
+
+    #[test]
+    fn parse_videos_versioned_v1() {
+        let content = serde_json::to_string(&json!({
+            "version": 1,
+            "data": {
+                "videos": [{"id": "v1"}, {"id": "v2"}]
+            }
+        })).unwrap();
+        let videos = parse_versioned_videos(&content);
+        assert_eq!(videos.videos.len(), 2);
+    }
+
+    #[test]
+    fn parse_videos_future_version_returns_default() {
+        let content = serde_json::to_string(&json!({
+            "version": 999,
+            "data": {
+                "videos": [{"id": "v1"}]
+            }
+        })).unwrap();
+        let videos = parse_versioned_videos(&content);
+        assert!(videos.videos.is_empty());
+    }
+
+    #[test]
+    fn parse_videos_legacy_unversioned() {
+        let content = serde_json::to_string(&json!({
+            "videos": [{"id": "legacy"}]
+        })).unwrap();
+        let videos = parse_versioned_videos(&content);
+        assert_eq!(videos.videos.len(), 1);
+    }
+
+    #[test]
+    fn parse_videos_invalid_json() {
+        let videos = parse_versioned_videos("broken");
+        assert!(videos.videos.is_empty());
+    }
+
+    #[test]
+    fn parse_videos_empty_string() {
+        let videos = parse_versioned_videos("");
+        assert!(videos.videos.is_empty());
+    }
+}

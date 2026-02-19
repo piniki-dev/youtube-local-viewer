@@ -124,6 +124,8 @@ pub fn start_download(
                             stdout: "".to_string(),
                             stderr: format!("yt-dlpの起動に失敗しました: {}", err),
                             cancelled: false,
+                            is_private: false,
+                            is_deleted: false,
                         },
                     );
                     return;
@@ -150,6 +152,8 @@ pub fn start_download(
                                 stdout: "".to_string(),
                                 stderr: format!("yt-dlpの制御に失敗しました: {}", err),
                                 cancelled: false,
+                                is_private: false,
+                                is_deleted: false,
                             },
                         );
                         let _ = write_error_log(
@@ -200,6 +204,8 @@ pub fn start_download(
                                 stdout: "".to_string(),
                                 stderr: format!("yt-dlpの制御に失敗しました: {}", err),
                                 cancelled: false,
+                                is_private: false,
+                                is_deleted: false,
                             },
                         );
                         let _ = write_error_log(
@@ -251,6 +257,8 @@ pub fn start_download(
                                     stdout: "".to_string(),
                                     stderr: format!("yt-dlpの制御に失敗しました: {}", err),
                                     cancelled: false,
+                                    is_private: false,
+                                    is_deleted: false,
                                 },
                             );
                             let _ = write_error_log(
@@ -280,6 +288,8 @@ pub fn start_download(
                                 stdout: "".to_string(),
                                 stderr: format!("yt-dlpの実行に失敗しました: {}", err),
                                 cancelled: false,
+                                is_private: false,
+                                is_deleted: false,
                             },
                         );
                         let _ = write_error_log(
@@ -333,6 +343,22 @@ pub fn start_download(
             let _ = write_error_log(&app, "video_download", &id, &last_stdout, &last_stderr);
         }
 
+        // 非公開動画の検出
+        let is_private = if !last_success && !last_cancelled {
+            let combined = format!("{} {}", &last_stderr, &last_stdout).to_lowercase();
+            combined.contains("video is private") || combined.contains("private video")
+        } else {
+            false
+        };
+
+        // 削除済み動画の検出
+        let is_deleted = if !last_success && !last_cancelled {
+            let combined = format!("{} {}", &last_stderr, &last_stdout).to_lowercase();
+            combined.contains("has been removed") || combined.contains("account associated with this video has been terminated")
+        } else {
+            false
+        };
+
         let _ = app.emit(
             "download-finished",
             DownloadFinished {
@@ -341,6 +367,8 @@ pub fn start_download(
                 stdout: last_stdout,
                 stderr: last_stderr,
                 cancelled: last_cancelled,
+                is_private,
+                is_deleted,
             },
         );
     });
@@ -373,4 +401,58 @@ pub fn stop_download(state: State<DownloadProcessState>, id: String) -> Result<(
         .map_err(|err| format!("ダウンロード停止に失敗しました: {}", err))?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // =========================================================
+    // D-2a. quality_to_format
+    // =========================================================
+
+    #[test]
+    fn quality_1080p() {
+        let fmt = quality_to_format(Some("1080p"));
+        assert!(fmt.contains("height<=1080"));
+    }
+
+    #[test]
+    fn quality_720p() {
+        let fmt = quality_to_format(Some("720p"));
+        assert!(fmt.contains("height<=720"));
+    }
+
+    #[test]
+    fn quality_480p() {
+        let fmt = quality_to_format(Some("480p"));
+        assert!(fmt.contains("height<=480"));
+    }
+
+    #[test]
+    fn quality_360p() {
+        let fmt = quality_to_format(Some("360p"));
+        assert!(fmt.contains("height<=360"));
+    }
+
+    #[test]
+    fn quality_audio() {
+        let fmt = quality_to_format(Some("audio"));
+        assert!(fmt.contains("bestaudio"));
+        assert!(!fmt.contains("bestvideo"));
+    }
+
+    #[test]
+    fn quality_default_none() {
+        let fmt = quality_to_format(None);
+        assert!(fmt.contains("bestvideo"));
+        assert!(!fmt.contains("height<="));
+    }
+
+    #[test]
+    fn quality_unknown_value() {
+        let fmt = quality_to_format(Some("4k"));
+        // Falls through to default
+        assert!(fmt.contains("bestvideo"));
+    }
 }

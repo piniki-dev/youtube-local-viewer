@@ -37,6 +37,8 @@ type VideoCardProps = {
   isQueued: boolean;
   isCurrentlyLive?: boolean;
   isUpcoming?: boolean;
+  isPrivate?: boolean;
+  isDeleted?: boolean;
   displayStatus: DownloadStatus;
   onPlay: () => void;
   onDownload: () => void;
@@ -60,6 +62,8 @@ const VideoCardComponent = ({
   isQueued,
   isCurrentlyLive = false,
   isUpcoming = false,
+  isPrivate = false,
+  isDeleted = false,
   displayStatus,
   onPlay,
   onDownload,
@@ -84,8 +88,8 @@ const VideoCardComponent = ({
   ) : (
     <i className="ri-download-2-line" />
   );
-  const isActionDisabled = isCurrentlyLive || (isDownloaded ? !isPlayable : isDownloading || isQueued);
-  const canDownload = !isDownloaded && !isDownloading && !isQueued && !isCurrentlyLive;
+  const isActionDisabled = isCurrentlyLive || ((isPrivate || isDeleted) && !isDownloaded) || (isDownloaded ? !isPlayable : isDownloading || isQueued);
+  const canDownload = !isDownloaded && !isDownloading && !isQueued && !isCurrentlyLive && !isPrivate && !isDeleted;
   const canDelete = !isDownloading && !isQueued;
 
   useEffect(() => {
@@ -200,7 +204,37 @@ const VideoCardComponent = ({
         </div>
         <p>{video.channel}</p>
         {video.publishedAt && <p>{t("videoCard.publishedDate")}: {formatPublishedAt(video.publishedAt)}</p>}
-        {isUpcoming ? (
+        {isPrivate && isDownloaded ? (
+          <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+            <span className="badge badge-success">
+              {t("videoCard.downloaded")}
+            </span>
+            <span className="badge badge-private">
+              <i className="ri-lock-line" style={{ marginRight: "0.25rem" }} />
+              {t("videoCard.privateVideo")}
+            </span>
+          </div>
+        ) : isPrivate ? (
+          <span className="badge badge-private">
+            <i className="ri-lock-line" style={{ marginRight: "0.25rem" }} />
+            {t("videoCard.privateVideo")}
+          </span>
+        ) : isDeleted && isDownloaded ? (
+          <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+            <span className="badge badge-success">
+              {t("videoCard.downloaded")}
+            </span>
+            <span className="badge badge-deleted">
+              <i className="ri-delete-bin-line" style={{ marginRight: "0.25rem" }} />
+              {t("videoCard.deletedVideo")}
+            </span>
+          </div>
+        ) : isDeleted ? (
+          <span className="badge badge-deleted">
+            <i className="ri-delete-bin-line" style={{ marginRight: "0.25rem" }} />
+            {t("videoCard.deletedVideo")}
+          </span>
+        ) : isUpcoming ? (
           <>
             <span 
               className="badge badge-live"

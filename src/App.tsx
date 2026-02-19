@@ -90,6 +90,8 @@ type VideoItem = {
   ageLimit?: number;
   metadataFetched?: boolean;
   favorite?: boolean;
+  isPrivate?: boolean;
+  isDeleted?: boolean;
   downloadStatus: DownloadStatus;
   commentsStatus: CommentStatus;
   addedAt: string;
@@ -315,6 +317,7 @@ function App() {
     setPlayerCanPlay,
     isChatAutoScroll,
     setIsChatAutoScroll,
+    playerHasChat,
     playerVideoRef,
     playerChatEndRef,
     mediaInfoById,
@@ -893,6 +896,7 @@ function App() {
       debug={playerDebug}
       filePath={playerFilePath}
       onRevealInFolder={revealInFolder}
+      hasChat={playerHasChat}
       sortedComments={sortedPlayerComments}
       isChatAutoScroll={isChatAutoScroll}
       onToggleChatAutoScroll={() => setIsChatAutoScroll((prev) => !prev)}

@@ -10,7 +10,7 @@ use tauri::{AppHandle, Emitter};
 use crate::models::{VideoMetadata, ChannelVideoItem, MetadataFinished};
 use crate::paths::{library_metadata_dir, write_error_log};
 use crate::tooling::{apply_cookies_args, resolve_yt_dlp, resolve_override, resolve_ffmpeg};
-use crate::files::{find_info_json, comments_file_exists};
+use crate::files::{find_info_json, comments_file_exists, cleanup_old_live_metadata_files};
 use crate::{YTDLP_TITLE_WARNING, YTDLP_WARNING_RETRY_MAX, YTDLP_WARNING_RETRY_SLEEP_MS};
 
 pub(crate) fn parse_video_metadata_value(value: &serde_json::Value) -> VideoMetadata {
@@ -386,6 +386,8 @@ pub fn start_metadata_download(
         let mut last_success = false;
         let mut live_detected = false;
         let mut upcoming_detected = false;
+        let mut private_detected = false;
+        let mut deleted_detected = false;
 
         if let Err(err) = fs::create_dir_all(&output_dir_path) {
             let _ = app.emit(
@@ -397,6 +399,8 @@ pub fn start_metadata_download(
                     stderr: format!("保存先フォルダの作成に失敗しました: {}", err),
                     metadata: None,
                     has_live_chat: None,
+                    is_private: false,
+                    is_deleted: false,
                 },
             );
             return;
@@ -455,6 +459,8 @@ pub fn start_metadata_download(
                             stderr: format!("yt-dlpの起動に失敗しました: {}", err),
                             metadata: None,
                             has_live_chat: None,
+                            is_private: false,
+                            is_deleted: false,
                         },
                     );
                     return;
@@ -570,6 +576,8 @@ pub fn start_metadata_download(
                                     stderr: format!("タイムアウト後のプロセス終了に失敗: {}", err),
                                     metadata: None,
                                     has_live_chat: None,
+                                    is_private: false,
+                                    is_deleted: false,
                                 },
                             );
                             return;
@@ -582,6 +590,8 @@ pub fn start_metadata_download(
                     // Kill the process immediately
                     let _ = child.kill();
                     live_detected = true;
+                    #[cfg(debug_assertions)]
+                    println!("[metadata:{}] stderr live detection triggered, killing process", id);
                     
                     // Wait briefly for process to terminate, but don't block forever
                     let kill_wait_start = std::time::Instant::now();
@@ -640,6 +650,8 @@ pub fn start_metadata_download(
                                     stderr: format!("プロセス待機中にエラー: {}", err),
                                     metadata: None,
                                     has_live_chat: None,
+                                    is_private: false,
+                                    is_deleted: false,
                                 },
                             );
                             return;
@@ -654,6 +666,20 @@ pub fn start_metadata_download(
             last_stdout = stdout;
             last_stderr = stderr;
             last_success = output.success();
+
+            #[cfg(debug_assertions)]
+            println!("[metadata:{}] attempt {} result: success={}, timed_out={}", id, attempt, last_success, timed_out);
+
+            // 非公開動画の検出
+            if !last_success {
+                let combined = format!("{} {}", &last_stderr, &last_stdout).to_lowercase();
+                if combined.contains("video is private") || combined.contains("private video") {
+                    private_detected = true;
+                }
+                if combined.contains("has been removed") || combined.contains("account associated with this video has been terminated") {
+                    deleted_detected = true;
+                }
+            }
 
             // If timed out during info.json download, treat as error
             if timed_out {
@@ -686,7 +712,13 @@ pub fn start_metadata_download(
             // Step 2: Check if it's a live stream from info.json (inside retry loop)
             
             if last_success && !live_detected {
+                // 判定前に古いタイムスタンプ付きinfo.jsonを掃除して、最新のファイルだけ残す
+                let cleaned = cleanup_old_live_metadata_files(&id, &output_dir);
+                #[cfg(debug_assertions)]
+                println!("[metadata:{}] cleanup before judgment: {} files deleted", id, cleaned);
                 let info_path = find_info_json(&output_dir_path, &id);
+                #[cfg(debug_assertions)]
+                println!("[metadata:{}] find_info_json result: {:?}", id, info_path.as_ref().and_then(|p| p.file_name()));
                 if let Some(ref info_file) = info_path {
                     
                     match fs::read_to_string(&info_file) {
@@ -702,6 +734,9 @@ pub fn start_metadata_download(
                                         .map(|s| s == "is_live" || s == "is_upcoming")
                                         .unwrap_or(false);
                                     
+                                    #[cfg(debug_assertions)]
+                                    println!("[metadata:{}] info.json check: is_live={}, live_status={:?}", id, is_live_bool, live_status_str);
+
                                     if is_live_bool || is_live_status {
                                         // It's a live stream, mark as detected and skip comments
                                         live_detected = true;
@@ -852,6 +887,8 @@ pub fn start_metadata_download(
                         let _ = child.kill();
                         let _ = child.wait();
                         live_detected = true;
+                        #[cfg(debug_assertions)]
+                        println!("[metadata:{}] comment step: live detected in stdout/stderr, killing process", id);
                         break;
                     }
 
@@ -876,6 +913,12 @@ pub fn start_metadata_download(
 
         let mut metadata: Option<VideoMetadata> = None;
         let mut has_live_chat: Option<bool> = None;
+
+        #[cfg(debug_assertions)]
+        println!(
+            "[metadata:{}] final state: last_success={}, live_detected={}, upcoming={}, private={}, deleted={}",
+            id, last_success, live_detected, upcoming_detected, private_detected, deleted_detected
+        );
 
         // If upcoming live event detected, create metadata with is_upcoming status
         if upcoming_detected {
@@ -943,24 +986,52 @@ pub fn start_metadata_download(
         } else if last_success {
             let dir = library_metadata_dir(&output_dir);
             if let Some(info_path) = find_info_json(&dir, &id) {
+                #[cfg(debug_assertions)]
+                println!("[metadata:{}] last_success branch: reading {:?}", id, info_path.file_name());
                 if let Ok(content) = fs::read_to_string(&info_path) {
                     if let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) {
-                        metadata = Some(parse_video_metadata_value(&value));
+                        let meta = parse_video_metadata_value(&value);
+                        #[cfg(debug_assertions)]
+                        println!(
+                            "[metadata:{}] parsed metadata: is_live={:?}, live_status={:?}, was_live={:?}",
+                            id, meta.is_live, meta.live_status, meta.was_live
+                        );
+                        metadata = Some(meta);
                     }
                 }
             }
             has_live_chat = comments_file_exists(id.clone(), output_dir.clone()).ok();
+            #[cfg(debug_assertions)]
+            println!("[metadata:{}] has_live_chat={:?}", id, has_live_chat);
+        }
+
+        #[cfg(debug_assertions)]
+        {
+            let is_live_in_meta = metadata.as_ref().and_then(|m| m.is_live);
+            let live_status_in_meta = metadata.as_ref().and_then(|m| m.live_status.as_deref());
+            println!(
+                "[metadata:{}] emitting metadata-finished: success={}, is_live={:?}, live_status={:?}, has_live_chat={:?}, is_private={}, is_deleted={}",
+                id,
+                private_detected || deleted_detected || upcoming_detected || live_detected || last_success,
+                is_live_in_meta,
+                live_status_in_meta,
+                has_live_chat,
+                private_detected,
+                deleted_detected
+            );
         }
 
         let _ = app.emit(
             "metadata-finished",
             MetadataFinished {
                 id,
-                success: upcoming_detected || live_detected || last_success,
+                success: private_detected || deleted_detected || upcoming_detected || live_detected || last_success,
                 stdout: last_stdout,
                 stderr: last_stderr,
                 metadata,
                 has_live_chat,
+                is_private: private_detected,
+                is_deleted: deleted_detected,
             },
         );
     });
@@ -1245,4 +1316,260 @@ pub fn list_channel_videos(
     }
 
     Ok(merged)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    // =========================================================
+    // D-1. parse_video_metadata_value
+    // =========================================================
+
+    #[test]
+    fn parse_normal_video_json() {
+        let value = json!({
+            "id": "abc123",
+            "title": "Test Video",
+            "channel": "TestChannel",
+            "thumbnail": "https://i.ytimg.com/vi/abc123/maxresdefault.jpg",
+            "url": "https://rr.googlevideo.com/...",
+            "webpage_url": "https://www.youtube.com/watch?v=abc123",
+            "duration": 120,
+            "upload_date": "20240115",
+            "release_timestamp": 1705276800,
+            "timestamp": 1705276000,
+            "live_status": "not_live",
+            "is_live": false,
+            "was_live": false,
+            "view_count": 1000,
+            "like_count": 50,
+            "comment_count": 10,
+            "tags": ["music", "pop"],
+            "categories": ["Music"],
+            "description": "Test description",
+            "channel_id": "UC123",
+            "uploader_id": "@user",
+            "channel_url": "https://youtube.com/@channel",
+            "uploader_url": "https://youtube.com/@user",
+            "availability": "public",
+            "language": "ja",
+            "audio_language": "ja",
+            "age_limit": 0
+        });
+        let meta = parse_video_metadata_value(&value);
+        assert_eq!(meta.id, Some("abc123".to_string()));
+        assert_eq!(meta.title, Some("Test Video".to_string()));
+        assert_eq!(meta.channel, Some("TestChannel".to_string()));
+        assert_eq!(meta.duration_sec, Some(120));
+        assert_eq!(meta.availability, Some("public".to_string()));
+        assert_eq!(meta.is_live, Some(false));
+        assert_eq!(meta.tags, Some(vec!["music".to_string(), "pop".to_string()]));
+        assert_eq!(meta.view_count, Some(1000));
+        assert_eq!(meta.language, Some("ja".to_string()));
+    }
+
+    #[test]
+    fn parse_private_video() {
+        let value = json!({
+            "id": "priv1",
+            "availability": "private"
+        });
+        let meta = parse_video_metadata_value(&value);
+        assert_eq!(meta.availability, Some("private".to_string()));
+    }
+
+    #[test]
+    fn parse_is_live_true() {
+        let value = json!({
+            "id": "live1",
+            "is_live": true,
+            "live_status": "is_live"
+        });
+        let meta = parse_video_metadata_value(&value);
+        assert_eq!(meta.is_live, Some(true));
+        assert_eq!(meta.live_status, Some("is_live".to_string()));
+    }
+
+    #[test]
+    fn parse_missing_fields() {
+        let value = json!({});
+        let meta = parse_video_metadata_value(&value);
+        assert!(meta.id.is_none());
+        assert!(meta.title.is_none());
+        assert!(meta.channel.is_none());
+        assert!(meta.duration_sec.is_none());
+        assert!(meta.is_live.is_none());
+        assert!(meta.tags.is_none());
+    }
+
+    #[test]
+    fn parse_channel_fallback_uploader() {
+        let value = json!({
+            "uploader": "UploaderName"
+        });
+        let meta = parse_video_metadata_value(&value);
+        assert_eq!(meta.channel, Some("UploaderName".to_string()));
+    }
+
+    #[test]
+    fn parse_channel_fallback_channel_title() {
+        let value = json!({
+            "channel_title": "ChannelTitle"
+        });
+        let meta = parse_video_metadata_value(&value);
+        assert_eq!(meta.channel, Some("ChannelTitle".to_string()));
+    }
+
+    #[test]
+    fn parse_channel_priority() {
+        // "channel" should take priority over "uploader"
+        let value = json!({
+            "channel": "PrimaryChannel",
+            "uploader": "FallbackUploader"
+        });
+        let meta = parse_video_metadata_value(&value);
+        assert_eq!(meta.channel, Some("PrimaryChannel".to_string()));
+    }
+
+    #[test]
+    fn parse_invalid_json_values() {
+        // Pass non-matching types
+        let value = json!({
+            "id": 12345,
+            "duration": "not_a_number",
+            "is_live": "true_string"
+        });
+        let meta = parse_video_metadata_value(&value);
+        assert!(meta.id.is_none()); // as_str fails on number
+        assert!(meta.duration_sec.is_none()); // as_u64 fails on string
+        assert!(meta.is_live.is_none()); // as_bool fails on string
+    }
+
+    // =========================================================
+    // D-1b. normalize_channel_base_url
+    // =========================================================
+
+    #[test]
+    fn normalize_removes_live_suffix() {
+        assert_eq!(
+            normalize_channel_base_url("https://youtube.com/@user/live"),
+            "https://youtube.com/@user"
+        );
+    }
+
+    #[test]
+    fn normalize_removes_shorts_suffix() {
+        assert_eq!(
+            normalize_channel_base_url("https://youtube.com/@user/shorts"),
+            "https://youtube.com/@user"
+        );
+    }
+
+    #[test]
+    fn normalize_removes_videos_suffix() {
+        assert_eq!(
+            normalize_channel_base_url("https://youtube.com/@user/videos"),
+            "https://youtube.com/@user"
+        );
+    }
+
+    #[test]
+    fn normalize_removes_trailing_slash() {
+        assert_eq!(
+            normalize_channel_base_url("https://youtube.com/@user/"),
+            "https://youtube.com/@user"
+        );
+    }
+
+    #[test]
+    fn normalize_no_suffix() {
+        assert_eq!(
+            normalize_channel_base_url("https://youtube.com/@user"),
+            "https://youtube.com/@user"
+        );
+    }
+
+    // =========================================================
+    // D-1c. build_channel_section_urls
+    // =========================================================
+
+    #[test]
+    fn build_section_urls() {
+        let urls = build_channel_section_urls("https://youtube.com/@user");
+        assert_eq!(urls.len(), 4);
+        assert_eq!(urls[0], "https://youtube.com/@user/videos");
+        assert_eq!(urls[1], "https://youtube.com/@user/streams");
+        assert_eq!(urls[2], "https://youtube.com/@user/live");
+        assert_eq!(urls[3], "https://youtube.com/@user/shorts");
+    }
+
+    #[test]
+    fn build_section_urls_trailing_slash() {
+        let urls = build_channel_section_urls("https://youtube.com/@user/");
+        assert_eq!(urls[0], "https://youtube.com/@user/videos");
+    }
+
+    // =========================================================
+    // D-2. is_private detection (inline logic test)
+    // =========================================================
+
+    #[test]
+    fn detect_private_video_is_private() {
+        let stderr = "ERROR: [youtube] abc: This video is private".to_string();
+        let stdout = String::new();
+        let combined = format!("{} {}", &stderr, &stdout).to_lowercase();
+        let is_private = combined.contains("video is private") || combined.contains("private video");
+        assert!(is_private);
+    }
+
+    #[test]
+    fn detect_private_video_private_video() {
+        let stderr = "ERROR: Private video".to_string();
+        let stdout = String::new();
+        let combined = format!("{} {}", &stderr, &stdout).to_lowercase();
+        let is_private = combined.contains("video is private") || combined.contains("private video");
+        assert!(is_private);
+    }
+
+    #[test]
+    fn detect_not_private_normal_error() {
+        let stderr = "ERROR: Network error occurred".to_string();
+        let stdout = String::new();
+        let combined = format!("{} {}", &stderr, &stdout).to_lowercase();
+        let is_private = combined.contains("video is private") || combined.contains("private video");
+        assert!(!is_private);
+    }
+
+    // =========================================================
+    // D-2b. is_deleted detection (inline logic test)
+    // =========================================================
+
+    #[test]
+    fn detect_deleted_video_has_been_removed() {
+        let stderr = "ERROR: [youtube] abc: This video has been removed by the uploader".to_string();
+        let stdout = String::new();
+        let combined = format!("{} {}", &stderr, &stdout).to_lowercase();
+        let is_deleted = combined.contains("has been removed") || combined.contains("account associated with this video has been terminated");
+        assert!(is_deleted);
+    }
+
+    #[test]
+    fn detect_deleted_video_account_terminated() {
+        let stderr = "ERROR: [youtube] abc: This video is no longer available because the YouTube account associated with this video has been terminated.".to_string();
+        let stdout = String::new();
+        let combined = format!("{} {}", &stderr, &stdout).to_lowercase();
+        let is_deleted = combined.contains("has been removed") || combined.contains("account associated with this video has been terminated");
+        assert!(is_deleted);
+    }
+
+    #[test]
+    fn detect_not_deleted_normal_error() {
+        let stderr = "ERROR: Network error occurred".to_string();
+        let stdout = String::new();
+        let combined = format!("{} {}", &stderr, &stdout).to_lowercase();
+        let is_deleted = combined.contains("has been removed") || combined.contains("account associated with this video has been terminated");
+        assert!(!is_deleted);
+    }
 }

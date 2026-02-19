@@ -22,6 +22,8 @@ type VideoItem = {
   favorite?: boolean;
   liveStatus?: string;
   isLive?: boolean;
+  isPrivate?: boolean;
+  isDeleted?: boolean;
   downloadStatus: DownloadStatus;
   commentsStatus: CommentStatus;
   addedAt: string;
@@ -78,11 +80,9 @@ const VideoCardItemComponent = ({
   const isCurrentlyLive = 
     video.isLive === true || 
     video.liveStatus?.toLowerCase() === "is_live" ||
-    video.liveStatus?.toLowerCase() === "upcoming" ||
     video.liveStatus?.toLowerCase() === "is_upcoming";
   
   const isUpcoming = 
-    video.liveStatus?.toLowerCase() === "upcoming" ||
     video.liveStatus?.toLowerCase() === "is_upcoming";
 
   return (
@@ -95,6 +95,8 @@ const VideoCardItemComponent = ({
       isQueued={isQueued}
       isCurrentlyLive={isCurrentlyLive}
       isUpcoming={isUpcoming}
+      isPrivate={!!video.isPrivate}
+      isDeleted={!!video.isDeleted}
       displayStatus={displayStatus}
       onPlay={() => onPlay(video)}
       onDownload={() => onDownload(video)}
@@ -138,6 +140,8 @@ function arePropsEqual(
     prev.video.publishedAt !== next.video.publishedAt ||
     prev.video.sourceUrl !== next.video.sourceUrl ||
     prev.video.favorite !== next.video.favorite ||
+    prev.video.isPrivate !== next.video.isPrivate ||
+    prev.video.isDeleted !== next.video.isDeleted ||
     prev.video.downloadStatus !== next.video.downloadStatus ||
     prev.video.commentsStatus !== next.video.commentsStatus ||
     prev.video.addedAt !== next.video.addedAt

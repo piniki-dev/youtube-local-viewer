@@ -960,3 +960,357 @@ pub fn delete_live_metadata_files(id: String, output_dir: String) -> Result<usiz
 
     Ok(deleted)
 }
+
+/// 再取得後に古いタイムスタンプ付きinfo.jsonを削除する。
+/// 同一IDで2つ以上のinfo.jsonが存在する場合のみ、最新以外を削除。
+/// 1つしかなければ（1分以内の再取得で同名ファイルが上書きされた場合）何もしない。
+pub(crate) fn cleanup_old_live_metadata_files(id: &str, output_dir: &str) -> usize {
+    let id_lower = id.to_lowercase();
+    let mut deleted = 0;
+
+    let dirs = vec![
+        library_metadata_dir(output_dir),
+        library_comments_dir(output_dir),
+    ];
+
+    for dir in &dirs {
+        if !dir.exists() {
+            continue;
+        }
+        // 同じIDのinfo.jsonをタイムスタンプ有無で分けて収集
+        let mut timestamped: Vec<std::path::PathBuf> = Vec::new();
+        let mut non_timestamped: Vec<std::path::PathBuf> = Vec::new();
+        for path in collect_files_recursive(dir) {
+            if !path.is_file() {
+                continue;
+            }
+            let name = match path.file_name().and_then(|n| n.to_str()) {
+                Some(name) => name.to_string(),
+                None => continue,
+            };
+            let name_lower = name.to_lowercase();
+            
+            if !name_lower.ends_with(".info.json") {
+                continue;
+            }
+            if !name_lower.contains(&id_lower) {
+                continue;
+            }
+            // タイムスタンプパターンチェック
+            let has_timestamp = name.contains(|c: char| c.is_ascii_digit())
+                && (name.contains("_") || name.contains("-"))
+                && name.matches(char::is_numeric).count() >= 8;
+            if has_timestamp {
+                timestamped.push(path);
+            } else {
+                non_timestamped.push(path);
+            }
+        }
+
+        // タイムスタンプなしファイルがある場合 → タイムスタンプ付きは全て古いので削除
+        if !non_timestamped.is_empty() {
+            for old_path in &timestamped {
+                if fs::remove_file(old_path).is_ok() {
+                    deleted += 1;
+                    #[cfg(debug_assertions)]
+                    if let Some(name) = old_path.file_name().and_then(|n| n.to_str()) {
+                        println!("[cleanup_old_live_metadata_files] deleted (has non-ts): {}", name);
+                    }
+                }
+            }
+        } else if timestamped.len() >= 2 {
+            // タイムスタンプ付きのみの場合、最新以外を削除
+            timestamped.sort_by(|a, b| {
+                let ma = a.metadata().and_then(|m| m.modified()).ok();
+                let mb = b.metadata().and_then(|m| m.modified()).ok();
+                mb.cmp(&ma) // 新しい順
+            });
+            for old_path in &timestamped[1..] {
+                if fs::remove_file(old_path).is_ok() {
+                    deleted += 1;
+                    #[cfg(debug_assertions)]
+                    if let Some(name) = old_path.file_name().and_then(|n| n.to_str()) {
+                        println!("[cleanup_old_live_metadata_files] deleted: {}", name);
+                    }
+                }
+            }
+        }
+    }
+
+    deleted
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    // =========================================================
+    // D-4a. extract_id_from_filename
+    // =========================================================
+
+    #[test]
+    fn extract_id_standard() {
+        assert_eq!(
+            extract_id_from_filename("Some Title [abc123].mp4"),
+            Some("abc123".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_id_multiple_brackets_uses_last() {
+        assert_eq!(
+            extract_id_from_filename("[old] Title [xyz789].webm"),
+            Some("xyz789".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_id_no_brackets() {
+        assert_eq!(extract_id_from_filename("no_brackets.mp4"), None);
+    }
+
+    #[test]
+    fn extract_id_empty_brackets() {
+        assert_eq!(extract_id_from_filename("Title [].mp4"), None);
+    }
+
+    #[test]
+    fn extract_id_spaces_trimmed() {
+        assert_eq!(
+            extract_id_from_filename("Title [ abc ].mp4"),
+            Some("abc".to_string())
+        );
+    }
+
+    // =========================================================
+    // D-4b. info_base_name
+    // =========================================================
+
+    #[test]
+    fn info_base_name_strips_info_suffix() {
+        let path = Path::new("Title [abc].info.json");
+        assert_eq!(info_base_name(path), Some("Title [abc]".to_string()));
+    }
+
+    #[test]
+    fn info_base_name_no_info_suffix() {
+        let path = Path::new("Title [abc].json");
+        assert_eq!(info_base_name(path), Some("Title [abc]".to_string()));
+    }
+
+    #[test]
+    fn info_base_name_just_stem() {
+        let path = Path::new("readme.txt");
+        assert_eq!(info_base_name(path), Some("readme".to_string()));
+    }
+
+    // =========================================================
+    // D-4c. is_live_chat_file
+    // =========================================================
+
+    #[test]
+    fn live_chat_file_true() {
+        let path = Path::new("Title [abc].live_chat.json");
+        assert!(is_live_chat_file(path));
+    }
+
+    #[test]
+    fn live_chat_file_case_insensitive() {
+        let path = Path::new("Title [abc].LIVE_CHAT.JSON");
+        assert!(is_live_chat_file(path));
+    }
+
+    #[test]
+    fn live_chat_file_false_info_json() {
+        let path = Path::new("Title [abc].info.json");
+        assert!(!is_live_chat_file(path));
+    }
+
+    #[test]
+    fn live_chat_file_false_regular() {
+        let path = Path::new("Title [abc].mp4");
+        assert!(!is_live_chat_file(path));
+    }
+
+    // =========================================================
+    // D-4d. find_info_json (with temp dir)
+    // =========================================================
+
+    #[test]
+    fn find_info_json_found() {
+        let dir = std::env::temp_dir().join("ylv_test_find_info");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let file_path = dir.join("Title [testid123].info.json");
+        fs::write(&file_path, r#"{"id":"testid123"}"#).unwrap();
+
+        let result = find_info_json(&dir, "testid123");
+        assert!(result.is_some());
+        assert_eq!(result.unwrap(), file_path);
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn find_info_json_not_found() {
+        let dir = std::env::temp_dir().join("ylv_test_find_info_miss");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("Other [other].info.json"),
+            r#"{"id":"other"}"#,
+        )
+        .unwrap();
+
+        let result = find_info_json(&dir, "nonexistent");
+        assert!(result.is_none());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn find_info_json_nonexistent_dir() {
+        let dir = Path::new("/this/path/does/not/exist");
+        assert!(find_info_json(dir, "any").is_none());
+    }
+
+    // =========================================================
+    // D-3. models serialization (inline)
+    // =========================================================
+
+    #[test]
+    fn download_finished_serialization() {
+        let df = crate::models::DownloadFinished {
+            id: "v1".to_string(),
+            success: false,
+            stdout: String::new(),
+            stderr: "error msg".to_string(),
+            cancelled: false,
+            is_private: true,
+            is_deleted: false,
+        };
+        let json = serde_json::to_value(&df).unwrap();
+        assert_eq!(json["id"], "v1");
+        assert_eq!(json["success"], false);
+        assert_eq!(json["isPrivate"], true);
+    }
+
+    #[test]
+    fn metadata_finished_serialization() {
+        let mf = crate::models::MetadataFinished {
+            id: "m1".to_string(),
+            success: true,
+            stdout: String::new(),
+            stderr: String::new(),
+            metadata: Some(crate::models::VideoMetadata {
+                id: Some("m1".to_string()),
+                title: Some("Test".to_string()),
+                channel: None,
+                thumbnail: None,
+                url: None,
+                webpage_url: None,
+                duration_sec: None,
+                upload_date: None,
+                release_timestamp: None,
+                timestamp: None,
+                live_status: None,
+                is_live: None,
+                was_live: None,
+                view_count: None,
+                like_count: None,
+                comment_count: None,
+                tags: None,
+                categories: None,
+                description: None,
+                channel_id: None,
+                uploader_id: None,
+                channel_url: None,
+                uploader_url: None,
+                availability: None,
+                language: None,
+                audio_language: None,
+                age_limit: None,
+            }),
+            has_live_chat: Some(false),
+            is_private: false,
+            is_deleted: false,
+        };
+        let json = serde_json::to_value(&mf).unwrap();
+        assert_eq!(json["id"], "m1");
+        assert_eq!(json["success"], true);
+        assert_eq!(json["isPrivate"], false);
+        assert!(json["metadata"].is_object());
+        assert_eq!(json["metadata"]["title"], "Test");
+    }
+
+    // =========================================================
+    // D-3 extended: VideoMetadata round-trip (parse → serialize)
+    // =========================================================
+
+    #[test]
+    fn video_metadata_round_trip() {
+        let value = serde_json::json!({
+            "id": "rt1",
+            "title": "Round Trip",
+            "channel": "TestCh",
+            "thumbnail": "https://i.ytimg.com/vi/rt1/default.jpg",
+            "url": "https://rr.googlevideo.com/rt1",
+            "webpage_url": "https://www.youtube.com/watch?v=rt1",
+            "duration": 300,
+            "upload_date": "20250101",
+            "release_timestamp": 1735689600,
+            "timestamp": 1735689000,
+            "live_status": "not_live",
+            "is_live": false,
+            "was_live": false,
+            "view_count": 5000,
+            "like_count": 200,
+            "comment_count": 30,
+            "tags": ["test", "round-trip"],
+            "categories": ["Education"],
+            "description": "Round trip test",
+            "channel_id": "UCrt1",
+            "uploader_id": "@rt1",
+            "channel_url": "https://youtube.com/@channel_rt1",
+            "uploader_url": "https://youtube.com/@rt1",
+            "availability": "public",
+            "language": "en",
+            "audio_language": "en",
+            "age_limit": 0
+        });
+        let meta = crate::metadata::parse_video_metadata_value(&value);
+        let serialized = serde_json::to_value(&meta).unwrap();
+        assert_eq!(serialized["id"], "rt1");
+        assert_eq!(serialized["title"], "Round Trip");
+        assert_eq!(serialized["channel"], "TestCh");
+        assert_eq!(serialized["durationSec"], 300);
+        assert_eq!(serialized["isLive"], false);
+        assert_eq!(serialized["wasLive"], false);
+        assert_eq!(serialized["availability"], "public");
+        assert_eq!(serialized["viewCount"], 5000);
+        assert_eq!(serialized["likeCount"], 200);
+        assert_eq!(serialized["commentCount"], 30);
+        assert_eq!(serialized["language"], "en");
+        assert_eq!(serialized["ageLimit"], 0);
+        assert!(serialized["tags"].is_array());
+        assert_eq!(serialized["tags"][0], "test");
+    }
+
+    #[test]
+    fn comments_finished_serialization() {
+        let cf = crate::models::CommentsFinished {
+            id: "c1".to_string(),
+            success: true,
+            stdout: String::new(),
+            stderr: String::new(),
+            metadata: None,
+            has_live_chat: Some(true),
+        };
+        let json = serde_json::to_value(&cf).unwrap();
+        assert_eq!(json["id"], "c1");
+        assert_eq!(json["success"], true);
+        assert_eq!(json["hasLiveChat"], true);
+        assert!(json["metadata"].is_null());
+    }
+}

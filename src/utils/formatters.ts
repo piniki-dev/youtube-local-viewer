@@ -4,7 +4,7 @@ type VideoDateLike = {
 };
 
 export const formatDuration = (value?: number | null) => {
-  if (!value || Number.isNaN(value)) return "";
+  if (value === undefined || value === null || Number.isNaN(value)) return "";
   const total = Math.floor(value);
   const hours = Math.floor(total / 3600);
   const minutes = Math.floor((total % 3600) / 60);

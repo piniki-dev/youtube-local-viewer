@@ -5879,7 +5879,7 @@ dependencies = [
 
 [[package]]
 name = "youtube-local-viewer"
-version = "1.0.12"
+version = "1.0.13"
 dependencies = [
  "futures-util",
  "reqwest 0.12.28",

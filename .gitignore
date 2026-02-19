@@ -13,7 +13,7 @@ dist-ssr
 *.local
 test-results/
 Downloads/
-RELEASE_TODO.md
+TODO.md
 .claude/
 
 # Local tool binaries

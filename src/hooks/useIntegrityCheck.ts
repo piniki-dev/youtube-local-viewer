@@ -74,13 +74,13 @@ export function useIntegrityCheck<TVideo extends VideoLike>({
   const [integrityMessage, setIntegrityMessage] = useState("");
 
   const hasMissingVideoError = useCallback(
-    (id: string) => videoErrors[id]?.includes("動画ファイルが見つかりません") ?? false,
+    (id: string) => videoErrors[id]?.includes(i18n.t('errors.videoFileMissing')) ?? false,
     [videoErrors]
   );
 
   const hasMissingCommentError = useCallback(
     (id: string) =>
-      commentErrors[id]?.includes("コメントファイルが見つかりません") ?? false,
+      commentErrors[id]?.includes(i18n.t('errors.commentsFileMissing')) ?? false,
     [commentErrors]
   );
 
@@ -193,8 +193,8 @@ export function useIntegrityCheck<TVideo extends VideoLike>({
         const next = { ...prev };
         for (const item of checks) {
           if (!item.videoOk) {
-            next[item.id] = "動画ファイルが見つかりません。再ダウンロードしてください。";
-          } else if (next[item.id]?.includes("動画ファイルが見つかりません")) {
+            next[item.id] = i18n.t('errors.videoFileMissing');
+          } else if (next[item.id]?.includes(i18n.t('errors.videoFileMissing'))) {
             delete next[item.id];
           }
         }
@@ -205,8 +205,8 @@ export function useIntegrityCheck<TVideo extends VideoLike>({
         const next = { ...prev };
         for (const item of checks) {
           if (!item.commentsOk) {
-            next[item.id] = "コメントファイルが見つかりません。再取得してください。";
-          } else if (next[item.id]?.includes("コメントファイルが見つかりません")) {
+            next[item.id] = i18n.t('errors.commentsFileMissing');
+          } else if (next[item.id]?.includes(i18n.t('errors.commentsFileMissing'))) {
             delete next[item.id];
           }
         }
@@ -263,7 +263,7 @@ export function useIntegrityCheck<TVideo extends VideoLike>({
         setIntegrityIssues([]);
         setIntegritySummary(null);
         setIntegrityMessage(
-          "保存先フォルダが未設定です。設定から選択してください。"
+          i18n.t('errors.integrityDirNotSet')
         );
         if (openModal) setIsIntegrityOpen(true);
         return;

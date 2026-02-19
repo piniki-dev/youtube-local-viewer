@@ -450,6 +450,93 @@ pub fn check_tooling(
     })
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // =========================================================
+    // resolve_override
+    // =========================================================
+
+    #[test]
+    fn resolve_override_some_path() {
+        assert_eq!(
+            resolve_override(Some("/usr/bin/yt-dlp".to_string())),
+            Some("/usr/bin/yt-dlp".to_string())
+        );
+    }
+
+    #[test]
+    fn resolve_override_none() {
+        assert_eq!(resolve_override(None), None);
+    }
+
+    #[test]
+    fn resolve_override_empty_string() {
+        assert_eq!(resolve_override(Some("".to_string())), None);
+    }
+
+    #[test]
+    fn resolve_override_whitespace_only() {
+        assert_eq!(resolve_override(Some("   ".to_string())), None);
+    }
+
+    #[test]
+    fn resolve_override_trimmed() {
+        assert_eq!(
+            resolve_override(Some("  /path/bin  ".to_string())),
+            Some("/path/bin".to_string())
+        );
+    }
+
+    // =========================================================
+    // apply_cookies_args
+    // =========================================================
+
+    #[test]
+    fn apply_cookies_browser_mode() {
+        let mut cmd = Command::new("echo");
+        apply_cookies_args(&mut cmd, Some("browser"), None, Some("chrome"));
+        let args: Vec<_> = cmd.get_args().collect();
+        assert!(args.contains(&&std::ffi::OsStr::new("--cookies-from-browser")));
+        assert!(args.contains(&&std::ffi::OsStr::new("chrome")));
+    }
+
+    #[test]
+    fn apply_cookies_file_mode() {
+        let mut cmd = Command::new("echo");
+        apply_cookies_args(&mut cmd, Some("file"), Some("/cookies.txt"), None);
+        let args: Vec<_> = cmd.get_args().collect();
+        assert!(args.contains(&&std::ffi::OsStr::new("--cookies")));
+        assert!(args.contains(&&std::ffi::OsStr::new("/cookies.txt")));
+    }
+
+    #[test]
+    fn apply_cookies_implicit_file() {
+        let mut cmd = Command::new("echo");
+        apply_cookies_args(&mut cmd, Some(""), Some("/cookies.txt"), None);
+        let args: Vec<_> = cmd.get_args().collect();
+        assert!(args.contains(&&std::ffi::OsStr::new("--cookies")));
+    }
+
+    #[test]
+    fn apply_cookies_no_source_no_file() {
+        let mut cmd = Command::new("echo");
+        apply_cookies_args(&mut cmd, None, None, None);
+        let args: Vec<_> = cmd.get_args().collect();
+        assert!(args.is_empty());
+    }
+
+    #[test]
+    fn apply_cookies_browser_empty_name() {
+        let mut cmd = Command::new("echo");
+        apply_cookies_args(&mut cmd, Some("browser"), Some("/file.txt"), Some(""));
+        let args: Vec<_> = cmd.get_args().collect();
+        // Should NOT add --cookies-from-browser because browser name is empty
+        assert!(!args.contains(&&std::ffi::OsStr::new("--cookies-from-browser")));
+    }
+}
+
 #[tauri::command]
 pub fn update_yt_dlp(app: AppHandle) -> Result<(), String> {
     let app_handle = app.clone();

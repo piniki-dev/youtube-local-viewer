@@ -50,6 +50,30 @@ type UsePlayerStateParams = {
   downloadDirRef?: React.RefObject<string>;
 };
 
+/**
+ * ソート済みコメントリストから、指定時刻以下の最後のインデックスを二分探索で返す。
+ * 見つからなければ -1。
+ */
+export function findLastCommentIndexFn(
+  list: { offsetMs?: number }[],
+  timeMs: number,
+): number {
+  let lo = 0;
+  let hi = list.length - 1;
+  let ans = -1;
+  while (lo <= hi) {
+    const mid = Math.floor((lo + hi) / 2);
+    const value = list[mid].offsetMs ?? 0;
+    if (value <= timeMs) {
+      ans = mid;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  return ans;
+}
+
 export function usePlayerState({
   isPlayerWindow,
   downloadDir,
@@ -72,6 +96,7 @@ export function usePlayerState({
   const [playerCanPlay, setPlayerCanPlay] = useState(false);
   const [playerTimeMs, setPlayerTimeMs] = useState(0);
   const [isChatAutoScroll, setIsChatAutoScroll] = useState(true);
+  const [playerHasChat, setPlayerHasChat] = useState(false);
   const [mediaInfoById, setMediaInfoById] = useState<
     Record<string, MediaInfo | null>
   >({});
@@ -125,6 +150,7 @@ export function usePlayerState({
       setPlayerCommentsLoading(true);
       setPlayerCommentsError("");
       setPlayerComments([]);
+      setPlayerHasChat(video.commentsStatus === "downloaded");
       if (video.commentsStatus !== "downloaded") {
         setPlayerCommentsLoading(false);
         setPlayerCommentsError("ライブチャット未取得のため同期表示できません。");
@@ -279,6 +305,7 @@ export function usePlayerState({
     setPlayerCommentsError("");
     setPlayerCommentsLoading(false);
     setIsInitialCommentsReady(true);
+    setPlayerHasChat(false);
     setPlayerCanPlay(false);
     setPlayerTimeMs(0);
     setIsChatAutoScroll(true);
@@ -372,22 +399,7 @@ export function usePlayerState({
       .sort((a, b) => (a.offsetMs ?? 0) - (b.offsetMs ?? 0));
   }, [playerComments]);
 
-  const findLastCommentIndex = (list: CommentItem[], timeMs: number) => {
-    let lo = 0;
-    let hi = list.length - 1;
-    let ans = -1;
-    while (lo <= hi) {
-      const mid = Math.floor((lo + hi) / 2);
-      const value = list[mid].offsetMs ?? 0;
-      if (value <= timeMs) {
-        ans = mid;
-        lo = mid + 1;
-      } else {
-        hi = mid - 1;
-      }
-    }
-    return ans;
-  };
+  const findLastCommentIndex = findLastCommentIndexFn;
 
   const playerVisibleComments = useMemo(() => {
     if (sortedPlayerComments.length === 0) return [];
@@ -443,6 +455,7 @@ export function usePlayerState({
     setPlayerCanPlay,
     isChatAutoScroll,
     setIsChatAutoScroll,
+    playerHasChat,
     playerVideoRef,
     playerChatEndRef,
     mediaInfoById,

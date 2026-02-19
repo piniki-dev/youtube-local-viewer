@@ -42,12 +42,15 @@ pub struct PendingPlayerOpenState {
 }
 
 #[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DownloadFinished {
     pub id: String,
     pub success: bool,
     pub stdout: String,
     pub stderr: String,
     pub cancelled: bool,
+    pub is_private: bool,
+    pub is_deleted: bool,
 }
 
 #[derive(Clone, Serialize)]
@@ -70,6 +73,8 @@ pub struct MetadataFinished {
     pub stderr: String,
     pub metadata: Option<VideoMetadata>,
     pub has_live_chat: Option<bool>,
+    pub is_private: bool,
+    pub is_deleted: bool,
 }
 
 #[derive(Clone, Serialize)]

@@ -10,6 +10,8 @@ type VideoLike = {
   metadataFetched?: boolean;
   isLive?: boolean;
   liveStatus?: string;
+  isPrivate?: boolean;
+  isDeleted?: boolean;
 };
 
 type UseDownloadActionsParams<TVideo extends VideoLike> = {
@@ -200,22 +202,24 @@ export function useDownloadActions<TVideo extends VideoLike>({
         });
         scheduleBackgroundMetadataFetch([{ id: video.id, sourceUrl: video.sourceUrl }]);
         
-        // メタデータ取得完了を待機（最大15秒）
+        // メタデータ取得完了をイベント駆動で待機（最大15秒）
         const maxWaitMs = 15000;
-        const checkIntervalMs = 200;
-        const startTime = Date.now();
+        const updatedVideo = await new Promise<TVideo | null>((resolve) => {
+          const checkInterval = window.setInterval(() => {
+            const current = videosRef.current.find(v => v.id === video.id);
+            if (current?.metadataFetched) {
+              window.clearInterval(checkInterval);
+              window.clearTimeout(timeoutId);
+              resolve(current);
+            }
+          }, 500);
+          const timeoutId = window.setTimeout(() => {
+            window.clearInterval(checkInterval);
+            resolve(null);
+          }, maxWaitMs);
+        });
         
-        while (Date.now() - startTime < maxWaitMs) {
-          await new Promise(resolve => setTimeout(resolve, checkIntervalMs));
-          const currentVideo = videosRef.current.find(v => v.id === video.id);
-          if (currentVideo?.metadataFetched) {
-            video = currentVideo;
-            break;
-          }
-        }
-        
-        // タイムアウトチェック
-        if (!video.metadataFetched) {
+        if (!updatedVideo) {
           addFloatingNotice({
             kind: "error",
             title: i18n.t('errors.metadataTimeout'),
@@ -223,6 +227,7 @@ export function useDownloadActions<TVideo extends VideoLike>({
           });
           return;
         }
+        video = updatedVideo;
       }
       
       // ライブ配信・配信予定チェック
@@ -231,6 +236,26 @@ export function useDownloadActions<TVideo extends VideoLike>({
           kind: "error",
           title: i18n.t('errors.liveStreamCannotDownload'),
           details: i18n.t('errors.liveStreamCannotDownloadDetails'),
+          autoDismissMs: 8000,
+        });
+        return;
+      }
+
+      // 非公開動画チェック
+      if (video.isPrivate) {
+        addFloatingNotice({
+          kind: "error",
+          title: i18n.t('errors.privateVideoDownloadFailed'),
+          autoDismissMs: 8000,
+        });
+        return;
+      }
+
+      // 削除済み動画チェック
+      if (video.isDeleted) {
+        addFloatingNotice({
+          kind: "error",
+          title: i18n.t('errors.deletedVideoDownloadFailed'),
           autoDismissMs: 8000,
         });
         return;

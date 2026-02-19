@@ -38,6 +38,7 @@ type PlayerContentProps = {
   debug: string;
   filePath: string | null;
   onRevealInFolder: () => void;
+  hasChat: boolean;
   sortedComments: CommentItem[];
   isChatAutoScroll: boolean;
   onToggleChatAutoScroll: () => void;
@@ -63,6 +64,7 @@ export function PlayerContent({
   debug,
   filePath,
   onRevealInFolder,
+  hasChat,
   sortedComments,
   isChatAutoScroll,
   onToggleChatAutoScroll,
@@ -111,7 +113,7 @@ export function PlayerContent({
         onRevealInFolder={onRevealInFolder}
         hasFilePath={!!filePath}
       />
-      <div className="player-layout">
+      <div className={`player-layout${hasChat ? '' : ' no-chat'}`}>
         <div className="player-media">
           <div className="player-video-frame">
             {src && !error ? (
@@ -141,6 +143,7 @@ export function PlayerContent({
             )}
           </div>
         </div>
+        {hasChat && (
         <aside className="player-chat">
           <div className="player-chat-header">
             <div className="player-chat-title">
@@ -203,6 +206,7 @@ export function PlayerContent({
             <div ref={chatEndRef} />
           </div>
         </aside>
+        )}
       </div>
     </>
   );
